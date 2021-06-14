@@ -1,0 +1,3612 @@
+---
+title: 'Goodness Of Fit'
+author: "Alessia Buratin"
+date: 'Compiled: `r format(Sys.Date(), "%d %B, %Y")`'
+output:
+  html_document:
+    toc: true
+    number_sections: true
+    toc_depth: 3
+    toc_float: 
+      collapsed: true
+      smooth_scroll: true
+    theme: united
+  pdf_document:
+    toc: true
+    highlight: zenburn
+editor_options: 
+  chunk_output_type: console
+runtime: static
+bibliography: Libreria_personale.bib
+link-citations: yes
+biblio-style: apsr
+---
+
+
+# Data loading
+
+Data from Buratin et al. (2020)
+
+```{r setupLibrary, include = FALSE}
+library(reshape2)
+library(ggplot2)
+library(cowplot)
+library(edgeR)
+library(dplyr)
+library(ggrepel)
+library(SummarizedExperiment)
+library(pscl)
+library(AER)
+library(ggplot2)
+library(kableExtra)
+library(affy)
+library(data.table)
+library(purrr)
+library(zinbwave)
+library(DESeq2)
+library(plotly)
+library(Hmisc)
+library(ggplot2)
+library(reshape)
+library(scales)
+library(ggplot2)
+library(plotly)
+library(dplyr)
+library(grid)
+library(captioner)
+library(RColorBrewer)
+```
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+	collapse = TRUE,
+	comment = "#>",
+	echo = FALSE
+)
+#source("additional_functions.R")
+tbls <- captioner(prefix="Table")
+figs <- captioner(prefix="Figure")
+
+```
+
+## T-ALL and thymocytes Data (Buratin et al.)
+
+Keep circRNAs with more than 2 counts in more than 2 samples.
+A dataset is composed by samples from 9 normal and 25 tumor samples.
+
+```{r include=FALSE}
+## function to get count matrix for each detection methods
+get.method.count.matrix <- function(method, x){
+  as.matrix(dcast(data = x[V2 == method],
+                  formula = circRNA_ID ~ sampleID,
+                  value.var = "V6", fill = 0,
+                  fun.aggregate = sum),
+            rownames = "circRNA_ID")
+}
+
+# detection methods to be compared
+methods <- c("findcirc", "dcc", "ciri", "circexplorer2_star", "circexplorer2_bwa", "circexplorer2_tophat")
+
+methods.ccp <- c(methods, "ccp2")
+## import data
+if(!file.exists("/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/data/TALLData_list.RData")){
+  
+  count.data.file <- "/blackhole/circrna/analyses/VanVlierberghe/merge_T/circrnas.gtf.list.txt"
+  colClasses <- c("factor", "factor", "character", "integer", "integer", 
+                "integer", "factor", "character", "character")
+  V9pattern <- '.*gene_id "([^"]*)".*transcript_id "([^"]*)".*'
+  V9newCols <- c("gene_id", "transcript_id")
+  ## load circRNA data
+  gtf.file.list <- readLines(count.data.file)
+  circrnas.gtf <- unique(rbindlist(lapply(gtf.file.list, fread, data.table = T, 
+                                          colClasses = colClasses))) 
+  count.data <- circrnas.gtf[, `:=`(circRNA_ID = paste0(V1, ":", V4, "-", V5),
+                                    sampleID = gsub("-", "_", sub('.*sample_id "([^"]+)".*', "\\1",
+                                                                                V9)))]
+  
+  get.method.count.matrix <- function(method, x){
+    as.matrix(dcast(data = x[V2 == method],
+                    formula = circRNA_ID ~ sampleID,
+                    value.var = "V6", fill = 0,
+                    fun.aggregate = sum),
+              rownames = "circRNA_ID")
+  }
+
+  # list of count matrices foreach methdos
+  TALLData_list <- list()
+  for(i in 1:length(methods)){
+    cat("method:",methods[i],"\n")
+    # Keep bodysite
+    m = dcast(data = count.data[V2 == methods[i]],
+                  formula = circRNA_ID ~ sampleID,
+                  value.var = "V6", 
+                  fill = 0, fun.aggregate = sum)
+    ps <- as.matrix(m[,-1])
+    rownames(ps) <- m$circRNA_ID
+    # Keep one sample for each Random Subject IDentifier
+    ps <- ps[rowSums(ps>=2)>=2,]
+    TALLData_list[[i]] <- ps
+    names(TALLData_list)[i] <- methods[i]
+  }
+  
+  count.data.file <- "/blackhole/circrna/analyses/VanVlierberghe/merge_T/circRNA_expression_per_sample.csv"
+  count.data <- fread(count.data.file)
+  ps.ccp2 <- as.matrix(count.data[,c(1,7:ncol(count.data)),with=FALSE],
+                       rownames = "circ_id")
+  # Keep one sample for each Random Subject IDentifier
+  ps.ccp2 <- ps.ccp2[rowSums(ps.ccp2>=2)>=2,]
+  colnames(ps.ccp2) <- gsub("-", "_", colnames(ps.ccp2))
+  TALLData_list[["ccp2"]] <- ceiling(ps.ccp2)
+  save(TALLData_list, file = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/data/TALLData_list.RData")
+} else load("/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/data/TALLData_list.RData")
+
+```
+
+```{r, include=FALSE}
+fix.name <- function(x){
+  gsub(pattern = " ", replacement = "", 
+       sub("^([0-9].*)", "X\\1",
+           sub("C$", "",
+                gsub("^X", "",
+                    gsub(pattern = "-|/", replacement = "_", 
+                        gsub("\\+", "p", x))))))
+}
+
+```
+
+
+```{r TALL_meta, echo=FALSE, include=FALSE}
+library(stringr)
+basedir.tall <- "/blackhole/circrna/analyses/VanVlierberghe/TALL/"
+meta_file_tall <- file.path(basedir.tall, "analyses/meta_tall.csv")
+# create meta file with sample.ID, condition, from meta_tall.csv
+if(meta_file_tall != ""){
+  meta_tall <- unique(fread(meta_file_tall)[, .(sample_id = paste0(gsub("_", "-", Donor), "C"), 
+                                                condition = Condition,
+                                                tissue = Tissue,
+                                                Age = gsub(",", ".", Age),
+                                                Sex,
+                                                RNAQuality)])
+  meta_tall$condition <- gsub("  ", " ", meta_tall$condition)
+  # meta_tall$condition <- factor(meta_tall$condition, levels = tall.subsamples, ordered = T)
+  # intgroup.dt.tall <- get.color.hues(meta_tall)
+}
+meta_tall[, `:=` (sample_id2 = str_sub(sample_id, 12,13))]
+meta_tall[, `:=` (sample_id3 = paste(fix.name(condition), sample_id2, sep="_"))]
+# meta_tall$sample_id <- meta_tall$sample_id %>% str_replace_all("X", "")
+# intgroup.dt$sample_id <- intgroup.dt$sample_id %>% str_replace_all("X", "")
+
+```
+
+
+```{r Norm_meta, echo=FALSE, include=FALSE}
+basedir.N <- "/blackhole/circrna/analyses/VanVlierberghe/T_norm/analysis_2019/"
+meta_file.N <- file.path(basedir.N, "meta.csv")
+# create meta file with sample.ID, condition, Donor, tissue from meta.csv
+if(meta_file.N != ""){
+    meta.N <- unique(fread(meta_file.N)[, .(sample_id = sample,
+                                            condition, Donor, tissue)])
+    meta.N$condition <- sub("Cord Blood", "CB", meta.N$condition)
+    meta.N$condition <- gsub("  ", " ", meta.N$condition)
+    meta.N <- meta.N[meta.N$condition%in%c("DP 4+ 8+ 3+", "DP 4+ 8+ 3-", 
+                                           "CD34+ 4- 1+", "CD34+ 4- 1-", "CD34+ 4+")]
+                                           # "g/d 3+ 1+", "g/d 3+ 1-")]
+    # intgroup.dt.N <- get.color.hues.N(meta.N)
+}
+
+```
+
+
+```{r, echo=FALSE, include=FALSE}
+# create meta file with sample.ID, condition, from meta_tall.csv
+meta_file <- "/blackhole/circrna/analyses/VanVlierberghe/merge_T/sample_conditions.csv"
+
+if(meta_file != ""){
+  meta <- unique(fread(meta_file)[, .(sample_id = sample_id,
+                                      condition = fix.name(condition))])
+  # meta$condition <- sub("Cord Blood", "CB", meta$condition)
+  meta$condition <- gsub("  ", " ", meta$condition)
+  meta <- meta[meta$sample_id%in%c(meta.N$sample_id, meta_tall$sample_id),]
+  # intgroup.dt <- get.color.hues(meta)
+}
+
+
+# intgroup.dt$condition.plot <- meta_T$condition.plot[match(intgroup.dt$condition, meta_T$condition)]
+meta <- merge(meta, meta_tall, by="sample_id", all.x=T)
+meta <- merge(meta, meta.N, by="sample_id", all.x=T)
+meta <- meta[order(meta$condition.y, decreasing = T),]
+meta$condition <- c(meta$condition.y[1:nrow(meta_tall)], meta$condition[(nrow(meta_tall)+1):nrow(meta)])
+meta$sample_id3 <-  c(meta$sample_id3[1:nrow(meta_tall)], meta$sample_id[(nrow(meta_tall)+1):nrow(meta)])
+meta$sample_id <- gsub("-","_",meta$sample_id)
+meta <- meta %>% dplyr::select(sample_id, sample_id3, condition.x, condition) %>% dplyr::rename(condition.f=condition.x) 
+meta$groups <- c(rep("T-ALL", 25), rep("Thymocyte", nrow(meta.N)))
+meta$group.f <- sub("-", "_", meta$group)
+colData <- data.frame(meta, 
+                      row.names = "sample_id")
+
+colData$groups2.f <- "T_ALL"
+colData$groups2.f[which(colData$condition.f%in%c("CD34p4p","CD34p4_1p","CD34p4_1_"))] <- "CD34"
+colData$groups2.f[which(colData$condition.f%in%c("DP4p8p3_","DP4p8p3p"))] <- "DP"
+
+colData$group2 <- colData$groups2.f
+colData$group2[which(colData$groups2.f%in%c("CD34"))] <- "CD34+"
+colData$group2[which(colData$groups2.f%in%c("T_ALL"))] <- "T-ALL"
+
+
+colData$condition.f <- factor(colData$condition.f)
+colData$condition <- factor(colData$condition)
+colData$groups2.f <- factor(colData$groups2.f)
+colData$group.f <- factor(colData$group.f)
+colData$group2 <- factor(colData$group2)
+
+# write.csv(meta, "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/robustness_glmm/TALL/meta.csv")
+```
+
+
+
+```{r}
+
+## plot of %0s vs %circular RNAs for each methdos using different filters in the expression in at least one sample
+makefiltexprplot <- function(matrix, filter = c(10), method = NULL, meta, zero.filt=TRUE){
+  
+  # matrix : methods.count.matrices for one method
+  # gather the matrix (J*n) --> ((J*n)*3) # gather(matrix, key = samples, value = count)
+  # longdata <- melt(matrix)
+  # colnames(longdata) <- c("circID", "Sample", "count")
+  
+  # matrix <- TALLData_list$findcirc
+  # n <- 1
+  
+  # filter <- filter*ncol(matrix)/100
+  plotdata <- list()
+  matfilt <- list()
+    
+  for (n in 1:length(filter)){
+# n=2
+    if(zero.filt){
+      mat.zero <- matrix[apply(matrix, 1, FUN = function(x){sum(x == 0)}) <= round(ncol(matrix)*0.9), ]
+    } else {mat.zero = matrix}
+    
+    keep <- raster::rowSums(x = mat.zero) >= filter[n]
+    mat.filt <- as.matrix(mat.zero[keep,meta$sample_id])
+
+    n.circ <- nrow(matrix)
+    n.circ_filter <- nrow(mat.filt)
+    p.circ_filter <- nrow(mat.filt)/nrow(matrix)
+    zero_filter <- sum(mat.filt==0)/length(mat.filt)
+    plotdata[[n]] <- data.frame(zero_filter,
+                                n.circ_filter,
+                                p.circ_filter,
+                                n.circ,
+                                filter[n],
+                                method)
+    matfilt[[n]] <- mat.filt
+  }
+  
+  plotdata_nofilter <- data.frame(sum(as.matrix(matrix)==0)/length(as.matrix(matrix)),
+                                 nrow(as.matrix(matrix)),
+                                 nrow(as.matrix(matrix))/nrow(as.matrix(matrix)),
+                                 nrow(as.matrix(matrix)),
+                                 "None",
+                                 method)
+  
+  data <- do.call(rbind, plotdata)
+  names(data) <- c("perc.zeros", "n.circular", "perc.circular", "n.circ", "perc.sample_filter", "method")
+  names(plotdata_nofilter) <- names(data)
+  data <- rbind(plotdata_nofilter, data)
+  return(list(data, matfilt))
+}
+
+makeplot.TALL <- lapply(methods.ccp, FUN = function(d) {
+  print(d)
+  makefiltexprplot(
+  matrix = as.data.frame(TALLData_list[[d]]),
+  method = d,
+  meta = meta, filter = c(0,5,10), zero.filt = TRUE)
+})
+makeplotTALL.r <- lapply(seq(1:7), function(x) rbind(makeplot.TALL[[x]][[1]]))
+
+makeplotTALL.r <- do.call(rbind, makeplotTALL.r)
+makeplotTALL.rplot = makeplotTALL.r %>% dplyr::group_by(method) %>% 
+  summarise(Label1=paste0("Method:", unique(method)),
+            Label2=paste0("#CircRNAs: ", unique(as.factor(n.circ))))
+
+makeplotTALL.r$perc.sample_filter <- factor(makeplotTALL.r$perc.sample_filter, labels = c("None", "0", "20"))
+
+# head(makeplot)
+
+dat_text.TALL <- data.frame(
+  label = unique(makeplotTALL.rplot$Label2),
+  method   = unique(makeplotTALL.r$method)
+)
+
+```
+
+
+```{r, echo=FALSE,message=FALSE,warning=FALSE}
+source("/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/GOF/add_functions.R")
+
+# TALLmat.filt.1 <- lapply(seq(1:7), function(x) rbind(makeplot.TALL[[x]][[2]][[1]]))
+# names(TALLmat.filt.1) <- methods
+TALLmat.filt.2 <- lapply(seq(1:7), function(x) rbind(makeplot.TALL[[x]][[2]][[2]]))
+names(TALLmat.filt.2) <- methods.ccp
+# TALLmat.filt.3 <- lapply(seq(1:7), function(x) rbind(makeplot.TALL[[x]][[2]][[3]]))
+# names(TALLmat.filt.3) <- methods
+
+# TData_models_0f <- lapply(TALLData_list,function(ps) fit_models(ps = ps[,meta$sample_id], design = model.matrix( ~ 1, data = colData)))
+# TData_models_1f <- lapply(TALLmat.filt.1,function(ps) fit_models(ps = ps[,meta$sample_id], design = model.matrix( ~ 1, data = colData)))
+# TData_models_2f <- lapply(TALLmat.filt.2,function(ps) fit_models(ps = ps[,meta$sample_id], design = model.matrix( ~ 1, data = colData)))
+# TData_models_3f <- lapply(TALLmat.filt.3,function(ps) fit_models(ps = ps[,meta$sample_id], design = model.matrix( ~ 1, data = colData)))
+
+
+# TData_df0 <- model_to_data.frame(TData_models_0f)
+# df_list0 = sapply(methods, function(x) list.match(TData_models_0f[[x]], "AIC"))
+# df0 = ldply(df_list0)
+# write.csv(df0, file = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/data/TALL/AIC_df0.csv")
+# write.csv(TData_df0, file = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/data/TALL/TData_df0.csv")
+TData_df0 = read.csv(file = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/data/TALL/TData_df0.csv")
+TALLdf0 = read.csv(file = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/data/TALL/AIC_df0.csv")
+
+# TData_df1 <- model_to_data.frame(TData_models_1f)
+# df_list1 = sapply(methods, function(x) list.match(TData_models_1f[[x]], "AIC"))
+# df1 = ldply(df_list1)
+# write.csv(df1, file = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/data/TALL/AIC_df1.csv")
+# write.csv(TData_df1, file = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/data/TALL/TData_df1.csv")
+# TData_df1 = read.csv(file = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/data/TALL/TData_df1.csv")
+# TALLdf1 = read.csv(file = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/data/TALL/AIC_df1.csv")
+
+# TData_df2 <- model_to_data.frame(TData_models_2f)
+# df_list2 = sapply(methods, function(x) list.match(TData_models_2f[[x]], "AIC"))
+# df2 = ldply(df_list2)
+# write.csv(df2, file = "/blackhole/alessia/circzi/checkCircRNAnormaliz ationdistribution/data/TALL/AIC_df2.csv")
+# write.csv(TData_df2, file = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/data/TALL/TData_df2.csv")
+# TData_df2 = read.csv(file = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/data/TALL/TData_df2.csv")
+# TALLdf2 = read.csv(file = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/data/TALL/AIC_df2.csv")
+
+# TData_df3 <- model_to_data.frame(TData_models_3f)
+# df_list3 = sapply(methods, function(x) list.match(TData_models_3f[[x]], "AIC"))
+# df3 = ldply(df_list3)
+# write.csv(df3, file = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/data/TALL/AIC_df3.csv")
+# write.csv(TData_df3, file = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/data/TALL/TData_df3.csv")
+TData_df3 = read.csv(file = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/data/TALL/TData_df3.csv")
+TALLdf3 = read.csv(file = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/data/TALL/AIC_df3.csv")
+```
+
+## DM1 (Christine Voellenkle et al. 2019)
+
+Keep circRNAs with more than 2 counts in more than 2 samples.
+A dataset is composed by samples from 5 normal and 25 DM1 samples.
+
+```{r include=FALSE}
+## function to get count matrix for each detection methods
+get.method.count.matrix <- function(method, x){
+  as.matrix(dcast(data = x[V2 == method],
+                  formula = circRNA_ID ~ sampleID,
+                  value.var = "V6", fill = 0,
+                  fun.aggregate = sum),
+            rownames = "circRNA_ID")
+}
+
+## import data
+if(!file.exists("/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/data/DM1Data_list.RData")){
+  
+  colClasses <- c("factor", "factor", "character", "integer", "integer", 
+                "integer", "factor", "character", "character")
+  V9pattern <- '.*gene_id "([^"]*)".*transcript_id "([^"]*)".*'
+  V9newCols <- c("gene_id", "transcript_id")
+  ## load circRNA data
+  circrnas.gtf <- fread("/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/realdata/DM1/analyses/circular_expression/circRNA_collection/circrnas.gtf", colClasses = colClasses)
+    # unique(rbindlist(lapply(gtf.file.list, fread, data.table = T, 
+    #                                       colClasses = colClasses))) 
+  count.data <- circrnas.gtf[, `:=`(circRNA_ID = paste0(V1, ":", V4, "-", V5),
+                                    sampleID = gsub("-", "_", sub('.*sample_id "([^"]+)".*', "\\1",
+                                                                                V9)))]
+  
+  get.method.count.matrix <- function(method, x){
+    as.matrix(dcast(data = x[V2 == method],
+                    formula = circRNA_ID ~ sampleID,
+                    value.var = "V6", fill = 0,
+                    fun.aggregate = sum),
+              rownames = "circRNA_ID")
+  }
+
+  # list of count matrices foreach methdos
+  DM1Data_list <- list()
+  for(i in 1:(length(methods))){
+    cat("method:",methods[i],"\n")
+    # Keep bodysite
+    m = dcast(data = count.data[V2 == methods[i]],
+                  formula = circRNA_ID ~ sampleID,
+                  value.var = "V6", 
+                  fill = 0, fun.aggregate = sum)
+    ps <- as.matrix(m[,-1])
+    rownames(ps) <- m$circRNA_ID
+    # Keep one sample for each Random Subject IDentifier
+    ps <- ps[rowSums(ps>=2)>=1,]
+    DM1Data_list[[i]] <- ps
+    names(DM1Data_list)[i] <- methods[i]
+  }
+  
+  count.data.file <- "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/realdata/DM1/analyses/circular_expression/circRNA_collection/ccp_counts/bks.counts.union.intersected.csv"
+  count.data <- fread(count.data.file)
+  count.data$circ_id = paste0(count.data$chr, ":", count.data$start+1, "-", count.data$end)
+  ps.ccp2 <- as.matrix(dcast(data = count.data, formula = circ_id~sample_id, fill = 0,value.var = "read.count"),
+                       rownames = "circ_id")
+  # Keep one sample for each Random Subject IDentifier
+  ps.ccp2 <- ps.ccp2[rowSums(ps.ccp2>=2)>=1,]
+  colnames(ps.ccp2) <- gsub("-", "_", colnames(ps.ccp2))
+  DM1Data_list[["ccp2"]] <- ceiling(ps.ccp2)
+  save(DM1Data_list, file = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/data/DM1Data_list.RData")
+} else load("/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/data/DM1Data_list.RData")
+
+```
+
+```{r, include=FALSE}
+fix.name <- function(x){
+  gsub(pattern = " ", replacement = "", 
+       sub("^([0-9].*)", "X\\1",
+           sub("C$", "",
+                gsub("^X", "",
+                    gsub(pattern = "-|/", replacement = "_", 
+                        gsub("\\+", "p", x))))))
+}
+
+```
+
+
+```{r DM1_meta, echo=FALSE, include=FALSE}
+library(stringr)
+basedir.dm1 <- "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/realdata/DM1"
+meta_file_dm1 <- file.path(basedir.dm1, "analyses/meta_DM1.csv")
+# create meta file with sample.ID, condition, from meta_tall.csv
+if(meta_file_dm1 != ""){
+ meta_dm1 <- unique(fread(meta_file_dm1))[, .(sample_id = sample,
+               condition = ifelse(disease_class=="myotonic dystrophy type 1", "DM1","Normal"))]
+}
+meta_dm1 = meta_dm1[order(meta_dm1$sample_id),][seq(1,nrow(meta_dm1), by = 2),]     # for odd rows
+
+```
+
+```{r}
+
+makeplot.DM1 <- lapply(methods.ccp, FUN = function(d) {
+  print(d)
+  makefiltexprplot(
+  matrix = as.data.frame(DM1Data_list[[d]]),
+  method = d,
+  meta = meta_dm1, filter = c(0,5,10))
+})
+makeplotDM1.r <- lapply(seq(1:7), function(x) rbind(makeplot.DM1[[x]][[1]]))
+
+makeplotDM1.r <- do.call(rbind, makeplotDM1.r)
+makeplotDM1.rplot = makeplotDM1.r %>% dplyr::group_by(method) %>% 
+  summarise(Label1=paste0("Method:", unique(method)),
+            Label2=paste0("#CircRNAs: ", unique(as.factor(n.circ))))
+
+makeplotDM1.r$perc.sample_filter <- factor(makeplotDM1.r$perc.sample_filter)
+
+# head(makeplot)
+
+dat_text.DM1 <- data.frame(
+  label = unique(makeplotDM1.rplot$Label2),
+  method   = unique(makeplotDM1.r$method)
+)
+
+```
+
+
+```{r, echo=FALSE,message=FALSE,warning=FALSE}
+source("/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/GOF/add_functions.R")
+colData <- data.frame(meta_dm1, 
+                      row.names = "sample_id")
+DM1mat.filt.1 <- lapply(seq(1:7), function(x) rbind(makeplot.DM1[[x]][[2]][[1]]))
+names(DM1mat.filt.1) <- methods.ccp
+DM1mat.filt.2 <- lapply(seq(1:7), function(x) rbind(makeplot.DM1[[x]][[2]][[2]]))
+names(DM1mat.filt.2) <- methods.ccp
+DM1mat.filt.3 <- lapply(seq(1:7), function(x) rbind(makeplot.DM1[[x]][[2]][[3]]))
+names(DM1mat.filt.3) <- methods
+
+# DM1Data_models_1f <- lapply(DM1mat.filt.1,function(ps) fitModels(counts = ps[,meta_dm1$sample_id], scale = "median",
+#                                                                   design = model.matrix( ~ 1, data = colData)))
+# DM1Data_models_2f <- lapply(DM1mat.filt.2,function(ps) fitModels(counts = ps[,meta_dm1$sample_id], scale = "median",
+#                                                                  design = model.matrix( ~ 1, data = colData)))
+# DM1Data_models_3f <- lapply(DM1mat.filt.3,function(ps) fit_models(ps = ps[,meta$sample_id], design = model.matrix( ~ 1, data = colData)))
+
+
+# DM1Data_df11 <- model_to_data.frame(DM1Data_models_1f)
+# write.csv(DM1Data_df1, file = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/data/DM1/DM1Data_df11.csv")
+DM1Data_df11 = read.csv(file = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/data/DM1/DM1Data_df11.csv")
+
+
+# DM1Data_df22 <- model_to_data.frame(DM1Data_models_2f)
+# write.csv(DM1Data_df22, file = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/data/DM1/DM1Data_df22.csv")
+DM1Data_df22 = read.csv(file = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/data/DM1/DM1Data_df22.csv")
+
+# DM1Data_df33 <- model_to_data.frame(DM1Data_models_3f)
+# write.csv(DM1Data_df33, file = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/data/DM1/DM1Data_df33.csv")
+# DM1Data_df33 = read.csv(file = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/data/DM1/DM1Data_df33.csv")
+
+```
+
+
+```{r}
+DM1Data_df11 %>% filter(Model=="NB") %>% summary()
+DM1Data_df11 %>% filter(Model=="ZINB") %>% summary()
+
+model_colors <- brewer.pal(3,"Dark2")[1:2]
+names(model_colors) <- c("ZINB","NB")
+png(file = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/robustness_glmm/DM1/MDplot_F1.png",
+     width = 10, height = 6, units = "in", res = 300)
+MDPlot(data = DM1Data_df11, difference = "MD", split = TRUE, method_cols = model_colors)
+dev.off()
+
+png(file = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/robustness_glmm/DM1/ZPDplot_F2.png",
+     width = 10, height = 6, units = "in", res = 300)
+MDPlot(data = DM1Data_df22, difference = "ZPD", split = TRUE, method_cols = model_colors)
+dev.off()
+
+```
+
+```{r}
+model_colors <- brewer.pal(3,"Dark2")[1:2]
+names(model_colors) <- c("aicZINB","aicNB")
+
+aic.dat = DM1Data_df22 %>% dplyr::group_by(Method, Model) %>% reshape2::dcast(circ_id+Method~Model, value.var="AIC") %>% mutate(deltaAIC=NB-ZINB) %>% mutate(filter="high filtered data")
+png(file = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/robustness_glmm/AICdelta_DM1F2.png", width = 6, height = 8, units = "in", res = 300)
+aic.dat %>% ggplot(aes(x = Method, y = deltaAIC, color = Method)) +
+  geom_violin(draw_quantiles = c(0.25, 0.5, 0.75)) + #geom_jitter(width = 0.1, alpha = 0.2) +
+  scale_color_manual(values = method_cols) +
+  theme_minimal() +
+  ylab(expression(Delta~AIC)) +
+  xlab("CircRNA detection methods") +
+  labs(title = expression(Delta~AIC ~ "=" ~ AIC[NB] ~ "-" ~ AIC[ZINB]), 
+       subtitle = unique(aic.dat$filter)) +
+  theme(legend.position = "bottom",
+        #strip.text = element_blank(),
+        axis.text.x = element_text(hjust = 1,angle = 45),
+        plot.title = element_text(size = 14, face = "bold", color = "darkgrey"),
+        plot.margin = unit(c(0.1,0.1,0.1,0.1), "cm"))
+dev.off()
+
+aic.dat$BestAIC = "ZINB"
+aic.dat$BestAIC[which(aic.dat$deltaAIC<0)] = "NB"
+HeatmapAIC = as.data.frame(table(aic.dat$BestAIC, aic.dat$Method))
+colnames(HeatmapAIC) <- c("Model", "Method", "n.circ")
+Pm.p <- dplyr::group_by(HeatmapAIC, Method) %>% dplyr::mutate(perc.circ = n.circ/sum(n.circ))
+library(viridis)
+png(file = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/robustness_glmm/DM1/AICheat_DM1F2.png", 
+     width = 8, height = 8, units = "in", res = 300)
+ggplot(Pm.p, 
+       aes(x=reorder(Model, perc.circ, median, order = T), 
+           y=reorder(Method, perc.circ, median, order = T), fill=perc.circ)) + geom_tile() +
+  scale_fill_viridis() +
+  geom_text(aes(label=round(Pm.p$perc.circ, 3)), colour=ifelse(Pm.p$perc.circ<0.7, "white", "black"), size = 5) + 
+  theme_minimal() + 
+   labs(title = "Best AIC", x = "Model", y = "Method", subtitle = unique(aic.dat$filter))+
+  theme(strip.background=element_rect(color = NA),
+                strip.text=element_text(size=12),
+                axis.text.x = element_text(size = 12, angle = 90), axis.title.x = element_text(size = 12),
+                axis.text.y = element_text(size = 12), axis.title.y = element_text(size = 12),
+                plot.title = element_text(size = 14, face = "bold", color = "darkgrey"))
+dev.off()
+```
+
+
+## sepsis (Christine Voellenkle et al. 2019)
+
+Keep circRNAs with more than 2 counts in more than 2 samples.
+A dataset is composed by samples from 5 normal and 25 DM1 samples.
+
+```{r include=FALSE}
+## function to get count matrix for each detection methods
+get.method.count.matrix <- function(method, x){
+  as.matrix(dcast(data = x[V2 == method],
+                  formula = circRNA_ID ~ sampleID,
+                  value.var = "V6", fill = 0,
+                  fun.aggregate = sum),
+            rownames = "circRNA_ID")
+}
+
+## import data
+if(!file.exists("/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/data/sepsisData_list.RData")){
+  
+  colClasses <- c("factor", "factor", "character", "integer", "integer", 
+                "integer", "factor", "character", "character")
+  V9pattern <- '.*gene_id "([^"]*)".*transcript_id "([^"]*)".*'
+  V9newCols <- c("gene_id", "transcript_id")
+  ## load circRNA data
+  circrnas.gtf <- fread("/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/realdata/sepsis/circular_expression/circrna_collection/circrnas.gtf", colClasses = colClasses)
+    # unique(rbindlist(lapply(gtf.file.list, fread, data.table = T, 
+    #                                       colClasses = colClasses))) 
+  count.data <- circrnas.gtf[, `:=`(circRNA_ID = paste0(V1, ":", V4, "-", V5),
+                                    sampleID = gsub("-", "_", sub('.*sample_id "([^"]+)".*', "\\1",
+                                                                                V9)))]
+  
+  get.method.count.matrix <- function(method, x){
+    as.matrix(dcast(data = x[V2 == method],
+                    formula = circRNA_ID ~ sampleID,
+                    value.var = "V6", fill = 0,
+                    fun.aggregate = sum),
+              rownames = "circRNA_ID")
+  }
+
+  # list of count matrices foreach methdos
+  sepsisData_list <- list()
+  for(i in 1:(length(methods))){
+    cat("method:",methods[i],"\n")
+    # Keep bodysite
+    m = dcast(data = count.data[V2 == methods[i]],
+                  formula = circRNA_ID ~ sampleID,
+                  value.var = "V6", 
+                  fill = 0, fun.aggregate = sum)
+    ps <- as.matrix(m[,-1])
+    rownames(ps) <- m$circRNA_ID
+    # Keep one sample for each Random Subject IDentifier
+    ps <- ps[rowSums(ps>=2)>=1,]
+    sepsisData_list[[i]] <- ps
+    names(sepsisData_list)[i] <- methods[i]
+  }
+  
+  count.data.file <- "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/realdata/sepsis/circular_expression/circrna_analyze/reliable_circexp.csv"
+  count.data <- fread(count.data.file)
+  count.data$chr <- sub(":.*", "", count.data$circ_id)
+  count.data$start <- as.numeric(gsub(".*:(.*)\\-.*", "\\1", count.data$circ_id))
+  count.data$end <- sub(".*-", "\\1", count.data$circ_id)
+  count.data$circ_id = paste0(count.data$chr, ":", count.data$start+1, "-", count.data$end)
+  
+  count.data$circ_id = paste0(count.data$chr, ":", count.data$start+1, "-", count.data$end)
+  ps.ccp2 <- as.matrix(count.data[,2:41])
+  rownames(ps.ccp2) <- count.data$circ_id
+  ps.ccp2 <- ceiling(ps.ccp2)
+
+  # Keep one sample for each Random Subject IDentifier
+  ps.ccp2 <- ps.ccp2[rowSums(ps.ccp2>=2)>=1,]
+  colnames(ps.ccp2) <- gsub("-", "_", colnames(ps.ccp2))
+  sepsisData_list[["ccp2"]] <- ceiling(ps.ccp2)
+  save(sepsisData_list, file = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/data/sepsisData_list.RData")
+} else load("/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/data/sepsisData_list.RData")
+
+```
+
+```{r, include=FALSE}
+fix.name <- function(x){
+  gsub(pattern = " ", replacement = "", 
+       sub("^([0-9].*)", "X\\1",
+           sub("C$", "",
+                gsub("^X", "",
+                    gsub(pattern = "-|/", replacement = "_", 
+                        gsub("\\+", "p", x))))))
+}
+
+```
+
+
+```{r sepsis_meta, echo=FALSE, include=FALSE}
+library(stringr)
+basedir.sepsis <- "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/realdata/sepsis/"
+meta_file_sepsis <- file.path(basedir.sepsis, "meta_sepsis.csv")
+# create meta file with sample.ID, condition, from meta_tall.csv
+if(meta_file_sepsis != ""){
+ meta_sepsis <- unique(fread(meta_file_sepsis))[, .(sample_id = sample, condition)]
+}
+meta_sepsis = meta_sepsis[order(meta_sepsis$sample_id),][seq(1,nrow(meta_sepsis), by = 2),]     # for odd rows
+
+```
+
+```{r}
+
+makeplot.sepsis <- lapply(methods.ccp, FUN = function(d) {
+  print(d)
+  makefiltexprplot(
+  matrix = as.data.frame(sepsisData_list[[d]]),
+  method = d,
+  meta = meta_sepsis, filter = c(0,5,10))
+})
+makeplotsepsis.r <- lapply(seq(1:7), function(x) rbind(makeplot.sepsis[[x]][[1]]))
+
+makeplotsepsis.r <- do.call(rbind, makeplotsepsis.r)
+makeplotsepsis.rplot = makeplotsepsis.r %>% dplyr::group_by(method) %>% 
+  summarise(Label1=paste0("Method:", unique(method)),
+            Label2=paste0("#CircRNAs: ", unique(as.factor(n.circ))))
+
+makeplotsepsis.r$perc.sample_filter <- factor(makeplotsepsis.r$perc.sample_filter)
+
+# head(makeplot)
+
+dat_text.sepsis <- data.frame(
+  label = unique(makeplotsepsis.rplot$Label2),
+  method   = unique(makeplotsepsis.r$method)
+)
+
+```
+
+
+```{r, echo=FALSE,message=FALSE,warning=FALSE}
+source("/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/GOF/add_functions.R")
+colData <- data.frame(meta_sepsis, 
+                      row.names = "sample_id")
+sepsismat.filt.1 <- lapply(seq(1:7), function(x) rbind(makeplot.sepsis[[x]][[2]][[1]]))
+names(sepsismat.filt.1) <- methods.ccp
+sepsismat.filt.2 <- lapply(seq(1:7), function(x) rbind(makeplot.sepsis[[x]][[2]][[2]]))
+names(sepsismat.filt.2) <- methods.ccp
+sepsismat.filt.3 <- lapply(seq(1:7), function(x) rbind(makeplot.sepsis[[x]][[2]][[3]]))
+names(sepsismat.filt.3) <- methods
+
+# sepsisData_models_1f <- lapply(sepsismat.filt.1,function(ps) fitModels(counts = ps[,meta_sepsis$sample_id], scale = "median",
+#                                                                        design = model.matrix( ~ 1, data = colData)))
+# sepsisData_models_2f <- lapply(sepsismat.filt.2,function(ps) fitModels(counts = ps[,meta_sepsis$sample_id], scale = "median",
+#                                                                        design = model.matrix( ~ 1, data = colData)))
+# sepsisData_models_3f <- lapply(sepsismat.filt.3,function(ps) fitModels(counts = ps[,meta_sepsis$sample_id], scale = "median", 
+#                                                                        design = model.matrix( ~ 1, data = colData)))
+
+
+# sepsisData_df11 <- model_to_data.frame(sepsisData_models_1f)
+# write.csv(sepsisData_df11, file = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/data/sepsis/sepsisData_df11.csv")
+sepsisData_df11 = read.csv(file = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/data/sepsis/sepsisData_df11.csv")
+
+
+# sepsisData_df22 <- model_to_data.frame(sepsisData_models_2f)
+# write.csv(sepsisData_df22, file = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/data/sepsis/sepsisData_df22.csv")
+sepsisData_df22 = read.csv(file = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/data/sepsis/sepsisData_df22.csv")
+
+# sepsisData_df33 <- model_to_data.frame(sepsisData_models_3f)
+# write.csv(sepsisData_df33, file = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/data/sepsis/sepsisData_df33.csv")
+sepsisData_df33 = read.csv(file = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/data/sepsis/sepsisData_df33.csv")
+
+```
+
+
+```{r}
+sepsisData_df11 %>% filter(Model=="NB") %>% summary()
+sepsisData_df11 %>% filter(Model=="ZINB") %>% summary()
+
+model_colors <- brewer.pal(3,"Dark2")[1:2]
+names(model_colors) <- c("ZINB","NB")
+png(file = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/robustness_glmm/sepsis/MDplot_F1.png",
+     width = 10, height = 6, units = "in", res = 300)
+MDPlot(data = sepsisData_df11, difference = "MD", split = TRUE, method_cols = model_colors)
+dev.off()
+
+png(file = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/robustness_glmm/sepsis/ZPDplot_F2.png",
+     width = 10, height = 6, units = "in", res = 300)
+MDPlot(data = sepsisData_df22, difference = "ZPD", split = TRUE, method_cols = model_colors)
+dev.off()
+
+```
+
+```{r}
+model_colors <- brewer.pal(3,"Dark2")[1:2]
+names(model_colors) <- c("aicZINB","aicNB")
+# names(method_cols) <- c("circExplorer2 - bwa", "circExplorer2 - STAR", "circExplorer2 - tophat", 
+#                         "CIRI", "DCC", "findcirc", "ccp")
+aic.dat = sepsisData_df22 %>% dplyr::group_by(Method, Model) %>% reshape2::dcast(circ_id+Method~Model, value.var="AIC") %>% mutate(deltaAIC=NB-ZINB) %>% mutate(filter="high filtered data")
+png(file = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/robustness_glmm/AICdelta_sepsisF2.png", width = 6, height = 8, units = "in", res = 300)
+aic.dat %>% ggplot(aes(x = Method, y = deltaAIC, color = Method)) +
+  geom_violin(draw_quantiles = c(0.25, 0.5, 0.75)) + #geom_jitter(width = 0.1, alpha = 0.2) +
+  scale_color_manual(values = method_cols) +
+  theme_minimal() +
+  ylab(expression(Delta~AIC)) +
+  xlab("CircRNA detection methods") +
+  labs(title = expression(Delta~AIC ~ "=" ~ AIC[NB] ~ "-" ~ AIC[ZINB]), 
+       subtitle = unique(aic.dat$filter)) +
+  theme(legend.position = "bottom",
+        #strip.text = element_blank(),
+        axis.text.x = element_text(hjust = 1,angle = 45),
+        plot.title = element_text(size = 14, face = "bold", color = "darkgrey"),
+        plot.margin = unit(c(0.1,0.1,0.1,0.1), "cm"))
+dev.off()
+
+aic.dat$BestAIC = "ZINB"
+aic.dat$BestAIC[which(aic.dat$deltaAIC<0)] = "NB"
+HeatmapAIC = as.data.frame(table(aic.dat$BestAIC, aic.dat$Method))
+colnames(HeatmapAIC) <- c("Model", "Method", "n.circ")
+Pm.p <- dplyr::group_by(HeatmapAIC, Method) %>% dplyr::mutate(perc.circ = n.circ/sum(n.circ))
+library(viridis)
+png(file = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/robustness_glmm/sepsis/AICheat_sepsisF2.png", 
+     width = 8, height = 8, units = "in", res = 300)
+ggplot(Pm.p, 
+       aes(x=reorder(Model, perc.circ, median, order = T), 
+           y=reorder(Method, perc.circ, median, order = T), fill=perc.circ)) + geom_tile() +
+  scale_fill_viridis() +
+  geom_text(aes(label=round(Pm.p$perc.circ, 3)), colour=ifelse(Pm.p$perc.circ<0.7, "white", "black"), size = 5) + 
+  theme_minimal() + 
+   labs(title = "Best AIC", x = "Model", y = "Method", subtitle = unique(aic.dat$filter))+
+  theme(strip.background=element_rect(color = NA),
+                strip.text=element_text(size=12),
+                axis.text.x = element_text(size = 12, angle = 90), axis.title.x = element_text(size = 12),
+                axis.text.y = element_text(size = 12), axis.title.y = element_text(size = 12),
+                plot.title = element_text(size = 14, face = "bold", color = "darkgrey"))
+dev.off()
+```
+
+## IDC and normal paired Data (Arvinden et al.)
+
+Keep circRNAs with more than 2 counts in more than 2 samples.
+A dataset is composed by 5 tumor and 5 paired normal samples.
+
+```{r include=FALSE}
+## import data
+if(!file.exists("/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/data/IDCData_list.RData")){
+  
+  colClasses <- c("factor", "factor", "character", "integer", "integer", 
+                "integer", "factor", "character", "character")
+  V9pattern <- '.*gene_id "([^"]*)".*transcript_id "([^"]*)".*'
+  V9newCols <- c("gene_id", "transcript_id")
+  ## load circRNA data
+  circrnas.gtf <- fread("/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/realdata/IDC/analyses/circular_expression/circRNA_collection/circrnas.gtf", colClasses = colClasses)
+    # unique(rbindlist(lapply(gtf.file.list, fread, data.table = T, 
+    #                                       colClasses = colClasses))) 
+  count.data <- circrnas.gtf[, `:=`(circRNA_ID = paste0(V1, ":", V4, "-", V5),
+                                    sampleID = gsub("-", "_", sub('.*sample_id "([^"]+)".*', "\\1",
+                                                                                V9)))]
+  
+  get.method.count.matrix <- function(method, x){
+    as.matrix(dcast(data = x[V2 == method],
+                    formula = circRNA_ID ~ sampleID,
+                    value.var = "V6", fill = 0,
+                    fun.aggregate = sum),
+              rownames = "circRNA_ID")
+  }
+
+  # list of count matrices foreach methdos
+  IDCData_list <- list()
+  for(i in 1:(length(methods)-1)){
+    cat("method:",methods[i],"\n")
+    # Keep bodysite
+    m = dcast(data = count.data[V2 == methods[i]],
+                  formula = circRNA_ID ~ sampleID,
+                  value.var = "V6", 
+                  fill = 0, fun.aggregate = sum)
+    ps <- as.matrix(m[,-1])
+    rownames(ps) <- m$circRNA_ID
+    # Keep one sample for each Random Subject IDentifier
+    ps <- ps[rowSums(ps>=2)>=2,]
+    IDCData_list[[i]] <- ps
+    names(IDCData_list)[i] <- methods[i]
+  }
+  
+  count.data.file <- "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/realdata/IDC/analyses/circular_expression/circRNA_collection/ccp_counts/bks.counts.union.intersected.csv"
+  count.data <- fread(count.data.file)
+  count.data$circ_id = paste0(count.data$chr, ":", count.data$start, "-", count.data$end)
+  ps.ccp2 <- as.matrix(dcast(data = count.data, formula = circ_id~sample_id, fill = 0,value.var = "read.count"),
+                       rownames = "circ_id")
+  # Keep one sample for each Random Subject IDentifier
+  ps.ccp2 <- ps.ccp2[rowSums(ps.ccp2>=2)>=2,]
+  colnames(ps.ccp2) <- gsub("-", "_", colnames(ps.ccp2))
+  IDCData_list[["ccp2"]] <- ceiling(ps.ccp2)
+  save(IDCData_list, file = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/data/IDCData_list.RData")
+} else load("/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/data/IDCData_list.RData")
+
+```
+
+
+```{r, include=FALSE}
+fix.name <- function(x){
+  gsub(pattern = " ", replacement = "", 
+       sub("^([0-9].*)", "X\\1",
+           sub("C$", "",
+                gsub("^X", "",
+                    gsub(pattern = "-|/", replacement = "_", 
+                        gsub("\\+", "p", x))))))
+}
+
+```
+
+
+```{r IDC_meta, echo=FALSE, include=FALSE}
+basedir.idc <-"/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/realdata/IDC/analyses"
+meta_file_idc <- file.path(basedir.idc, "meta_IDC.csv")
+# create meta file with sample.ID, condition, from meta_tall.csv
+if(meta_file_idc != ""){
+  meta_idc <- unique(fread(meta_file_idc))[, .(sample_id = sample,
+               condition = ifelse(condition=="Infilterating ductal carcinoma", "IDC", ifelse(condition=="Paired normal (Infilterating ductal carcinoma)", "PairedNormal", ifelse(condition=="Ductal carcinoma in Situ", "DC","AbsoluteNormal"))))]
+}
+meta_idc = meta_idc[seq(1,nrow(meta_idc), by = 2),]     # for odd rows
+meta_idc1 = meta_idc[meta_idc$condition%in%c("IDC", "PairedNormal"),]
+
+```
+
+```{r}
+
+makeplot.IDC <- lapply(methods.ccp, FUN = function(d) {
+  print(d)
+  makefiltexprplot(
+  matrix = as.data.frame(IDCData_list[[d]]),
+  method = d,
+  meta = meta_idc1, filter = c(0,5,10))
+})
+makeplotIDC.r <- lapply(seq(1:7), function(x) rbind(makeplot.IDC[[x]][[1]]))
+
+makeplotIDC.r <- do.call(rbind, makeplotIDC.r)
+makeplotIDC.rplot = makeplotIDC.r %>% dplyr::group_by(method) %>% 
+  summarise(Label1=paste0("Method:", unique(method)),
+            Label2=paste0("#CircRNAs: ", unique(as.factor(n.circ))))
+
+makeplotIDC.r$perc.sample_filter <- factor(makeplotIDC.r$perc.sample_filter)
+
+# head(makeplot)
+
+dat_text.IDC <- data.frame(
+  label = unique(makeplotIDC.rplot$Label2),
+  method   = unique(makeplotIDC.r$method)
+)
+
+```
+
+
+```{r, echo=FALSE,message=FALSE,warning=FALSE}
+source("/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/GOF/add_functions.R")
+colData <- data.frame(meta_idc1, 
+                      row.names = "sample_id")
+IDCmat.filt.1 <- lapply(seq(1:7), function(x) rbind(makeplot.IDC[[x]][[2]][[1]]))
+names(IDCmat.filt.1) <- methods.ccp
+IDCmat.filt.2 <- lapply(seq(1:7), function(x) rbind(makeplot.IDC[[x]][[2]][[2]]))
+names(IDCmat.filt.2) <- methods.ccp
+IDCmat.filt.3 <- lapply(seq(1:7), function(x) rbind(makeplot.IDC[[x]][[2]][[3]]))
+names(IDCmat.filt.2) <- methods.ccp
+
+# IDCData_models_1f <- lapply(IDCmat.filt.1,function(ps) fitModels(counts = ps[,meta_idc1$sample_id], scale = "median",
+#                                                                   design = model.matrix( ~ 1, data = colData)))
+# IDCData_models_2f <- lapply(IDCmat.filt.2,function(ps) fitModels(counts = ps[,meta_idc1$sample_id], scale = "median",
+#                                                                  design = model.matrix( ~ 1, data = colData)))
+
+# IDCData_df11 <- model_to_data.frame(IDCData_models_1f)
+# write.csv(IDCData_df1, file = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/data/IDC/IDCData_df11.csv")
+IDCData_df11 = read.csv(file = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/data/IDC/IDCData_df11.csv")
+
+
+# IDCData_df22 <- model_to_data.frame(IDCData_models_2f)
+# write.csv(IDCData_df22, file = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/data/IDC/IDCData_df22.csv")
+IDCData_df22 = read.csv(file = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/data/IDC/IDCData_df22.csv")
+
+# IDCData_df33 <- model_to_data.frame(IDCData_models_3f)
+# write.csv(IDCData_df33, file = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/data/IDC/IDCData_df33.csv")
+# IDCData_df33 = read.csv(file = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/data/IDC/IDCData_df33.csv")
+
+
+```
+
+
+```{r}
+IDCData_df11 %>% filter(Model=="NB") %>% summary()
+IDCData_df11 %>% filter(Model=="ZINB") %>% summary()
+
+model_colors <- brewer.pal(3,"Dark2")[1:2]
+names(model_colors) <- c("ZINB","NB")
+png(file = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/robustness_glmm/IDC/MDplot_F2.png",
+     width = 10, height = 6, units = "in", res = 300)
+MDPlot(data = IDCData_df22, difference = "MD", split = TRUE, method_cols = model_colors)
+dev.off()
+
+png(file = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/robustness_glmm/IDC/ZPDplot_F2.png",
+     width = 10, height = 6, units = "in", res = 300)
+MDPlot(data = IDCData_df22, difference = "ZPD", split = TRUE, method_cols = model_colors)
+dev.off()
+
+```
+
+```{r}
+model_colors <- brewer.pal(3,"Dark2")[1:2]
+names(model_colors) <- c("aicZINB","aicNB")
+
+aic.dat = IDCData_df11 %>% dplyr::group_by(Method, Model) %>% reshape2::dcast(circ_id+Method~Model, value.var="AIC") %>% mutate(deltaAIC=NB-ZINB) %>% mutate(filter="low filtered data")
+png(file = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/robustness_glmm/AICdelta_IDCF1.png", width = 6, height = 8, units = "in", res = 300)
+aic.dat %>% ggplot(aes(x = Method, y = deltaAIC, color = Method)) +
+  geom_violin(draw_quantiles = c(0.25, 0.5, 0.75)) + #geom_jitter(width = 0.1, alpha = 0.2) +
+  scale_color_manual(values = method_cols) +
+  theme_minimal() +
+  ylab(expression(Delta~AIC)) +
+  xlab("CircRNA detection methods") +
+  labs(title = expression(Delta~AIC ~ "=" ~ AIC[NB] ~ "-" ~ AIC[ZINB]), 
+       subtitle = unique(aic.dat$filter)) +
+  theme(legend.position = "bottom",
+        #strip.text = element_blank(),
+        axis.text.x = element_text(hjust = 1,angle = 45),
+        plot.title = element_text(size = 14, face = "bold", color = "darkgrey"),
+        plot.margin = unit(c(0.1,0.1,0.1,0.1), "cm"))
+dev.off()
+
+aic.dat$BestAIC = "ZINB"
+aic.dat$BestAIC[which(aic.dat$deltaAIC<0)] = "NB"
+HeatmapAIC = as.data.frame(table(aic.dat$BestAIC, aic.dat$Method))
+colnames(HeatmapAIC) <- c("Model", "Method", "n.circ")
+Pm.p <- dplyr::group_by(HeatmapAIC, Method) %>% dplyr::mutate(perc.circ = n.circ/sum(n.circ))
+library(viridis)
+png(file = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/robustness_glmm/IDC/AICheat_IDCF1.png", 
+     width = 8, height = 8, units = "in", res = 300)
+ggplot(Pm.p, 
+       aes(x=reorder(Model, perc.circ, median, order = T), 
+           y=reorder(Method, perc.circ, median, order = T), fill=perc.circ)) + geom_tile() +
+  scale_fill_viridis() +
+  geom_text(aes(label=round(Pm.p$perc.circ, 3)), colour=ifelse(Pm.p$perc.circ<0.7, "white", "black"), size = 5) + 
+  theme_minimal() + 
+   labs(title = "Best AIC", x = "Model", y = "Method", subtitle = unique(aic.dat$filter))+
+  theme(strip.background=element_rect(color = NA),
+                strip.text=element_text(size=12),
+                axis.text.x = element_text(size = 12, angle = 90), axis.title.x = element_text(size = 12),
+                axis.text.y = element_text(size = 12), axis.title.y = element_text(size = 12),
+                plot.title = element_text(size = 14, face = "bold", color = "darkgrey"))
+dev.off()
+```
+
+
+## IPF and normal counterpart Data (Nance et al.)
+
+Keep circRNAs with more than 2 counts in more than 1 samples.
+A dataset is composed by samples from 7 normal and 8 tumor samples.
+
+```{r include=FALSE}
+## import data
+if(!file.exists("/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/data/IPFData_list.RData")){
+  
+  colClasses <- c("factor", "factor", "character", "integer", "integer", 
+                "integer", "factor", "character", "character")
+  V9pattern <- '.*gene_id "([^"]*)".*transcript_id "([^"]*)".*'
+  V9newCols <- c("gene_id", "transcript_id")
+  ## load circRNA data
+  circrnas.gtf <- fread("/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/realdata/IPF/analyses/circular_expression/circRNA_collection/circrnas.gtf", colClasses = colClasses)
+    # unique(rbindlist(lapply(gtf.file.list, fread, data.table = T, 
+    #                                       colClasses = colClasses))) 
+  count.data <- circrnas.gtf[, `:=`(circRNA_ID = paste0(V1, ":", V4, "-", V5),
+                                    sampleID = gsub("-", "_", sub('.*sample_id "([^"]+)".*', "\\1",
+                                                                                V9)))]
+  
+  get.method.count.matrix <- function(method, x){
+    as.matrix(dcast(data = x[V2 == method],
+                    formula = circRNA_ID ~ sampleID,
+                    value.var = "V6", fill = 0,
+                    fun.aggregate = sum),
+              rownames = "circRNA_ID")
+  }
+
+  # list of count matrices foreach methdos
+  IPFData_list <- list()
+  for(i in 1:(length(methods)-1)){
+    cat("method:",methods[i],"\n")
+    # Keep bodysite
+    m = dcast(data = count.data[V2 == methods[i]],
+                  formula = circRNA_ID ~ sampleID,
+                  value.var = "V6", 
+                  fill = 0, fun.aggregate = sum)
+    ps <- as.matrix(m[,-1])
+    rownames(ps) <- m$circRNA_ID
+    # Keep one sample for each Random Subject IDentifier
+    ps <- ps[rowSums(ps>=2)>=1,]
+    IPFData_list[[i]] <- ps
+    names(IPFData_list)[i] <- methods[i]
+  }
+  
+  count.data.file <- "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/realdata/IPF/analyses/circular_expression/circRNA_collection/ccp_counts/bks.counts.union.intersected.csv"
+  count.data <- fread(count.data.file)
+  count.data$circ_id = paste0(count.data$chr, ":", count.data$start, "-", count.data$end)
+  ps.ccp2 <- as.matrix(dcast(data = count.data, formula = circ_id~sample_id, fill = 0,value.var = "read.count"),
+                       rownames = "circ_id")
+  # Keep one sample for each Random Subject IDentifier
+  ps.ccp2 <- ps.ccp2[rowSums(ps.ccp2>=2)>=1,]
+  colnames(ps.ccp2) <- gsub("-", "_", colnames(ps.ccp2))
+  IPFData_list[["ccp2"]] <- ceiling(ps.ccp2)
+  save(IPFData_list, file = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/data/IPFData_list.RData")
+} else load("/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/data/IPFData_list.RData")
+
+```
+
+```{r, include=FALSE}
+fix.name <- function(x){
+  gsub(pattern = " ", replacement = "", 
+       sub("^([0-9].*)", "X\\1",
+           sub("C$", "",
+                gsub("^X", "",
+                    gsub(pattern = "-|/", replacement = "_", 
+                        gsub("\\+", "p", x))))))
+}
+
+```
+
+
+```{r IPF_meta, echo=FALSE, include=FALSE}
+basedir.ipf <-"/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/realdata/IPF/analyses"
+meta_file_ipf <- file.path(basedir.ipf, "meta_IPF.csv")
+# create meta file with sample.ID, condition, from meta_tall.csv
+if(meta_file_ipf != ""){
+  meta_ipf <- unique(fread(meta_file_ipf)[, .(sample_id = sample, 
+                                                condition = ifelse(condition=="normal", "normal", "IPF"),
+                                                demo = demographic_group,
+                                                Sex = gender)])
+}
+
+```
+
+
+```{r}
+
+makeplot.IPF <- lapply(methods.ccp, FUN = function(d) {
+  print(d)
+  makefiltexprplot(
+  matrix = as.data.frame(IPFData_list[[d]]),
+  method = d,
+  meta = meta_ipf, filter = c(0,5,10))
+})
+makeplotIPF.r <- lapply(seq(1:7), function(x) rbind(makeplot.IPF[[x]][[1]]))
+
+makeplotIPF.r <- do.call(rbind, makeplotIPF.r)
+makeplotIPF.rplot = makeplotIPF.r %>% dplyr::group_by(method) %>% 
+  summarise(Label1=paste0("Method:", unique(method)),
+            Label2=paste0("#CircRNAs: ", unique(as.factor(n.circ))))
+
+makeplotIPF.r$perc.sample_filter <- factor(makeplotIPF.r$perc.sample_filter)
+
+# head(makeplot)
+
+dat_text.IPF <- data.frame(
+  label = unique(makeplotIPF.rplot$Label2),
+  method   = unique(makeplotIPF.r$method)
+)
+
+```
+
+
+```{r, echo=FALSE,message=FALSE,warning=FALSE}
+source("/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/GOF/add_functions.R")
+colData <- data.frame(meta_ipf, 
+                      row.names = "sample_id")
+IPFmat.filt.1 <- lapply(seq(1:7), function(x) rbind(makeplot.IPF[[x]][[2]][[1]]))
+names(IPFmat.filt.1) <- methods.ccp
+IPFmat.filt.2 <- lapply(seq(1:7), function(x) rbind(makeplot.IPF[[x]][[2]][[2]]))
+names(IPFmat.filt.2) <- methods.ccp
+IPFmat.filt.3 <- lapply(seq(1:7), function(x) rbind(makeplot.IPF[[x]][[2]][[3]]))
+names(IPFmat.filt.3) <- methods.ccp
+
+# IPFData_models_1f <- lapply(IPFmat.filt.1,function(ps) fitModels(counts = ps[,meta_ipf$sample_id], scale = "median",
+#                                                                   design = model.matrix( ~ 1, data = colData)))
+# IPFData_models_2f <- lapply(IPFmat.filt.2,function(ps) fitModels(counts = ps[,meta_ipf$sample_id], scale = "median",
+#                                                                  design = model.matrix( ~ 1, data = colData)))
+
+# IPFData_df11 <- model_to_data.frame(IPFData_models_1f)
+# write.csv(IPFData_df1, file = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/data/IPF/IPFData_df11.csv")
+IPFData_df11 = read.csv(file = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/data/IPF/IPFData_df11.csv")
+
+# IPFData_df22 <- model_to_data.frame(IPFData_models_2f)
+# write.csv(IPFData_df22, file = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/data/IPF/IPFData_df22.csv")
+IPFData_df22 = read.csv(file = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/data/IPF/IPFData_df22.csv")
+
+# IPFData_df33 <- model_to_data.frame(IPFData_models_3f)
+# write.csv(IPFData_df3, file = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/data/IPF/IPFData_df33.csv")
+# IPFData_df33 = read.csv(file = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/data/IPF/IPFData_df33.csv")
+```
+
+
+```{r}
+IPFData_df11 %>% filter(Model=="NB") %>% summary()
+IPFData_df11 %>% filter(Model=="ZINB") %>% summary()
+
+model_colors <- brewer.pal(3,"Dark2")[1:2]
+names(model_colors) <- c("ZINB","NB")
+png(file = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/robustness_glmm/IPF/MDplot_F1.png",
+     width = 10, height = 6, units = "in", res = 300)
+MDPlot(data = IPFData_df11, difference = "MD", split = TRUE, method_cols = model_colors)
+dev.off()
+
+png(file = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/robustness_glmm/IPF/ZPDplot_F1.png",
+     width = 10, height = 6, units = "in", res = 300)
+MDPlot(data = IPFData_df11, difference = "ZPD", split = TRUE, method_cols = model_colors)
+dev.off()
+
+```
+
+```{r}
+model_colors <- brewer.pal(3,"Dark2")[1:2]
+names(model_colors) <- c("aicZINB","aicNB")
+
+aic.dat = IPFData_df11 %>% dplyr::group_by(Method, Model) %>% reshape2::dcast(circ_id+Method~Model, value.var="AIC") %>% mutate(deltaAIC=NB-ZINB) %>% mutate(filter="low filtered data")
+png(file = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/robustness_glmm/AICdelta_IPFF2.png", width = 6, height = 8, units = "in", res = 300)
+aic.dat %>% ggplot(aes(x = Method, y = deltaAIC, color = Method)) +
+  geom_violin(draw_quantiles = c(0.25, 0.5, 0.75)) + #geom_jitter(width = 0.1, alpha = 0.2) +
+  scale_color_manual(values = method_cols) +
+  theme_minimal() +
+  ylab(expression(Delta~AIC)) +
+  xlab("CircRNA detection methods") +
+  labs(title = expression(Delta~AIC ~ "=" ~ AIC[NB] ~ "-" ~ AIC[ZINB]), 
+       subtitle = unique(aic.dat$filter)) +
+  theme(legend.position = "bottom",
+        #strip.text = element_blank(),
+        axis.text.x = element_text(hjust = 1,angle = 45),
+        plot.title = element_text(size = 14, face = "bold", color = "darkgrey"),
+        plot.margin = unit(c(0.1,0.1,0.1,0.1), "cm"))
+dev.off()
+
+aic.dat$BestAIC = "ZINB"
+aic.dat$BestAIC[which(aic.dat$deltaAIC<0)] = "NB"
+HeatmapAIC = as.data.frame(table(aic.dat$BestAIC, aic.dat$Method))
+colnames(HeatmapAIC) <- c("Model", "Method", "n.circ")
+Pm.p <- dplyr::group_by(HeatmapAIC, Method) %>% dplyr::mutate(perc.circ = n.circ/sum(n.circ))
+library(viridis)
+png(file = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/robustness_glmm/IPF/AICheat_IPFF1.png", 
+     width = 8, height = 8, units = "in", res = 300)
+ggplot(Pm.p, 
+       aes(x=reorder(Model, perc.circ, median, order = T), 
+           y=reorder(Method, perc.circ, median, order = T), fill=perc.circ)) + geom_tile() +
+  scale_fill_viridis() +
+  geom_text(aes(label=round(Pm.p$perc.circ, 3)), colour=ifelse(Pm.p$perc.circ<0.7, "white", "black"), size = 5) + 
+  theme_minimal() + 
+   labs(title = "Best AIC", x = "Model", y = "Method", subtitle = unique(aic.dat$filter))+
+  theme(strip.background=element_rect(color = NA),
+                strip.text=element_text(size=12),
+                axis.text.x = element_text(size = 12, angle = 90), axis.title.x = element_text(size = 12),
+                axis.text.y = element_text(size = 12), axis.title.y = element_text(size = 12),
+                plot.title = element_text(size = 14, face = "bold", color = "darkgrey"))
+dev.off()
+```
+
+```{r }
+dt = rbind(t(sapply(TALLData_list, nrow)), t(sapply(DM1Data_list, nrow)), t(sapply(sepsisData_list, nrow)), 
+           t(sapply(IDCData_list,nrow)), t(sapply(IPFData_list, nrow)))
+colnames(dt) <- names(TALLData_list)
+rownames(dt) <- c("T-ALL","DM1","SEPSIS","IDC","IPF")
+dt %>%
+  kable(caption = "Number of circRNA in each matrix before filtering data") %>%
+  kable_styling(bootstrap_options = "striped", full_width = T, position = "center")
+```
+
+# Global properties of the datasets
+
+```{r include=FALSE}
+IPF_list_df <- lapply(IPFData_list, function(x) as.data.frame(x[,meta_ipf$sample_id]))
+TALL_list_df <- lapply(TALLData_list, function(x) as.data.frame(x[,meta$sample_id]))
+IDC_list_df <- lapply(IDCData_list, function(x) as.data.frame(x[,meta_idc1$sample_id]))
+DM1_list_df <- lapply(DM1Data_list, function(x) as.data.frame(x[,meta_dm1$sample_id]))
+sepsis_list_df <- lapply(sepsisData_list, function(x) as.data.frame(x[,meta_sepsis$sample_id]))
+
+library(miscset)
+
+Data_list_df <- list(IPF = miscset::do.rbind(IPF_list_df, idcol = "Methods", keep.rownames = TRUE), 
+                     TALL = miscset::do.rbind(TALL_list_df, idcol = "Methods", keep.rownames = TRUE),
+                     IDC = miscset::do.rbind(IDC_list_df, idcol = "Methods", keep.rownames = TRUE),
+                     DM1 = miscset::do.rbind(DM1_list_df, idcol = "Mehodts", keep.rownames = TRUE),
+                     SEPSIS = miscset::do.rbind(sepsis_list_df, idcol = "Mehodts", keep.rownames = TRUE))
+
+mat0.r <- list(IPF = rbindlist(lapply(IPFData_list, function(x) { 
+                                  m.r = reshape2::melt(x,
+                                             id.vars = colnames(x),
+                                             variable.name = "samples",
+                                             value.name = "count")
+                                  return(m.r)}), use.names=TRUE, fill=TRUE, idcol = "method"),
+               SEPSIS = rbindlist(lapply(sepsisData_list, function(x) { 
+                                  m.r = reshape2::melt(x,
+                                             id.vars = colnames(x),
+                                             variable.name = "samples",
+                                             value.name = "count")
+                                  return(m.r)}), use.names=TRUE, fill=TRUE, idcol = "method"),
+               TALL = rbindlist(lapply(TALLData_list, function(x) { 
+                                  m.r = reshape2::melt(x,
+                                             id.vars = colnames(x),
+                                             variable.name = "samples",
+                                             value.name = "count")
+                                  return(m.r)}), use.names=TRUE, fill=TRUE, idcol = "method"),
+               DM1 = rbindlist(lapply(DM1Data_list, function(x) { 
+                                  m.r = reshape2::melt(x,
+                                             id.vars = colnames(x),
+                                             variable.name = "samples",
+                                             value.name = "count")
+                                  return(m.r)}), use.names=TRUE, fill=TRUE, idcol = "method"),
+               IDC = rbindlist(lapply(IDCData_list, function(x) { 
+                                  m.r = reshape2::melt(x,
+                                             id.vars = colnames(x),
+                                             variable.name = "samples",
+                                             value.name = "count")
+                                  return(m.r)}), use.names=TRUE, fill=TRUE, idcol = "method"))
+
+makeplot.TALL <- lapply(methods.ccp, FUN = function(d) {
+  print(d)
+  makefiltexprplot(
+  matrix = as.data.frame(TALLData_list[[d]]),
+  method = d,
+  meta = meta, filter = c(0,5,10), zero.filt = TRUE)
+})
+makeplotTALL.r <- lapply(seq(1:7), function(x) rbind(makeplot.TALL[[x]][[1]]))
+makeplotTALL.r <- do.call(rbind, makeplotTALL.r)
+makeplotTALL.rplot = makeplotTALL.r %>% dplyr::group_by(method) %>% 
+  summarise(Label1=paste0("Method:", unique(method)),
+            Label2=paste0("#CircRNAs: ", unique(as.factor(n.circ))))
+# makeplotTALL.r$perc.sample_filter <- factor(makeplotTALL.r$perc.sample_filter, labels = c("None", "0","10"))
+dat_text.TALL <- data.frame(
+  label = unique(makeplotTALL.rplot$Label2),
+  method   = unique(makeplotTALL.r$method)
+)
+TALLmat.filt.2 <- lapply(seq(1:7), function(x) rbind(makeplot.TALL[[x]][[2]][[2]]))
+names(TALLmat.filt.2) <- methods.ccp
+
+makeplot.DM1 <- lapply(methods.ccp, FUN = function(d) {
+  print(d)
+  makefiltexprplot(
+  matrix = as.data.frame(DM1Data_list[[d]]),
+  method = d,
+  meta = meta_dm1, filter = c(0,5,10), zero.filt = TRUE)
+})
+makeplotDM1.r <- lapply(seq(1:7), function(x) rbind(makeplot.DM1[[x]][[1]]))
+
+makeplotDM1.r <- do.call(rbind, makeplotDM1.r)
+makeplotDM1.rplot = makeplotDM1.r %>% dplyr::group_by(method) %>% 
+  summarise(Label1=paste0("Method:", unique(method)),
+            Label2=paste0("#CircRNAs: ", unique(as.factor(n.circ))))
+# makeplotDM1.r$perc.sample_filter <- factor(makeplotDM1.r$perc.sample_filter, labels = c("None", "0", "10"))
+dat_text.DM1 <- data.frame(
+  label = unique(makeplotDM1.rplot$Label2),
+  method   = unique(makeplotDM1.r$method)
+)
+DM1mat.filt.2 <- lapply(seq(1:7), function(x) rbind(makeplot.DM1[[x]][[2]][[2]]))
+names(DM1mat.filt.2) <- methods.ccp
+
+makeplot.IDC <- lapply(methods.ccp, FUN = function(d) {
+  print(d)
+  makefiltexprplot(
+  matrix = as.data.frame(IDCData_list[[d]]),
+  method = d,
+  meta = meta_idc, filter = c(0,5,10), zero.filt = TRUE)
+})
+makeplotIDC.r <- lapply(seq(1:7), function(x) rbind(makeplot.IDC[[x]][[1]]))
+
+makeplotIDC.r <- do.call(rbind, makeplotIDC.r)
+makeplotIDC.rplot = makeplotIDC.r %>% dplyr::group_by(method) %>% 
+  summarise(Label1=paste0("Method:", unique(method)),
+            Label2=paste0("#CircRNAs: ", unique(as.factor(n.circ))))
+
+# makeplotIDC.r$perc.sample_filter <- factor(makeplotIDC.r$perc.sample_filter, labels = c("None", "0", "10"))
+dat_text.IDC <- data.frame(
+  label = unique(makeplotIDC.rplot$Label2),
+  method   = unique(makeplotIDC.r$method)
+)
+IDCmat.filt.2 <- lapply(seq(1:7), function(x) rbind(makeplot.IDC[[x]][[2]][[2]]))
+names(IDCmat.filt.2) <- methods.ccp
+
+makeplot.IPF <- lapply(methods.ccp, FUN = function(d) {
+  print(d)
+  makefiltexprplot(
+  matrix = as.data.frame(IPFData_list[[d]]),
+  method = d,
+  meta = meta_ipf, filter = c(0,5,10), zero.filt = TRUE)
+})
+makeplotIPF.r <- lapply(seq(1:7), function(x) rbind(makeplot.IPF[[x]][[1]]))
+
+makeplotIPF.r <- do.call(rbind, makeplotIPF.r)
+makeplotIPF.rplot = makeplotIPF.r %>% dplyr::group_by(method) %>% 
+  summarise(Label1=paste0("Method:", unique(method)),
+            Label2=paste0("#CircRNAs: ", unique(as.factor(n.circ))))
+
+# makeplotIPF.r$perc.sample_filter <- factor(makeplotIPF.r$perc.sample_filter, labels = c("None", "0", "10"))
+dat_text.IPF <- data.frame(
+  label = unique(makeplotIPF.rplot$Label2),
+  method   = unique(makeplotIPF.r$method)
+)
+IPFmat.filt.2 <- lapply(seq(1:7), function(x) rbind(makeplot.IPF[[x]][[2]][[2]]))
+names(IPFmat.filt.2) <- methods.ccp
+
+
+makeplot.sepsis <- lapply(methods.ccp, FUN = function(d) {
+  print(d)
+  makefiltexprplot(
+  matrix = as.data.frame(sepsisData_list[[d]]),
+  method = d,
+  meta = meta_sepsis, filter = c(0,5,10), zero.filt = TRUE)
+})
+makeplotsepsis.r <- lapply(seq(1:7), function(x) rbind(makeplot.sepsis[[x]][[1]]))
+
+makeplotsepsis.r <- do.call(rbind, makeplotsepsis.r)
+makeplotsepsis.rplot = makeplotsepsis.r %>% dplyr::group_by(method) %>% 
+  summarise(Label1=paste0("Method:", unique(method)),
+            Label2=paste0("#CircRNAs: ", unique(as.factor(n.circ))))
+
+# makeplotsepsis.r$perc.sample_filter <- factor(makeplotsepsis.r$perc.sample_filter, labels = c("None", "0", "10"))
+dat_text.sepsis <- data.frame(
+  label = unique(makeplotsepsis.rplot$Label2),
+  method   = unique(makeplotsepsis.r$method)
+)
+sepsismat.filt.2 <- lapply(seq(1:7), function(x) rbind(makeplot.sepsis[[x]][[2]][[2]]))
+names(sepsismat.filt.2) <- methods.ccp
+
+mat2.r <- list(IPF = rbindlist(lapply(IPFmat.filt.2, function(x) { 
+                                  m.r = reshape2::melt(x,
+                                             id.vars = colnames(x),
+                                             variable.name = "samples",
+                                             value.name = "count")
+                                  return(m.r)}), use.names=TRUE, fill=TRUE, idcol = "method"),
+               TALL = rbindlist(lapply(TALLmat.filt.2, function(x) { 
+                                  m.r = reshape2::melt(x,
+                                             id.vars = colnames(x),
+                                             variable.name = "samples",
+                                             value.name = "count")
+                                  return(m.r)}), use.names=TRUE, fill=TRUE, idcol = "method"),
+               DM1 = rbindlist(lapply(DM1mat.filt.2, function(x) { 
+                                  m.r = reshape2::melt(x,
+                                             id.vars = colnames(x),
+                                             variable.name = "samples",
+                                             value.name = "count")
+                                  return(m.r)}), use.names=TRUE, fill=TRUE, idcol = "method"),
+               SEPSIS = rbindlist(lapply(sepsismat.filt.2, function(x) { 
+                                  m.r = reshape2::melt(x,
+                                             id.vars = colnames(x),
+                                             variable.name = "samples",
+                                             value.name = "count")
+                                  return(m.r)}), use.names=TRUE, fill=TRUE, idcol = "method"),
+               IDC = rbindlist(lapply(IDCmat.filt.2, function(x) { 
+                                  m.r = reshape2::melt(x,
+                                             id.vars = colnames(x),
+                                             variable.name = "samples",
+                                             value.name = "count")
+                                  return(m.r)}), use.names=TRUE, fill=TRUE, idcol = "method"))
+# mat3.r <- list(IPF = rbindlist(lapply(IPFmat.filt.3, function(x) { 
+#                                   m.r = reshape2::melt(x,
+#                                              id.vars = colnames(x),
+#                                              variable.name = "samples",
+#                                              value.name = "count")
+#                                   return(m.r)}), use.names=TRUE, fill=TRUE, idcol = "method"),
+#                TALL = rbindlist(lapply(TALLmat.filt.3, function(x) { 
+#                                   m.r = reshape2::melt(x,
+#                                              id.vars = colnames(x),
+#                                              variable.name = "samples",
+#                                              value.name = "count")
+#                                   return(m.r)}), use.names=TRUE, fill=TRUE, idcol = "method"),
+#                IDC = rbindlist(lapply(IDCmat.filt.3, function(x) { 
+#                                   m.r = reshape2::melt(x,
+#                                              id.vars = colnames(x),
+#                                              variable.name = "samples",
+#                                              value.name = "count")
+#                                   return(m.r)}), use.names=TRUE, fill=TRUE, idcol = "method"))
+
+## SEPSIS
+
+matrix.filter.list.sepsis <- list(F0 = mat0.r$SEPSIS,
+                           # F1 = mat1.r$IPF,
+                           # F2 = mat2.r$IPF,
+                           F3 = mat2.r$SEPSIS)
+matrix.filters.SEPSIS <- rbindlist(matrix.filter.list.sepsis, idcol = "Filter")
+
+library(plyr)
+mu_sepsis <- ddply(mat0.r$SEPSIS, c("method"), summarise, grp.mean=mean(log10(count+1)))
+# head(mu)
+matrix.filters.SEPSIS$method <- factor(matrix.filters.SEPSIS$method, 
+                              levels = methods.ccp, 
+                  labels = c("findcirc", "DCC", "CIRI", 
+                             "circExplorer2 - STAR", "circExplorer2 - bwa",
+                             "circExplorer2 - tophat", "ccp"))
+
+dataset = "SEPSIS"
+names(method_cols) <- c("circExplorer2 - bwa", "circExplorer2 - STAR", "circExplorer2 - tophat", 
+                        "CIRI", "DCC", "findcirc", "ccp")
+p.sepsis <- ggplot(matrix.filters.SEPSIS, aes(x = log2(count+1), color = method)) + 
+  geom_histogram(fill = "white", position = "identity", aes(y= ..density..), bins = 50, alpha = 0.3) + #..count../sum(..count..)), bins = 50) +
+  geom_density(alpha = 0.7) +
+  # geom_vline(data = mu, aes(xintercept = grp.mean, color = method),
+  #            linetype="dashed") +
+  # scale_y_continuous(labels = percent_format()) +
+  scale_y_continuous() +
+  facet_grid(Filter~method, scales = "free",
+                labeller = label_wrap_gen(width=10)) +
+  ggtitle(label = "",
+          subtitle = paste("dataset", dataset, sep="-")) +
+  theme_classic() +
+  theme(legend.position = "bottom",
+          strip.text.x = element_text(face = "bold.italic", size = 5),
+          strip.text.y = element_text(face = "bold.italic", size = 8), #angle = 75),
+          strip.background = element_rect(#fill = "lightblue",
+                                        colour = "grey", size = 1),
+          axis.text.x = element_text(hjust = 1, angle = 45),
+          # axis.text.x = element_blank(),
+          # axis.text.y = element_blank(),
+          # panel.spacing = unit(0, "lines"),
+          plot.margin = unit(c(0,0,0,0), "cm")) +
+  scale_color_manual(values = method_cols) +
+  xlab("log(count+1)") #+ 
+  # ylab("Frequency")
+png(file = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/robustness_glmm/sepsis/ZI_sepsis_MethodsFilters.png",
+     width = 10, height = 6, units = "in", res = 300)
+p.sepsis
+dev.off()
+
+
+## IPF
+
+matrix.filter.list.IPF <- list(F0 = mat0.r$IPF,
+                           # F1 = mat1.r$IPF,
+                           # F2 = mat2.r$IPF,
+                           F3 = mat2.r$IPF)
+matrix.filters.IPF <- rbindlist(matrix.filter.list.IPF, idcol = "Filter")
+
+library(plyr)
+mu_IPF <- ddply(mat0.r$IPF, c("method"), summarise, grp.mean=mean(log10(count+1)))
+# head(mu)
+matrix.filters.IPF$method <- factor(matrix.filters.IPF$method, 
+                              levels = methods.ccp, 
+                  labels = c("findcirc", "DCC", "CIRI", 
+                             "circExplorer2 - STAR", "circExplorer2 - bwa",
+                             "circExplorer2 - tophat", "ccp"))
+
+dataset = "IPF"
+names(method_cols) <- c("circExplorer2 - bwa", "circExplorer2 - STAR", "circExplorer2 - tophat", 
+                        "CIRI", "DCC", "findcirc", "ccp")
+p.ipf <- ggplot(matrix.filters.IPF, aes(x = log2(count+1), color = method)) + 
+  geom_histogram(fill = "white", position = "identity", aes(y= ..density..), bins = 50, alpha = 0.3) + #..count../sum(..count..)), bins = 50) +
+  geom_density(alpha = 0.7) +
+  # geom_vline(data = mu, aes(xintercept = grp.mean, color = method),
+  #            linetype="dashed") +
+  # scale_y_continuous(labels = percent_format()) +
+  scale_y_continuous() +
+  facet_grid(Filter~method, scales = "free",
+                labeller = label_wrap_gen(width=10)) +
+  ggtitle(label = "",
+          subtitle = paste("dataset", dataset, sep="-")) +
+  theme_classic() +
+  theme(legend.position = "bottom",
+          strip.text.x = element_text(face = "bold.italic", size = 5),
+          strip.text.y = element_text(face = "bold.italic", size = 8), #angle = 75),
+          strip.background = element_rect(#fill = "lightblue",
+                                        colour = "grey", size = 1),
+          axis.text.x = element_text(hjust = 1, angle = 45),
+          # axis.text.x = element_blank(),
+          # axis.text.y = element_blank(),
+          # panel.spacing = unit(0, "lines"),
+          plot.margin = unit(c(0,0,0,0), "cm")) +
+  scale_color_manual(values = method_cols) +
+  xlab("log(count+1)") #+ 
+  # ylab("Frequency")
+png(file = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/robustness_glmm/IPF/ZI_IPF_MethodsFilters.png",
+     width = 10, height = 6, units = "in", res = 300)
+p.ipf
+dev.off()
+
+## TALL
+
+matrix.filter.list.TALL <- list(F0 = mat0.r$TALL,
+                           # F1 = mat1.r$TALL,
+                           # F2 = mat2.r$TALL,
+                           F3 = mat2.r$TALL)
+matrix.filters.TALL <- rbindlist(matrix.filter.list.TALL, idcol = "Filter")
+
+library(plyr)
+mu_TALL <- ddply(mat0.r$TALL, c("method"), summarise, grp.mean=mean(log10(count+1)))
+# head(mu)
+matrix.filters.TALL$method <- factor(matrix.filters.TALL$method, 
+                              levels = methods.ccp, 
+                  labels = c("findcirc", "DCC", "CIRI", 
+                             "circExplorer2 - STAR", "circExplorer2 - bwa",
+                             "circExplorer2 - tophat", "ccp"))
+
+dataset = "T-ALL"
+names(method_cols) <- c("circExplorer2 - bwa", "circExplorer2 - STAR", "circExplorer2 - tophat", 
+                        "CIRI", "DCC", "findcirc", "ccp")
+p.tall <- ggplot(matrix.filters.TALL, aes(x = log2(count+1), color = method)) + 
+  geom_histogram(fill = "white", position = "identity", aes(y= ..density..), bins = 50, alpha = 0.3) + #..count../sum(..count..)), bins = 50) +
+  geom_density(alpha = 0.7) +
+  # geom_vline(data = mu, aes(xintercept = grp.mean, color = method),
+  #            linetype="dashed") +
+  # scale_y_continuous(labels = percent_format()) +
+  scale_y_continuous() +
+  facet_grid(Filter~method, scales = "free",
+                labeller = label_wrap_gen(width=10)) +
+  ggtitle(label = "",
+          subtitle = paste("dataset", dataset, sep="-")) +
+  theme_classic() +
+  theme(legend.position = "bottom",
+          strip.text.x = element_text(face = "bold.italic", size = 5),
+          strip.text.y = element_text(face = "bold.italic", size = 8), #angle = 75),
+          strip.background = element_rect(#fill = "lightblue",
+                                        colour = "grey", size = 1),
+          axis.text.x = element_text(hjust = 1, angle = 45),
+          # axis.text.x = element_blank(),
+          # axis.text.y = element_blank(),
+          # panel.spacing = unit(0, "lines"),
+          plot.margin = unit(c(0,0,0,0), "cm")) +
+  scale_color_manual(values = method_cols) +
+  xlab("log(count+1)") #+ 
+  # ylab("Frequency")
+png(file = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/robustness_glmm/TALL/ZI_TALL_MethodsFilters.png",
+     width = 10, height = 6, units = "in", res = 300)
+p.tall
+dev.off()
+
+## IDC
+matrix.filter.list.IDC <- list(F0 = mat0.r$IDC,
+                           # F1 = mat1.r$IDC,
+                           # F2 = mat2.r$IDC,
+                           F3 = mat2.r$IDC)
+matrix.filters.IDC <- rbindlist(matrix.filter.list.IDC, idcol = "Filter")
+
+library(plyr)
+mu_IDC <- ddply(mat0.r$IDC, c("method"), summarise, grp.mean=mean(log10(count+1)))
+# head(mu)
+matrix.filters.IDC$method <- factor(matrix.filters.IDC$method, 
+                              levels = methods.ccp, 
+                  labels = c("findcirc", "DCC", "CIRI", 
+                             "circExplorer2 - STAR", "circExplorer2 - bwa",
+                             "circExplorer2 - tophat", "ccp"))
+
+dataset = "IDC"
+names(method_cols) <- c("circExplorer2 - bwa", "circExplorer2 - STAR", "circExplorer2 - tophat", "CIRI", "DCC", "findcirc", "ccp")
+p.idc <- ggplot(matrix.filters.IDC, aes(x = log2(count+1), color = method)) + 
+  geom_histogram(fill = "white", position = "identity", aes(y= ..density..), bins = 50, alpha = 0.3) + #..count../sum(..count..)), bins = 50) +
+  geom_density(alpha = 0.7) +
+  # geom_vline(data = mu, aes(xintercept = grp.mean, color = method),
+  #            linetype="dashed") +
+  # scale_y_continuous(labels = percent_format()) +
+  scale_y_continuous() +
+  facet_grid(Filter~method, scales = "free",
+                labeller = label_wrap_gen(width=10)) +
+  ggtitle(label = "",
+          subtitle = paste("dataset", dataset, sep="-")) +
+  theme_classic() +
+  theme(legend.position = "bottom",
+          strip.text.x = element_text(face = "bold.italic", size = 5),
+          strip.text.y = element_text(face = "bold.italic", size = 8), #angle = 75),
+          strip.background = element_rect(#fill = "lightblue",
+                                        colour = "grey", size = 1),
+          axis.text.x = element_text(hjust = 1, angle = 45),
+          # axis.text.x = element_blank(),
+          # axis.text.y = element_blank(),
+          # panel.spacing = unit(0, "lines"),
+          plot.margin = unit(c(0,0,0,0), "cm")) +
+  scale_color_manual(values = method_cols) +
+  xlab("log(count+1)") #+ 
+  # ylab("Frequency")
+png(file = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/robustness_glmm/IDC/ZI_IDC_MethodsFilters.png",
+     width = 10, height = 6, units = "in", res = 300)
+p.idc
+dev.off()
+
+
+## DM1
+matrix.filter.list.DM1 <- list(F0 = mat0.r$DM1,
+                           # F1 = mat1.r$IDC,
+                           # F2 = mat2.r$IDC,
+                           F3 = mat2.r$DM1)
+matrix.filters.DM1 <- rbindlist(matrix.filter.list.DM1, idcol = "Filter")
+
+library(plyr)
+mu_DM1 <- ddply(mat0.r$DM1, c("method"), summarise, grp.mean=mean(log10(count+1)))
+# head(mu)
+matrix.filters.DM1$method <- factor(matrix.filters.DM1$method, 
+                              levels = methods.ccp, 
+                  labels = c("findcirc", "DCC", "CIRI", 
+                             "circExplorer2 - STAR", "circExplorer2 - bwa",
+                             "circExplorer2 - tophat", "ccp"))
+
+dataset = "DM1"
+names(method_cols) <- c("circExplorer2 - bwa", "circExplorer2 - STAR", "circExplorer2 - tophat", "CIRI", "DCC", "findcirc", "ccp")
+p.dm1 <- ggplot(matrix.filters.DM1, aes(x = log2(count+1), color = method)) + 
+  geom_histogram(fill = "white", position = "identity", aes(y= ..density..), bins = 50, alpha = 0.3) + #..count../sum(..count..)), bins = 50) +
+  geom_density(alpha = 0.7) +
+  # geom_vline(data = mu, aes(xintercept = grp.mean, color = method),
+  #            linetype="dashed") +
+  # scale_y_continuous(labels = percent_format()) +
+  scale_y_continuous() +
+  facet_grid(Filter~method, scales = "free",
+                labeller = label_wrap_gen(width=10)) +
+  ggtitle(label = "",
+          subtitle = paste("dataset", dataset, sep="-")) +
+  theme_classic() +
+  theme(legend.position = "bottom",
+          strip.text.x = element_text(face = "bold.italic", size = 5),
+          strip.text.y = element_text(face = "bold.italic", size = 8), #angle = 75),
+          strip.background = element_rect(#fill = "lightblue",
+                                        colour = "grey", size = 1),
+          axis.text.x = element_text(hjust = 1, angle = 45),
+          # axis.text.x = element_blank(),
+          # axis.text.y = element_blank(),
+          # panel.spacing = unit(0, "lines"),
+          plot.margin = unit(c(0,0,0,0), "cm")) +
+  scale_color_manual(values = method_cols) +
+  xlab("log(count+1)") #+ 
+  # ylab("Frequency")
+png(file = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/robustness_glmm/DM1/ZI_DM1_MethodsFilters.png",
+     width = 10, height = 6, units = "in", res = 300)
+p.dm1
+dev.off()
+
+p_legend <- get_legend(ggplot(matrix.filters.TALL, aes(x = log2(count+1), color = method)) + 
+  geom_histogram(fill = "white", position = "identity", aes(y= ..density..), bins = 50, alpha = 0.3) + #..count../sum(..count..)), bins = 50) +
+  geom_density(alpha = 0.7) +
+  # geom_vline(data = mu, aes(xintercept = grp.mean, color = method),
+  #            linetype="dashed") +
+  # scale_y_continuous(labels = percent_format()) +
+  scale_y_continuous() +
+  facet_grid(Filter~method, scales = "free",
+                labeller = label_wrap_gen(width=10)) +
+  ggtitle(label = "",
+          subtitle = paste("dataset", dataset, sep="-")) +
+  theme_classic() +
+  theme(legend.position = "bottom",
+          strip.text.x = element_text(face = "bold.italic", size = 5),
+          strip.text.y = element_text(face = "bold.italic", size = 8), #angle = 75),
+          strip.background = element_rect(#fill = "lightblue",
+                                        colour = "grey", size = 1),
+          axis.text.x = element_text(hjust = 1, angle = 45),
+          # axis.text.x = element_blank(),
+          # axis.text.y = element_blank(),
+          # panel.spacing = unit(0, "lines"),
+          plot.margin = unit(c(0,0,0,0), "cm")) +
+  scale_color_manual(values = method_cols) +
+  xlab("log(count+1)"))
+library(gridExtra)
+library(ggpubr)
+png(file = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/robustness_glmm/ZI_Datasets_MethodsF2.png",
+     width = 40, height = 15, units = "cm", res = 300)
+# grid.arrange(p.tall, p.ipf, p.idc, p_legend, ncol=3, nrow = 2, 
+#              # layout_matrix = rbind(c(1,2), c(3,3)),
+#              # widths = c(2.5, 2.5, 2.5), 
+#              heights = c(2, 0.4), 
+#              top = "circRNA count distribution across circRNA detection-matrix")
+ggpubr::ggarrange(p.dm1, p.idc, p.ipf, ncol=3, nrow=1, common.legend = TRUE, legend="bottom", labels="AUTO", 
+          align = c("h"))
+
+dev.off()
+
+matrix.filter.list <- rbindlist(list(IPF = matrix.filters.IPF,
+                                     TALL = matrix.filters.TALL,
+                                     IDC = matrix.filters.IDC,
+                                     DM1 = matrix.filters.DM1), idcol = "Dataset")
+
+IPFmat0.df.r <- miscset::do.rbind(IPF_list_df, idcol = "Methods", keep.rownames = TRUE)
+# IPFmat.filt.1_df <- lapply(IPFmat.filt.1, function(x) as.data.frame(x))
+# IPFmat1.df.r <- miscset::do.rbind(IPFmat.filt.1_df, idcol = "Methods", keep.rownames = TRUE)
+IPFmat.filt.2_df <- lapply(IPFmat.filt.2, function(x) as.data.frame(x))
+IPFmat2.df.r <- miscset::do.rbind(IPFmat.filt.2_df, idcol = "Methods", keep.rownames = TRUE)
+# IPFmat.filt.3_df <- lapply(IPFmat.filt.3, function(x) as.data.frame(x))
+# IPFmat3.df.r <- miscset::do.rbind(IPFmat.filt.3_df, idcol = "Methods", keep.rownames = TRUE)
+
+mat.df.r.filter <- rbindlist(list(F0 = IPFmat0.df.r,
+                                  # F1 = IPFmat1.df.r,
+                                  # F2 = IPFmat2.df.r,
+                                  F3 = IPFmat2.df.r), idcol = "Filter")
+
+m.aggr <- aggregate(. ~ Filter+Methods, mat.df.r.filter, mean) %>% reshape2::melt(id.vars = c("Methods", "Filter"))
+# head(m.aggr)
+m.aggr$Methods <- factor(m.aggr$Methods)
+m.aggr$Methods <- factor(m.aggr$Methods, levels = levels(m.aggr$Methods), labels = c("ccp","circExplorer2 - bwa", "circExplorer2 - STAR", "circExplorer2 - tophat", 
+                        "CIRI", "DCC", "findcirc"))
+
+names(method_cols) <- c("circExplorer2 - bwa", "circExplorer2 - STAR", "circExplorer2 - tophat", 
+                        "CIRI", "DCC", "findcirc", "ccp")
+dataset = "IPF"
+density.ipf <- ggplot(m.aggr, aes(log10(value), fill=Methods)) +
+  # geom_histogram(fill = "white", position = "dodge") +
+  # geom_freqpoly(binwidth = 500) +
+  geom_histogram(#aes(y=..density..), 
+                 position="identity", alpha = 0.4, bins = 40) +
+  geom_density(alpha = 0.3) +
+  facet_wrap(~Filter) +
+  xlab("Counts per sample (log10)") +
+  ggtitle(#label = "circRNA count distribution across circRNA detection-matrix",
+          label = paste("dataset", dataset, sep="-")) +
+  theme_minimal() + 
+  scale_fill_manual(values = method_cols) +
+  theme_classic() + theme(legend.position="bottom") 
+
+dataset = "T-ALL"
+TALLmat0.df.r <- miscset::do.rbind(TALL_list_df, idcol = "Methods", keep.rownames = TRUE)
+TALLmat.filt.1_df <- lapply(TALLmat.filt.1, function(x) as.data.frame(x))
+TALLmat1.df.r <- miscset::do.rbind(TALLmat.filt.1_df, idcol = "Methods", keep.rownames = TRUE)
+TALLmat.filt.2_df <- lapply(TALLmat.filt.2, function(x) as.data.frame(x))
+TALLmat2.df.r <- miscset::do.rbind(TALLmat.filt.2_df, idcol = "Methods", keep.rownames = TRUE)
+TALLmat.filt.3_df <- lapply(TALLmat.filt.3, function(x) as.data.frame(x))
+TALLmat3.df.r <- miscset::do.rbind(TALLmat.filt.3_df, idcol = "Methods", keep.rownames = TRUE)
+
+mat.df.r.filter <- rbindlist(list(F0 = TALLmat0.df.r,
+                                  F1 = TALLmat1.df.r,
+                                  F2 = TALLmat2.df.r,
+                                  F3 = TALLmat3.df.r), idcol = "Filter")
+
+m.aggr <- aggregate(. ~ Filter+Methods, mat.df.r.filter, mean) %>% reshape2::melt(id.vars = c("Methods", "Filter"))
+# head(m.aggr)
+m.aggr$Methods <- factor(m.aggr$Methods)
+m.aggr$Methods <- factor(m.aggr$Methods, levels = levels(m.aggr$Methods), labels = c("ccp","circExplorer2 - bwa", "circExplorer2 - STAR", "circExplorer2 - tophat", 
+                        "CIRI", "DCC", "findcirc"))
+
+names(method_cols) <- c("circExplorer2 - bwa", "circExplorer2 - STAR", "circExplorer2 - tophat", 
+                        "CIRI", "DCC", "findcirc", "ccp")
+density.tall <- ggplot(m.aggr, aes(log10(value), fill=Methods)) +
+  # geom_histogram(fill = "white", position = "dodge") +
+  # geom_freqpoly(binwidth = 500) +
+  geom_histogram(#aes(y=..density..), 
+                 position="identity", alpha = 0.4, bins = 40) +
+  geom_density(alpha = 0.3) +
+  facet_wrap(~Filter) +
+  xlab("Counts per sample (log10)") +
+  ggtitle(#label = "circRNA count distribution across circRNA detection-matrix",
+          label = paste("dataset", dataset, sep="-")) +
+  theme_minimal() + 
+  scale_fill_manual(values = method_cols) +
+  theme_classic() + theme(legend.position="bottom") 
+
+dataset = "IDC"
+IDCmat0.df.r <- miscset::do.rbind(IDC_list_df, idcol = "Methods", keep.rownames = TRUE)
+IDCmat.filt.1_df <- lapply(IDCmat.filt.1, function(x) as.data.frame(x))
+IDCmat1.df.r <- miscset::do.rbind(IDCmat.filt.1_df, idcol = "Methods", keep.rownames = TRUE)
+IDCmat.filt.2_df <- lapply(IDCmat.filt.2, function(x) as.data.frame(x))
+IDCmat2.df.r <- miscset::do.rbind(IDCmat.filt.2_df, idcol = "Methods", keep.rownames = TRUE)
+IDCmat.filt.3_df <- lapply(IDCmat.filt.3, function(x) as.data.frame(x))
+IDCmat3.df.r <- miscset::do.rbind(IDCmat.filt.3_df, idcol = "Methods", keep.rownames = TRUE)
+
+mat.df.r.filter <- rbindlist(list(F0 = IDCmat0.df.r,
+                                  F1 = IDCmat1.df.r,
+                                  F2 = IDCmat2.df.r,
+                                  F3 = IDCmat3.df.r), idcol = "Filter")
+
+m.aggr <- aggregate(. ~ Filter+Methods, mat.df.r.filter, mean) %>% reshape2::melt(id.vars = c("Methods", "Filter"))
+# head(m.aggr)
+m.aggr$Methods <- factor(m.aggr$Methods)
+m.aggr$Methods <- factor(m.aggr$Methods, levels = levels(m.aggr$Methods), labels = c("ccp","circExplorer2 - bwa", "circExplorer2 - STAR", "circExplorer2 - tophat", 
+                        "CIRI", "DCC", "findcirc"))
+
+names(method_cols) <- c("circExplorer2 - bwa", "circExplorer2 - STAR", "circExplorer2 - tophat", 
+                        "CIRI", "DCC", "findcirc", "ccp")
+density.idc <- ggplot(m.aggr, aes(log10(value), fill=Methods)) +
+  # geom_histogram(fill = "white", position = "dodge") +
+  # geom_freqpoly(binwidth = 500) +
+  geom_histogram(#aes(y=..density..), 
+                 position="identity", alpha = 0.4, bins = 40) +
+  geom_density(alpha = 0.3) +
+  facet_wrap(~Filter) +
+  xlab("Counts per sample (log10)") +
+  ggtitle(#label = "circRNA count distribution across circRNA detection-matrix",
+          label = paste("dataset", dataset, sep="-")) +
+  theme_minimal() + 
+  scale_fill_manual(values = method_cols) +
+  theme_classic() + theme(legend.position="bottom") 
+
+png(file = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/robustness_glmm/Density_Datasets_MethodsF3.png", width = 40, height = 15, units = "cm", res = 300)
+ggarrange(density.tall, density.ipf, density.idc, ncol=4, nrow=1, common.legend = TRUE, legend="bottom", labels="AUTO")
+dev.off()
+
+
+p1 <- ggplot(m.aggr, aes(log10(value), fill=Methods)) +
+  # geom_histogram(fill = "white", position = "dodge") +
+  # geom_freqpoly(binwidth = 500) +
+  geom_histogram(aes(y=..density..), position="identity", alpha = 0.4, bins = 40) +
+  geom_density(alpha = 0.3) +
+  xlab("Counts per sample (log10)") +
+  # ggtitle(label = "circRNA count distribution across circRNA detection-matrix",
+  #         subtitle = paste("dataset", dataset, sep="-")) +
+  theme_minimal() + 
+  theme_classic() + theme(legend.position="none") +
+  scale_color_brewer(palette="Dark2")
+
+# col1 <- rgb(221/255, 160/255, 221/255, 0.5)
+# par(mfrow = c(1,1))
+# hist(log10(colSums(mat0[["dcc"]])), col = col1,
+# # ylim=c(0,450), xlim = c(3.5, 7.2),
+# xlab = "Counts per sample (log10)", main="")
+
+m.aggr <- aggregate(. ~ Methods, IPFmat0.df.r, function(x) 100 * mean(x==0)) %>% reshape2::melt(id.vars = "Methods")
+m.aggr$Methods <- factor(m.aggr$Methods)
+m.aggr$Methods <- factor(m.aggr$Methods, levels = levels(m.aggr$Methods), labels = c("ccp","circExplorer2 - bwa", "circExplorer2 - STAR", "circExplorer2 - tophat", 
+                        "CIRI", "DCC", "findcirc"))
+p2 <- ggplot(m.aggr, aes(value, fill=Methods)) +
+  # geom_histogram(fill = "white", position = "dodge") +
+  # geom_freqpoly(binwidth = 500) +
+  # geom_histogram(aes(y=..density..), position="identity", alpha = 0.4, bins = 40, binwidth = 0.0005) +
+  geom_density(alpha = 0.7) +
+  scale_y_continuous(limits=c(0,0.05)) +
+  xlab("% of zero counts per sample") +
+  # ggtitle(label = "circRNA zero-count distribution across circRNA detection-matrix",
+  #         subtitle = paste("dataset", dataset, sep="-")) +
+  theme_minimal() + 
+  theme_classic() + theme(legend.position="bottom") +
+  scale_color_manual(values = method_cols)
+
+```
+
+
+```{r eval=FALSE, include=FALSE}
+p_legend <- get_legend(ggplot(m.aggr, aes(value, fill=Methods)) +
+  # geom_histogram(fill = "white", position = "dodge") +
+  # geom_freqpoly(binwidth = 500) +
+  geom_histogram(aes(y=..density..), position="identity", alpha = 0.4, bins = 40) +
+  geom_density(alpha = 0.3) +
+  xlab("% of zero counts per sample") +
+  # ggtitle(label = "circRNA zero-count distribution across circRNA detection-matrix",
+  #         subtitle = paste("dataset", dataset, sep="-")) +
+  theme_minimal() + 
+  theme_classic() + theme(legend.position="bottom",
+                          legend.title = element_text(size = 11),
+                          legend.text = element_text(size = 8)) +
+  scale_color_manual(values = method_cols))
+library(gridExtra)
+
+```
+
+```{r eval=FALSE, include=FALSE}
+tiff(file = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/robustness_glmm/IPF/ZI_TALL.tiff",
+     width = 10, height = 6, units = "in", res = 300)
+grid.arrange(p1, p2, p_legend, ncol=2, nrow = 2, 
+             layout_matrix = rbind(c(1,2), c(3,3)),
+             widths = c(2.5, 2.5), heights = c(2, 0.4), top = paste0("circRNA zero-count distribution across circRNA detection-matrix \n", "dataset-", dataset))
+dev.off()
+```
+
+```{r include=FALSE}
+percexpr_filter_cap <- tbls(name="percexpr_filter_cap","Percentage of zeros in each data set after filtering data by expression")
+
+kable(makeplotIDC.r, caption = percexpr_filter_cap) %>%
+  kable_styling(bootstrap_options = "striped", full_width = T, position = "center")
+```
+
+```{r, IPF_zero}
+# plot with text annotations at edges
+
+perc.sepsis <- ggplot(data = makeplotsepsis.r, aes(x = perc.circular, y = perc.zeros)) +
+  geom_point(aes(x = perc.circular, y = perc.zeros, colour = perc.sample_filter), size = 2) +
+  scale_x_reverse(labels = function(x)percent(x, accuracy = 1), limits = c(1,0)) +
+  # geom_point(aes(text = paste("filter: ", perc.sample_filter, "samples"),
+  #                color = perc.sample_filter), size = 2, alpha = 1) +
+  facet_wrap(~ method) +
+  # facet_wrap(~ Label1 + Label2) +
+
+  scale_y_continuous(labels = function(x)percent(x, accuracy = 1), limits = c(0,1)) +
+  # scale_x_continuous(labels = function(x)percent(x, accuracy = 1), limits = c(0,1)) +
+  
+  labs(title = "Dataset - SEPSIS", 
+       y = "% of zeros", x = "% of circular RNAs",
+       colour = "Filter") +
+  coord_fixed(ratio = 1/1) +
+  
+  geom_text(data = dat_text.IPF,
+            aes(x = 0.50, y = 0.27, label = label),
+            hjust = 0.5,
+            vjust = 0,
+            size = 3) +
+
+  # geom_label_repel(aes(label = n.sample_filter,
+  #                   fill = n.sample_filter), color = 'black',
+  #                   size = 3.5) +
+  theme_bw() +
+  theme(strip.background=element_rect(color = NA),
+        strip.text=element_text(size=7),
+        #panel.spacing = unit(1, "lines"), 
+        axis.text.x = element_text(size = 8), axis.title.x = element_text(size = 10),
+        axis.text.y = element_text(size = 8), axis.title.y = element_text(size = 10),
+        plot.title = element_text(size = 10, face = "bold", color = "darkgreen"),
+        legend.position = "bottom")
+
+perc.sepsis
+```
+
+```{r, IPF_zero}
+# plot with text annotations at edges
+
+perc.ipf <- ggplot(data = makeplotIPF.r, aes(x = perc.circular, y = perc.zeros)) +
+  geom_point(aes(x = perc.circular, y = perc.zeros, colour = perc.sample_filter), size = 2) +
+  scale_x_reverse(labels = function(x)percent(x, accuracy = 1), limits = c(1,0)) +
+  # geom_point(aes(text = paste("filter: ", perc.sample_filter, "samples"),
+  #                color = perc.sample_filter), size = 2, alpha = 1) +
+  facet_wrap(~ method) +
+  # facet_wrap(~ Label1 + Label2) +
+
+  scale_y_continuous(labels = function(x)percent(x, accuracy = 1), limits = c(0,1)) +
+  # scale_x_continuous(labels = function(x)percent(x, accuracy = 1), limits = c(0,1)) +
+  
+  labs(title = "Dataset - IPF", 
+       y = "% of zeros", x = "% of circular RNAs",
+       colour = "Filter") +
+  coord_fixed(ratio = 1/1) +
+  
+  geom_text(data = dat_text.IPF,
+            aes(x = 0.50, y = 0.27, label = label),
+            hjust = 0.5,
+            vjust = 0,
+            size = 3) +
+
+  # geom_label_repel(aes(label = n.sample_filter,
+  #                   fill = n.sample_filter), color = 'black',
+  #                   size = 3.5) +
+  theme_bw() +
+  theme(strip.background=element_rect(color = NA),
+        strip.text=element_text(size=7),
+        #panel.spacing = unit(1, "lines"), 
+        axis.text.x = element_text(size = 8), axis.title.x = element_text(size = 10),
+        axis.text.y = element_text(size = 8), axis.title.y = element_text(size = 10),
+        plot.title = element_text(size = 10, face = "bold", color = "darkgreen"),
+        legend.position = "bottom")
+
+perc.ipf
+```
+
+```{r, TALL_zero}
+# plot with text annotations at edges
+
+perc.tall <- ggplot(data = makeplotTALL.r, aes(x = perc.circular, y = perc.zeros)) +
+  geom_point(aes(x = perc.circular, y = perc.zeros, colour = perc.sample_filter), size = 2) +
+  scale_x_reverse(labels = function(x)percent(x, accuracy = 1), limits = c(1,0)) +
+  # geom_point(aes(text = paste("filter: ", perc.sample_filter, "samples"),
+  #                color = perc.sample_filter), size = 2, alpha = 1) +
+  facet_wrap(~ method) +
+  # facet_wrap(~ Label1 + Label2) +
+
+  scale_y_continuous(labels = function(x)percent(x, accuracy = 1), limits = c(0,1)) +
+  # scale_x_continuous(labels = function(x)percent(x, accuracy = 1), limits = c(0,1)) +
+  
+  labs(title = "Dataset - T-ALL", 
+       y = "% of zeros", x = "% of circular RNAs",
+       colour = "Filter") +
+  coord_fixed(ratio = 1/1) +
+  
+  geom_text(data = dat_text.TALL,
+            aes(x = 0.50, y = 0.27, label = label),
+            hjust = 0.5,
+            vjust = 0,
+            size = 3) +
+
+  # geom_label_repel(aes(label = n.sample_filter,
+  #                   fill = n.sample_filter), color = 'black',
+  #                   size = 3.5) +
+  theme_bw() +
+  theme(strip.background=element_rect(color = NA),
+        strip.text=element_text(size=7),
+        #panel.spacing = unit(1, "lines"), 
+        axis.text.x = element_text(size = 8), axis.title.x = element_text(size = 10),
+        axis.text.y = element_text(size = 8), axis.title.y = element_text(size = 10),
+        plot.title = element_text(size = 10, face = "bold", color = "darkgreen"),
+        legend.position = "bottom")
+
+perc.tall
+```
+
+```{r, IDC_zero}
+# plot with text annotations at edges
+perc.IDC <- ggplot(data = makeplotIDC.r, aes(x = perc.circular, y = perc.zeros)) +
+  geom_point(aes(x = perc.circular, y = perc.zeros, colour = perc.sample_filter), size = 2) +
+  scale_x_reverse(labels = function(x)percent(x, accuracy = 1), limits = c(1,0)) +
+  # geom_point(aes(text = paste("filter: ", perc.sample_filter, "samples"),
+  #                color = perc.sample_filter), size = 2, alpha = 1) +
+  facet_wrap(~ method) +
+  # facet_wrap(~ Label1 + Label2) +
+
+  scale_y_continuous(labels = function(x)percent(x, accuracy = 1), limits = c(0,1)) +
+  # scale_x_continuous(labels = function(x)percent(x, accuracy = 1), limits = c(0,1)) +
+  
+  labs(title = "Dataset - IDC", 
+       y = "% of zeros", x = "% of circular RNAs",
+       colour = "Filter") +
+  coord_fixed(ratio = 1/1) +
+  
+  geom_text(data = dat_text.IDC,
+            aes(x = 0.50, y = 0.27, label = label),
+            hjust = 0.5,
+            vjust = 0,
+            size = 3) +
+
+  # geom_label_repel(aes(label = n.sample_filter,
+  #                   fill = n.sample_filter), color = 'black',
+  #                   size = 3.5) +
+  theme_bw() +
+  theme(strip.background=element_rect(color = NA),
+        strip.text=element_text(size=7),
+        #panel.spacing = unit(1, "lines"), 
+        axis.text.x = element_text(size = 8), axis.title.x = element_text(size = 10),
+        axis.text.y = element_text(size = 8), axis.title.y = element_text(size = 10),
+        plot.title = element_text(size = 10, face = "bold", color = "darkgreen"),
+        legend.position = "bottom")
+
+perc.IDC
+```
+
+```{r, DM1_zero}
+# plot with text annotations at edges
+perc.DM <- ggplot(data = makeplotDM1.r, aes(x = perc.circular, y = perc.zeros)) +
+  geom_point(aes(x = perc.circular, y = perc.zeros, colour = perc.sample_filter), size = 2) +
+  scale_x_reverse(labels = function(x)percent(x, accuracy = 1), limits = c(1,0)) +
+  # geom_point(aes(text = paste("filter: ", perc.sample_filter, "samples"),
+  #                color = perc.sample_filter), size = 2, alpha = 1) +
+  facet_wrap(~ method) +
+  # facet_wrap(~ Label1 + Label2) +
+
+  scale_y_continuous(labels = function(x)percent(x, accuracy = 1), limits = c(0,1)) +
+  # scale_x_continuous(labels = function(x)percent(x, accuracy = 1), limits = c(0,1)) +
+  
+  labs(title = "Dataset - DM1", 
+       y = "% of zeros", x = "% of circular RNAs",
+       colour = "Filter") +
+  coord_fixed(ratio = 1/1) +
+  
+  geom_text(data = dat_text.DM1,
+            aes(x = 0.50, y = 0.27, label = label),
+            hjust = 0.5,
+            vjust = 0,
+            size = 3) +
+
+  # geom_label_repel(aes(label = n.sample_filter,
+  #                   fill = n.sample_filter), color = 'black',
+  #                   size = 3.5) +
+  theme_bw() +
+  theme(strip.background=element_rect(color = NA),
+        strip.text=element_text(size=7),
+        #panel.spacing = unit(1, "lines"), 
+        axis.text.x = element_text(size = 8), axis.title.x = element_text(size = 10),
+        axis.text.y = element_text(size = 8), axis.title.y = element_text(size = 10),
+        plot.title = element_text(size = 10, face = "bold", color = "darkgreen"),
+        legend.position = "bottom")
+
+perc.DM
+```
+
+
+```{r}
+png(file = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/robustness_glmm/PercZeros_Datasets_MethodsFilters.png",
+     width = 40, height = 15, units = "cm", res = 300)
+ggpubr::ggarrange(perc.DM, perc.IDC, perc.ipf, perc.sepsis, ncol=3, nrow=1, common.legend = TRUE, legend="bottom", labels="AUTO")
+dev.off()
+```
+
+
+```{r}
+Dataset = "SEPSIS"
+
+makeplot <- lapply(methods.ccp, FUN = function(d) makefiltexprplot(
+  matrix = as.data.frame(sepsisData_list[[d]]),
+  method = d,
+  meta = meta_sepsis, filter = c(0,10), zero.filt = TRUE))
+plot.list=list()
+for (i in 1:2){
+# i=1
+  makeplot.r <- lapply(seq(1:7), function(x) rbind(makeplot[[x]][[2]][[i]]))
+
+  names(makeplot.r) <- methods.ccp
+
+
+  summ <- function(df, tumor="Patient", normal="Healthy") {
+    mean.n <- rowMeans(df[,meta_sepsis$sample_id[meta_sepsis$condition==normal]])
+    mean.t <- rowMeans(df[,meta_sepsis$sample_id[meta_sepsis$condition==tumor]])
+    perc.zero.n <- apply(df[,meta_sepsis$sample_id[meta_sepsis$condition==normal]], 1, function(x)
+      (sum(x==0)/length(x))*100)
+    perc.zero.t <- apply(df[,meta_sepsis$sample_id[meta_sepsis$condition==tumor]], 1, function(x)
+      (sum(x==0)/length(x))*100)
+    
+    mean.zero.n <- merge(mean.n, perc.zero.n, by = "row.names")
+    mean.zero.t <- merge(mean.t, perc.zero.t, by = "row.names")
+    
+    return(rbindlist(list(normal = mean.zero.n, tumor = mean.zero.t), idcol = "condition"))
+    
+    }
+
+  makeplot.rplot <- rbindlist(lapply(makeplot.r, summ), idcol = "method")
+  colnames(makeplot.rplot) = c("method", "condition", "circ_id", "mean.expr", "perc.zeros")
+  
+  # set up cut-off values 
+  breaks <- c(seq(0,90,5),100)
+  # specify interval/bin labels
+  tags <- c("[0-5)","[5-10)", "[10-15)", "[15-20)", "[20-25)", "[25-30)", "[30-35)", "[35-40)", "[40-45)", "[45-50)",
+            "[50-55)", "[55-60)", "[60-65)", "[65-70)", "[70-75)", "[75-80)", "[80-85)", "[85-90)", "[90-100)")
+  # bucketing values into bins
+  group_tags <- cut(makeplot.rplot$perc.zeros, 
+                    breaks=breaks, 
+                    include.lowest=TRUE, 
+                    right=FALSE, 
+                    labels=tags)
+  
+  # inspect bins
+  # summary(group_tags_tumor)
+  
+  zero_groups <- factor(group_tags, 
+                        levels = tags,
+                        ordered = TRUE)
+  
+  
+  ggplot(data = as_tibble(group_tags), mapping = aes(x=value)) + 
+    geom_bar(fill="bisque",color="white",alpha=0.7) + 
+    stat_count(geom="text", aes(label=sprintf("%.4f",..count../length(group_tags))), vjust=-0.5) +
+    labs(x='percentage of zeros per circRNAs') +
+    theme_minimal() 
+  
+  v <- makeplot.rplot %>% dplyr::select(condition, mean.expr,perc.zeros) #pick the variable 
+  vgroup <- as_tibble(v) %>% 
+    mutate(tag = case_when(
+      perc.zeros < 5 ~ tags[1],
+      perc.zeros >= 5 & perc.zeros < 10 ~ tags[2],
+      perc.zeros >= 10 & perc.zeros < 15 ~ tags[3],
+      perc.zeros >= 15 & perc.zeros < 20 ~ tags[4],
+      perc.zeros >= 20 & perc.zeros < 25 ~ tags[5],
+      perc.zeros >= 25 & perc.zeros < 30 ~ tags[6],
+      perc.zeros >= 30 & perc.zeros < 35 ~ tags[7],
+      perc.zeros >= 35 & perc.zeros < 40 ~ tags[8],
+      perc.zeros >= 40 & perc.zeros < 45 ~ tags[9],
+      perc.zeros >= 45 & perc.zeros < 50 ~ tags[10],
+      perc.zeros >= 50 & perc.zeros < 55 ~ tags[11],
+      perc.zeros >= 55 & perc.zeros < 60 ~ tags[12],
+      perc.zeros >= 60 & perc.zeros < 65 ~ tags[13],
+      perc.zeros >= 65 & perc.zeros < 70 ~ tags[14],
+      perc.zeros >= 70 & perc.zeros < 75 ~ tags[15],
+      perc.zeros >= 75 & perc.zeros < 80 ~ tags[16],
+      perc.zeros >= 80 & perc.zeros < 85 ~ tags[17],
+      perc.zeros >= 85 & perc.zeros < 90 ~ tags[18],
+      perc.zeros >= 90 ~ tags[19]
+      ))
+  # summary(vgroup)
+  vgroup$tag <- factor(vgroup$tag,
+                       levels = tags,
+                       ordered = FALSE)
+  
+  plot.list[[i]] <- ggplot(data = vgroup, mapping = aes(x=tag,y=log2(mean.expr))) + 
+    geom_jitter(aes(color='blue'),alpha=0.2) +
+    geom_boxplot(fill="bisque",color="black",alpha=0.3) + 
+    facet_wrap(~condition) +
+    labs(#title = 'None Filter',
+      x = 'percentage of zero per circRNA',
+      y = expression(log[2]~circRNA * "(mean expression)")) +
+    guides(color=FALSE) +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1, size = 8))
+  
+}
+
+names(plot.list) <- c("0", "10")
+
+png(file = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/robustness_glmm/sepsis/meanzeroBoxplotBins.png", width = 10, height = 9, units = "in", res = 300)
+
+egg::ggarrange(plots = plot.list, top = paste0("Dataset-",Dataset), labels = c("None filter", "Stringent filter"), nrow = 1)
+
+dev.off()
+# ggexport(plotlist = plot.list, filename = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/GOF/meanzeroBoxplot.png",
+#          nrow = 1, ncol = 3)
+
+```
+
+```{r}
+Dataset = "DM1"
+
+makeplot <- lapply(methods.ccp, FUN = function(d) makefiltexprplot(
+  matrix = as.data.frame(DM1Data_list[[d]]),
+  method = d,
+  meta = meta_dm1, filter = c(0,10), zero.filt = TRUE))
+plot.list=list()
+for (i in 1:2){
+# i=1
+  makeplot.r <- lapply(seq(1:7), function(x) rbind(makeplot[[x]][[2]][[i]]))
+
+  names(makeplot.r) <- methods.ccp
+
+
+  summ <- function(df, tumor="DM1", normal="normal") {
+    mean.n <- rowMeans(df[,meta_dm1$sample_id[meta_dm1$condition==normal]])
+    mean.t <- rowMeans(df[,meta_dm1$sample_id[meta_dm1$condition==tumor]])
+    perc.zero.n <- apply(df[,meta_dm1$sample_id[meta_dm1$condition==normal]], 1, function(x)
+      (sum(x==0)/length(x))*100)
+    perc.zero.t <- apply(df[,meta_dm1$sample_id[meta_dm1$condition==tumor]], 1, function(x)
+      (sum(x==0)/length(x))*100)
+    
+    mean.zero.n <- merge(mean.n, perc.zero.n, by = "row.names")
+    mean.zero.t <- merge(mean.t, perc.zero.t, by = "row.names")
+    
+    return(rbindlist(list(normal = mean.zero.n, tumor = mean.zero.t), idcol = "condition"))
+    
+    }
+
+  makeplot.rplot <- rbindlist(lapply(makeplot.r, summ), idcol = "method")
+  colnames(makeplot.rplot) = c("method", "condition", "circ_id", "mean.expr", "perc.zeros")
+  
+  # set up cut-off values 
+  breaks <- c(seq(0,90,5),100)
+  # specify interval/bin labels
+  tags <- c("[0-5)","[5-10)", "[10-15)", "[15-20)", "[20-25)", "[25-30)", "[30-35)", "[35-40)", "[40-45)", "[45-50)",
+            "[50-55)", "[55-60)", "[60-65)", "[65-70)", "[70-75)", "[75-80)", "[80-85)", "[85-90)", "[90-100)")
+  # bucketing values into bins
+  group_tags <- cut(makeplot.rplot$perc.zeros, 
+                    breaks=breaks, 
+                    include.lowest=TRUE, 
+                    right=FALSE, 
+                    labels=tags)
+  
+  # inspect bins
+  # summary(group_tags_tumor)
+  
+  zero_groups <- factor(group_tags, 
+                        levels = tags,
+                        ordered = TRUE)
+  
+  
+  ggplot(data = as_tibble(group_tags), mapping = aes(x=value)) + 
+    geom_bar(fill="bisque",color="white",alpha=0.7) + 
+    stat_count(geom="text", aes(label=sprintf("%.4f",..count../length(group_tags))), vjust=-0.5) +
+    labs(x='percentage of zeros per circRNAs') +
+    theme_minimal() 
+  
+  v <- makeplot.rplot %>% dplyr::select(condition, mean.expr,perc.zeros) #pick the variable 
+  vgroup <- as_tibble(v) %>% 
+    mutate(tag = case_when(
+      perc.zeros < 5 ~ tags[1],
+      perc.zeros >= 5 & perc.zeros < 10 ~ tags[2],
+      perc.zeros >= 10 & perc.zeros < 15 ~ tags[3],
+      perc.zeros >= 15 & perc.zeros < 20 ~ tags[4],
+      perc.zeros >= 20 & perc.zeros < 25 ~ tags[5],
+      perc.zeros >= 25 & perc.zeros < 30 ~ tags[6],
+      perc.zeros >= 30 & perc.zeros < 35 ~ tags[7],
+      perc.zeros >= 35 & perc.zeros < 40 ~ tags[8],
+      perc.zeros >= 40 & perc.zeros < 45 ~ tags[9],
+      perc.zeros >= 45 & perc.zeros < 50 ~ tags[10],
+      perc.zeros >= 50 & perc.zeros < 55 ~ tags[11],
+      perc.zeros >= 55 & perc.zeros < 60 ~ tags[12],
+      perc.zeros >= 60 & perc.zeros < 65 ~ tags[13],
+      perc.zeros >= 65 & perc.zeros < 70 ~ tags[14],
+      perc.zeros >= 70 & perc.zeros < 75 ~ tags[15],
+      perc.zeros >= 75 & perc.zeros < 80 ~ tags[16],
+      perc.zeros >= 80 & perc.zeros < 85 ~ tags[17],
+      perc.zeros >= 85 & perc.zeros < 90 ~ tags[18],
+      perc.zeros >= 90 ~ tags[19]
+      ))
+  # summary(vgroup)
+  vgroup$tag <- factor(vgroup$tag,
+                       levels = tags,
+                       ordered = FALSE)
+  
+  plot.list[[i]] <- ggplot(data = vgroup, mapping = aes(x=tag,y=log2(mean.expr))) + 
+    geom_jitter(aes(color='blue'),alpha=0.2) +
+    geom_boxplot(fill="bisque",color="black",alpha=0.3) + 
+    facet_wrap(~condition) +
+    labs(#title = 'None Filter',
+      x = 'percentage of zero per circRNA',
+      y = expression(log[2]~circRNA * "(mean expression)")) +
+    guides(color=FALSE) +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1, size = 8))
+  
+}
+
+names(plot.list) <- c("0", "10")
+
+png(file = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/robustness_glmm/DM1/meanzeroBoxplotBins.png", width = 10, height = 9, units = "in", res = 300)
+
+egg::ggarrange(plots = plot.list, top = paste0("Dataset-",Dataset), labels = c("None filter", "Stringent filter"), nrow = 1)
+
+dev.off()
+# ggexport(plotlist = plot.list, filename = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/GOF/meanzeroBoxplot.png",
+#          nrow = 1, ncol = 3)
+
+```
+
+
+```{r}
+Dataset = "IPF"
+
+makeplot <- lapply(methods.ccp, FUN = function(d) makefiltexprplot(
+  matrix = as.data.frame(IPFData_list[[d]]),
+  method = d,
+  meta = meta_ipf, filter = c(0,10), zero.filt = TRUE))
+plot.list=list()
+for (i in 1:2){
+# i=1
+  makeplot.r <- lapply(seq(1:7), function(x) rbind(makeplot[[x]][[2]][[i]]))
+
+  names(makeplot.r) <- methods.ccp
+
+
+  summ <- function(df, tumor="IPF", normal="normal") {
+    mean.n <- rowMeans(df[,meta_ipf$sample_id[meta_ipf$condition==normal]])
+    mean.t <- rowMeans(df[,meta_ipf$sample_id[meta_ipf$condition==tumor]])
+    perc.zero.n <- apply(df[,meta_ipf$sample_id[meta_ipf$condition==normal]], 1, function(x)
+      (sum(x==0)/length(x))*100)
+    perc.zero.t <- apply(df[,meta_ipf$sample_id[meta_ipf$condition==tumor]], 1, function(x)
+      (sum(x==0)/length(x))*100)
+    
+    mean.zero.n <- merge(mean.n, perc.zero.n, by = "row.names")
+    mean.zero.t <- merge(mean.t, perc.zero.t, by = "row.names")
+    
+    return(rbindlist(list(normal = mean.zero.n, tumor = mean.zero.t), idcol = "condition"))
+    
+    }
+
+  makeplot.rplot <- rbindlist(lapply(makeplot.r, summ), idcol = "method")
+  colnames(makeplot.rplot) = c("method", "condition", "circ_id", "mean.expr", "perc.zeros")
+  
+  # set up cut-off values 
+  breaks <- c(seq(0,90,5),100)
+  # specify interval/bin labels
+  tags <- c("[0-5)","[5-10)", "[10-15)", "[15-20)", "[20-25)", "[25-30)", "[30-35)", "[35-40)", "[40-45)", "[45-50)",
+            "[50-55)", "[55-60)", "[60-65)", "[65-70)", "[70-75)", "[75-80)", "[80-85)", "[85-90)", "[90-100)")
+  # bucketing values into bins
+  group_tags <- cut(makeplot.rplot$perc.zeros, 
+                    breaks=breaks, 
+                    include.lowest=TRUE, 
+                    right=FALSE, 
+                    labels=tags)
+  
+  # inspect bins
+  # summary(group_tags_tumor)
+  
+  zero_groups <- factor(group_tags, 
+                        levels = tags,
+                        ordered = TRUE)
+  
+  
+  ggplot(data = as_tibble(group_tags), mapping = aes(x=value)) + 
+    geom_bar(fill="bisque",color="white",alpha=0.7) + 
+    stat_count(geom="text", aes(label=sprintf("%.4f",..count../length(group_tags))), vjust=-0.5) +
+    labs(x='percentage of zeros per circRNAs') +
+    theme_minimal() 
+  
+  v <- makeplot.rplot %>% dplyr::select(condition, mean.expr,perc.zeros) #pick the variable 
+  vgroup <- as_tibble(v) %>% 
+    mutate(tag = case_when(
+      perc.zeros < 5 ~ tags[1],
+      perc.zeros >= 5 & perc.zeros < 10 ~ tags[2],
+      perc.zeros >= 10 & perc.zeros < 15 ~ tags[3],
+      perc.zeros >= 15 & perc.zeros < 20 ~ tags[4],
+      perc.zeros >= 20 & perc.zeros < 25 ~ tags[5],
+      perc.zeros >= 25 & perc.zeros < 30 ~ tags[6],
+      perc.zeros >= 30 & perc.zeros < 35 ~ tags[7],
+      perc.zeros >= 35 & perc.zeros < 40 ~ tags[8],
+      perc.zeros >= 40 & perc.zeros < 45 ~ tags[9],
+      perc.zeros >= 45 & perc.zeros < 50 ~ tags[10],
+      perc.zeros >= 50 & perc.zeros < 55 ~ tags[11],
+      perc.zeros >= 55 & perc.zeros < 60 ~ tags[12],
+      perc.zeros >= 60 & perc.zeros < 65 ~ tags[13],
+      perc.zeros >= 65 & perc.zeros < 70 ~ tags[14],
+      perc.zeros >= 70 & perc.zeros < 75 ~ tags[15],
+      perc.zeros >= 75 & perc.zeros < 80 ~ tags[16],
+      perc.zeros >= 80 & perc.zeros < 85 ~ tags[17],
+      perc.zeros >= 85 & perc.zeros < 90 ~ tags[18],
+      perc.zeros >= 90 ~ tags[19]
+      ))
+  # summary(vgroup)
+  vgroup$tag <- factor(vgroup$tag,
+                       levels = tags,
+                       ordered = FALSE)
+  
+  plot.list[[i]] <- ggplot(data = vgroup, mapping = aes(x=tag,y=log2(mean.expr))) + 
+    geom_jitter(aes(color='blue'),alpha=0.2) +
+    geom_boxplot(fill="bisque",color="black",alpha=0.3) + 
+    facet_wrap(~condition) +
+    labs(#title = 'None Filter',
+      x = 'percentage of zero per circRNA',
+      y = expression(log[2]~circRNA * "(mean expression)")) +
+    guides(color=FALSE) +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1, size = 8))
+  
+}
+
+names(plot.list) <- c("0", "20")
+
+png(file = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/robustness_glmm/IPF/meanzeroBoxplotBins.png", width = 10, height = 9, units = "in", res = 300)
+
+egg::ggarrange(plots = plot.list, top = paste0("Dataset-",Dataset), labels = c("None filter", "Stringent filter"), nrow = 1)
+
+dev.off()
+# ggexport(plotlist = plot.list, filename = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/GOF/meanzeroBoxplot.png",
+#          nrow = 1, ncol = 3)
+
+```
+
+```{r}
+Dataset = "T-ALL"
+
+makeplot <- lapply(methods.ccp, FUN = function(d) makefiltexprplot(
+  matrix = as.data.frame(TALLData_list[[d]]),
+  method = d,
+  meta = meta))
+plot.list=list()
+for (i in 1:3){
+
+makeplot.r <- lapply(seq(1:7), function(x) rbind(makeplot.TALL[[x]][[2]][[i]]))
+names(makeplot.r) <- methods
+
+summ <- function(df) {
+  mean <- rowMeans(df)
+  perc.zero <- apply(df, 1, function(x) (sum(x==0)/length(x))*100)
+  mean.zero <- merge(mean, perc.zero, by = "row.names")
+  return(mean.zero)
+}
+makeplot.rplot <- rbindlist(lapply(makeplot.r, summ), idcol = "method")
+
+# set up cut-off values 
+breaks <- c(seq(0,90,5),100)
+# specify interval/bin labels
+tags <- c("[0-5)","[5-10)", "[10-15)", "[15-20)", "[20-25)", "[25-30)", "[30-35)", "[35-40)", "[40-45)", "[45-50)", "[50-55)", "[55-60)", "[60-65)", "[65-70)", "[70-75)", "[75-80)", "[80-85)", "[85-90)", "[90-100)")
+# bucketing values into bins
+group_tags <- cut(makeplot.rplot$y, 
+                  breaks=breaks, 
+                  include.lowest=TRUE, 
+                  right=FALSE, 
+                  labels=tags)
+# inspect bins
+summary(group_tags)
+
+zero_groups <- factor(group_tags, 
+                      levels = tags,
+                      ordered = TRUE)
+
+
+ggplot(data = as_tibble(group_tags), mapping = aes(x=value)) + 
+  geom_bar(fill="bisque",color="white",alpha=0.7) + 
+  stat_count(geom="text", aes(label=sprintf("%.4f",..count../length(group_tags))), vjust=-0.5) +
+  labs(x='percentage of zeros per circRNAs') +
+  theme_minimal() 
+
+v <- makeplot.rplot %>% dplyr::select(y,x) #pick the variable 
+vgroup <- as_tibble(v) %>% 
+  mutate(tag = case_when(
+    y < 5 ~ tags[1],
+    y >= 5 & y < 10 ~ tags[2],
+    y >= 10 & y < 15 ~ tags[3],
+    y >= 15 & y < 20 ~ tags[4],
+    y >= 20 & y < 25 ~ tags[5],
+    y >= 25 & y < 30 ~ tags[6],
+    y >= 30 & y < 35 ~ tags[7],
+    y >= 35 & y < 40 ~ tags[8],
+    y >= 40 & y < 45 ~ tags[9],
+    y >= 45 & y < 50 ~ tags[10],
+    y >= 50 & y < 55 ~ tags[11],
+    y >= 55 & y < 60 ~ tags[12],
+    y >= 60 & y < 65 ~ tags[13],
+    y >= 65 & y < 70 ~ tags[14],
+    y >= 70 & y < 75 ~ tags[15],
+    y >= 75 & y < 80 ~ tags[16],
+    y >= 80 & y < 85 ~ tags[17],
+    y >= 85 & y < 90 ~ tags[18],
+    y >= 90 ~ tags[19]
+    ))
+summary(vgroup)
+vgroup$tag <- factor(vgroup$tag,
+                       levels = tags,
+                       ordered = FALSE)
+summary(vgroup$tag)
+plot.list[[i]] <- ggplot(data = vgroup, mapping = aes(x=tag,y=log2(x))) + 
+  geom_jitter(aes(color='blue'),alpha=0.2) +
+  geom_boxplot(fill="bisque",color="black",alpha=0.3) + 
+  labs(x='percentage of zero per circRNA',
+       y=expression(log[2]~circRNA * "(mean expression)")) +
+  guides(color=FALSE) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1, size = 5))
+
+}
+
+names(plot.list) <- c("0", "10")
+
+png(file = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/robustness_glmm/TALL/meanzeroBoxplotBins.png", width = 10, height = 9, units = "in", res = 300)
+
+egg::ggarrange(plots = plot.list, top = paste0("Dataset-",Dataset),labels = c("None filter", "Stringent filter"), nrow = 1)
+
+dev.off()
+# ggexport(plotlist = plot.list, filename = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/GOF/meanzeroBoxplot.png",
+#          nrow = 1, ncol = 3)
+
+```
+
+```{r}
+Dataset = "T-ALL"
+
+makeplot <- lapply(methods.ccp, FUN = function(d) makefiltexprplot(
+  matrix = as.data.frame(TALLData_list[[d]]),
+  method = d,
+  meta = meta, filter = c(0,20)
+  ))
+
+plot.list=list()
+for (i in 1:2){
+
+makeplot.r <- lapply(seq(1:7), function(x) rbind(makeplot[[x]][[2]][[i]]))
+names(makeplot.r) <- methods
+
+summ <- function(df, tumor="T-ALL", normal="Thymocyte") {
+  mean.n <- rowMeans(df[,meta.data$groups==normal])
+  mean.t <- rowMeans(df[,meta.data$groups==tumor])
+  perc.zero.n <- apply(df[,meta.data$groups==normal], 1, function(x) (sum(x==0)/length(x))*100)
+  perc.zero.t <- apply(df[,meta.data$groups==tumor], 1, function(x) (sum(x==0)/length(x))*100)
+
+  mean.zero.n <- merge(mean.n, perc.zero.n, by = "row.names")
+  mean.zero.t <- merge(mean.t, perc.zero.t, by = "row.names")
+  
+  return(rbindlist(list(normal = mean.zero.n, tumor = mean.zero.t), idcol = "condition"))
+}
+
+makeplot.rplot <- rbindlist(lapply(makeplot.r, summ), idcol = "method")
+colnames(makeplot.rplot) = c("method", "condition", "circ_id", "mean.expr", "perc.zeros")
+# set up cut-off values 
+breaks <- c(seq(0,90,5),100)
+# specify interval/bin labels
+tags <- c("[0-5)","[5-10)", "[10-15)", "[15-20)", "[20-25)", "[25-30)", "[30-35)", "[35-40)", "[40-45)", "[45-50)", "[50-55)", "[55-60)", "[60-65)", "[65-70)", "[70-75)", "[75-80)", "[80-85)", "[85-90)", "[90-100)")
+# bucketing values into bins
+group_tags <- cut(makeplot.rplot$perc.zeros, 
+                  breaks=breaks, 
+                  include.lowest=TRUE, 
+                  right=FALSE, 
+                  labels=tags)
+
+# inspect bins
+# summary(group_tags_tumor)
+
+zero_groups <- factor(group_tags, 
+                      levels = tags,
+                      ordered = TRUE)
+
+
+ggplot(data = as_tibble(group_tags), mapping = aes(x=value)) + 
+  geom_bar(fill="bisque",color="white",alpha=0.7) + 
+  stat_count(geom="text", aes(label=sprintf("%.4f",..count../length(group_tags))), vjust=-0.5) +
+  labs(x='percentage of zeros per circRNAs') +
+  theme_minimal() 
+
+v <- makeplot.rplot %>% dplyr::select(condition, mean.expr,perc.zeros) #pick the variable 
+vgroup <- as_tibble(v) %>% 
+  mutate(tag = case_when(
+    perc.zeros < 5 ~ tags[1],
+    perc.zeros >= 5 & perc.zeros < 10 ~ tags[2],
+    perc.zeros >= 10 & perc.zeros < 15 ~ tags[3],
+    perc.zeros >= 15 & perc.zeros < 20 ~ tags[4],
+    perc.zeros >= 20 & perc.zeros < 25 ~ tags[5],
+    perc.zeros >= 25 & perc.zeros < 30 ~ tags[6],
+    perc.zeros >= 30 & perc.zeros < 35 ~ tags[7],
+    perc.zeros >= 35 & perc.zeros < 40 ~ tags[8],
+    perc.zeros >= 40 & perc.zeros < 45 ~ tags[9],
+    perc.zeros >= 45 & perc.zeros < 50 ~ tags[10],
+    perc.zeros >= 50 & perc.zeros < 55 ~ tags[11],
+    perc.zeros >= 55 & perc.zeros < 60 ~ tags[12],
+    perc.zeros >= 60 & perc.zeros < 65 ~ tags[13],
+    perc.zeros >= 65 & perc.zeros < 70 ~ tags[14],
+    perc.zeros >= 70 & perc.zeros < 75 ~ tags[15],
+    perc.zeros >= 75 & perc.zeros < 80 ~ tags[16],
+    perc.zeros >= 80 & perc.zeros < 85 ~ tags[17],
+    perc.zeros >= 85 & perc.zeros < 90 ~ tags[18],
+    perc.zeros >= 90 ~ tags[19]
+    ))
+# summary(vgroup)
+vgroup$tag <- factor(vgroup$tag,
+                       levels = tags,
+                       ordered = FALSE)
+# summary(vgroup$tag)
+plot.list[[i]] <- ggplot(data = vgroup, mapping = aes(x=tag,y=log2(mean.expr))) + 
+  geom_jitter(aes(color='blue'),alpha=0.2) +
+  geom_boxplot(fill="bisque",color="black",alpha=0.3) + 
+  facet_wrap(~condition) +
+  labs(title = 'None Filter',
+       x = 'percentage of zero per circRNA',
+       y = expression(log[2]~circRNA * "(mean expression)")) +
+  guides(color=FALSE) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1, size = 8))
+
+}
+
+names(plot.list) <- c("0", "20")
+
+png(file = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/robustness_glmm/TALL/meanzeroBoxplotBins.png", width = 10, height = 9, units = "in", res = 300)
+
+egg::ggarrange(plots = plot.list, top = paste0("Dataset-",Dataset),labels = c("NO filter", "mediun filter"), nrow = 1)
+
+dev.off()
+# ggexport(plotlist = plot.list, filename = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/GOF/meanzeroBoxplot.png",
+#          nrow = 1, ncol = 3)
+
+```
+
+
+```{r}
+Dataset = "IDC"
+makeplot <- lapply(methods.ccp, FUN = function(d) makefiltexprplot(
+  matrix = as.data.frame(IDCData_list[[d]]),
+  method = d,
+  meta = meta_idc, filter = c(0,20)))
+plot.list=list()
+for (i in 1:2){
+  # i=2
+makeplot.r <- lapply(seq(1:7), function(x) rbind(makeplot[[x]][[2]][[i]]))
+names(makeplot.r) <- methods
+
+summ <- function(df, tumor="IDC", normal="PairedNormal") {
+  mean.n <- rowMeans(df[,meta_idc$sample_id[meta_idc$condition==normal]])
+  mean.t <- rowMeans(df[,meta_idc$sample_id[meta_idc$condition==tumor]])
+  perc.zero.n <- apply(df[,meta_idc$sample_id[meta_idc$condition==normal]], 1, function(x) (sum(x==0)/length(x))*100)
+  perc.zero.t <- apply(df[,meta_idc$sample_id[meta_idc$condition==tumor]], 1, function(x) (sum(x==0)/length(x))*100)
+
+  mean.zero.n <- merge(mean.n, perc.zero.n, by = "row.names")
+  mean.zero.t <- merge(mean.t, perc.zero.t, by = "row.names")
+  
+  return(rbindlist(list(normal = mean.zero.n, tumor = mean.zero.t), idcol = "condition"))
+}
+
+makeplot.rplot <- rbindlist(lapply(makeplot.r, summ), idcol = "method")
+colnames(makeplot.rplot) = c("method", "condition", "circ_id", "mean.expr", "perc.zeros")
+
+# set up cut-off values 
+breaks <- c(seq(0,90,5),100)
+# specify interval/bin labels
+tags <- c("[0-5)","[5-10)", "[10-15)", "[15-20)", "[20-25)", "[25-30)", "[30-35)", "[35-40)", "[40-45)", "[45-50)", "[50-55)", "[55-60)", "[60-65)", "[65-70)", "[70-75)", "[75-80)", "[80-85)", "[85-90)", "[90-100)")
+# bucketing values into bins
+group_tags <- cut(makeplot.rplot$perc.zeros, 
+                  breaks=breaks, 
+                  include.lowest=TRUE, 
+                  right=FALSE, 
+                  labels=tags)
+
+# inspect bins
+# summary(group_tags_tumor)
+
+zero_groups <- factor(group_tags, 
+                      levels = tags,
+                      ordered = TRUE)
+
+
+ggplot(data = as_tibble(group_tags), mapping = aes(x=value)) + 
+  geom_bar(fill="bisque",color="white",alpha=0.7) + 
+  stat_count(geom="text", aes(label=sprintf("%.4f",..count../length(group_tags))), vjust=-0.5) +
+  labs(x='percentage of zeros per circRNAs') +
+  theme_minimal() 
+
+v <- makeplot.rplot %>% dplyr::select(condition, mean.expr,perc.zeros) #pick the variable 
+vgroup <- as_tibble(v) %>% 
+  mutate(tag = case_when(
+    perc.zeros < 5 ~ tags[1],
+    perc.zeros >= 5 & perc.zeros < 10 ~ tags[2],
+    perc.zeros >= 10 & perc.zeros < 15 ~ tags[3],
+    perc.zeros >= 15 & perc.zeros < 20 ~ tags[4],
+    perc.zeros >= 20 & perc.zeros < 25 ~ tags[5],
+    perc.zeros >= 25 & perc.zeros < 30 ~ tags[6],
+    perc.zeros >= 30 & perc.zeros < 35 ~ tags[7],
+    perc.zeros >= 35 & perc.zeros < 40 ~ tags[8],
+    perc.zeros >= 40 & perc.zeros < 45 ~ tags[9],
+    perc.zeros >= 45 & perc.zeros < 50 ~ tags[10],
+    perc.zeros >= 50 & perc.zeros < 55 ~ tags[11],
+    perc.zeros >= 55 & perc.zeros < 60 ~ tags[12],
+    perc.zeros >= 60 & perc.zeros < 65 ~ tags[13],
+    perc.zeros >= 65 & perc.zeros < 70 ~ tags[14],
+    perc.zeros >= 70 & perc.zeros < 75 ~ tags[15],
+    perc.zeros >= 75 & perc.zeros < 80 ~ tags[16],
+    perc.zeros >= 80 & perc.zeros < 85 ~ tags[17],
+    perc.zeros >= 85 & perc.zeros < 90 ~ tags[18],
+    perc.zeros >= 90 ~ tags[19]
+    ))
+# summary(vgroup)
+vgroup$tag <- factor(vgroup$tag,
+                       levels = tags,
+                       ordered = FALSE)
+
+plot.list[[i]] <- ggplot(data = vgroup, mapping = aes(x=tag,y=log2(mean.expr))) + 
+  geom_jitter(aes(color='blue'),alpha=0.2) +
+  geom_boxplot(fill="bisque",color="black",alpha=0.3) + 
+  facet_wrap(~condition) +
+  labs(#title = 'None Filter',
+       x = 'percentage of zero per circRNA',
+       y = expression(log[2]~circRNA * "(mean expression)")) +
+  guides(color=FALSE) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1, size = 8))
+
+}
+
+names(plot.list) <- c("0","20")
+
+png(file = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/robustness_glmm/IDC/meanzeroBoxplotBins.png", width = 10, height = 9, units = "in", res = 300)
+
+egg::ggarrange(plots = plot.list, top = paste0("Dataset-",Dataset), labels = c("None filter", "Stringent filter"), nrow = 1)
+
+dev.off()
+# ggexport(plotlist = plot.list, filename = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/GOF/meanzeroBoxplot.png",
+#          nrow = 1, ncol = 3)
+
+```
+
+```{r}
+Dataset = "DM1"
+makeplot <- lapply(methods.ccp, FUN = function(d) makefiltexprplot(
+  matrix = as.data.frame(DM1Data_list[[d]]),
+  method = d,
+  meta = meta_dm1, filter = c(0,20)))
+plot.list=list()
+for (i in 1:2){
+  # i=2
+makeplot.r <- lapply(seq(1:7), function(x) rbind(makeplot[[x]][[2]][[i]]))
+names(makeplot.r) <- methods
+
+summ <- function(df, tumor="DM1", normal="Normal") {
+  mean.n <- rowMeans(df[,meta_idc$sample_id[meta_idc$condition==normal]])
+  mean.t <- rowMeans(df[,meta_idc$sample_id[meta_idc$condition==tumor]])
+  perc.zero.n <- apply(df[,meta_idc$sample_id[meta_idc$condition==normal]], 1, function(x) (sum(x==0)/length(x))*100)
+  perc.zero.t <- apply(df[,meta_idc$sample_id[meta_idc$condition==tumor]], 1, function(x) (sum(x==0)/length(x))*100)
+
+  mean.zero.n <- merge(mean.n, perc.zero.n, by = "row.names")
+  mean.zero.t <- merge(mean.t, perc.zero.t, by = "row.names")
+  
+  return(rbindlist(list(normal = mean.zero.n, tumor = mean.zero.t), idcol = "condition"))
+}
+
+makeplot.rplot <- rbindlist(lapply(makeplot.r, summ), idcol = "method")
+colnames(makeplot.rplot) = c("method", "condition", "circ_id", "mean.expr", "perc.zeros")
+
+# set up cut-off values 
+breaks <- c(seq(0,90,5),100)
+# specify interval/bin labels
+tags <- c("[0-5)","[5-10)", "[10-15)", "[15-20)", "[20-25)", "[25-30)", "[30-35)", "[35-40)", "[40-45)", "[45-50)", "[50-55)", "[55-60)", "[60-65)", "[65-70)", "[70-75)", "[75-80)", "[80-85)", "[85-90)", "[90-100)")
+# bucketing values into bins
+group_tags <- cut(makeplot.rplot$perc.zeros, 
+                  breaks=breaks, 
+                  include.lowest=TRUE, 
+                  right=FALSE, 
+                  labels=tags)
+
+# inspect bins
+# summary(group_tags_tumor)
+
+zero_groups <- factor(group_tags, 
+                      levels = tags,
+                      ordered = TRUE)
+
+
+ggplot(data = as_tibble(group_tags), mapping = aes(x=value)) + 
+  geom_bar(fill="bisque",color="white",alpha=0.7) + 
+  stat_count(geom="text", aes(label=sprintf("%.4f",..count../length(group_tags))), vjust=-0.5) +
+  labs(x='percentage of zeros per circRNAs') +
+  theme_minimal() 
+
+v <- makeplot.rplot %>% dplyr::select(condition, mean.expr,perc.zeros) #pick the variable 
+vgroup <- as_tibble(v) %>% 
+  mutate(tag = case_when(
+    perc.zeros < 5 ~ tags[1],
+    perc.zeros >= 5 & perc.zeros < 10 ~ tags[2],
+    perc.zeros >= 10 & perc.zeros < 15 ~ tags[3],
+    perc.zeros >= 15 & perc.zeros < 20 ~ tags[4],
+    perc.zeros >= 20 & perc.zeros < 25 ~ tags[5],
+    perc.zeros >= 25 & perc.zeros < 30 ~ tags[6],
+    perc.zeros >= 30 & perc.zeros < 35 ~ tags[7],
+    perc.zeros >= 35 & perc.zeros < 40 ~ tags[8],
+    perc.zeros >= 40 & perc.zeros < 45 ~ tags[9],
+    perc.zeros >= 45 & perc.zeros < 50 ~ tags[10],
+    perc.zeros >= 50 & perc.zeros < 55 ~ tags[11],
+    perc.zeros >= 55 & perc.zeros < 60 ~ tags[12],
+    perc.zeros >= 60 & perc.zeros < 65 ~ tags[13],
+    perc.zeros >= 65 & perc.zeros < 70 ~ tags[14],
+    perc.zeros >= 70 & perc.zeros < 75 ~ tags[15],
+    perc.zeros >= 75 & perc.zeros < 80 ~ tags[16],
+    perc.zeros >= 80 & perc.zeros < 85 ~ tags[17],
+    perc.zeros >= 85 & perc.zeros < 90 ~ tags[18],
+    perc.zeros >= 90 ~ tags[19]
+    ))
+# summary(vgroup)
+vgroup$tag <- factor(vgroup$tag,
+                       levels = tags,
+                       ordered = FALSE)
+
+plot.list[[i]] <- ggplot(data = vgroup, mapping = aes(x=tag,y=log2(mean.expr))) + 
+  geom_jitter(aes(color='blue'),alpha=0.2) +
+  geom_boxplot(fill="bisque",color="black",alpha=0.3) + 
+  facet_wrap(~condition) +
+  labs(#title = 'None Filter',
+       x = 'percentage of zero per circRNA',
+       y = expression(log[2]~circRNA * "(mean expression)")) +
+  guides(color=FALSE) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1, size = 8))
+
+}
+
+names(plot.list) <- c("0","20")
+
+png(file = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/robustness_glmm/DM1/meanzeroBoxplotBins.png", width = 10, height = 9, units = "in", res = 300)
+
+egg::ggarrange(plots = plot.list, top = paste0("Dataset-",Dataset), labels = c("None filter", "Stringent filter"), nrow = 1)
+
+dev.off()
+# ggexport(plotlist = plot.list, filename = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/GOF/meanzeroBoxplot.png",
+#          nrow = 1, ncol = 3)
+
+```
+
+# Model estimation
+
+Zero-Inflated Negative Binomial (ZINB) and Negative Binomial (NB) models have been compared.
+
+## Mean values and Zero Probability
+
+All models are fitted on all datasets. For each dataset, the estimated and the observed count value are compared (Mean Differences), and the estimated probability to have a zero is compared to the real proportion of zeroes (Zero Probability Differences). 
+
+```{r include=FALSE}
+
+IDCData_df_list <- list("F0" = IDCData_df0, 
+                       # "F1" = IDCData_df1,
+                       # "F2" = IDCData_df2,
+                       "F3" = IDCData_df2)
+IDCData_df <- rbindlist(IDCData_df_list, idcol = T, fill=TRUE)
+
+IPFData_df_list <- list("F0" = IPFData_df0, 
+                       # "F1" = IPFData_df1,
+                       # "F2" = IPFData_df2,
+                       "F3" = IPFData_df2)
+IPFData_df <- rbindlist(IPFData_df_list, idcol = T, fill=TRUE)
+
+TALLData_df_list <- list("F0" = TData_df0, 
+                       # "F1" = TData_df1,
+                       # "F2" = TData_df2,
+                       "F3" = TData_df2)
+TALLData_df <- rbindlist(TALLData_df_list, idcol = T, fill=TRUE)
+
+
+DM1Data_df_list <- list("F0" = DM1Data_df0, 
+                       # "F1" = TData_df1,
+                       # "F2" = TData_df2,
+                       "F3" = DM1Data_df2)
+DM1Data_df <- rbindlist(DM1Data_df_list, idcol = T, fill=TRUE)
+
+library('rlist')
+
+TALLdf0$deltaAIC <- TALLdf0$aicNB - TALLdf0$aicZINB
+heatmapresult.tab_TALLZ0 <- as.data.frame(table(TALLdf0$bestModelaic, TALLdf0$.id))
+
+TALLdf1$deltaAIC <- TALLdf1$aicNB - TALLdf1$aicZINB
+heatmapresult.tab_TALLZ1 <- as.data.frame(table(TALLdf1$bestModelaic, TALLdf1$.id))
+
+TALLdf2$deltaAIC <- TALLdf2$aicNB - TALLdf2$aicZINB
+heatmapresult.tab_TALLZ2 <- as.data.frame(table(TALLdf2$bestModelaic, TALLdf2$.id))
+
+TALLdf3$deltaAIC <- TALLdf3$aicNB - TALLdf3$aicZINB
+heatmapresult.tab_TALLZ3 <- as.data.frame(table(TALLdf3$bestModelaic, TALLdf3$.id))
+
+heatmapresult <- rbindlist(list("F0" = heatmapresult.tab_TALLZ0, 
+                       # "F1" = heatmapresult.tab_TALLZ1,
+                       # "F2" = heatmapresult.tab_TALLZ2,
+                       "F3" = heatmapresult.tab_TALLZ2), idcol = TRUE)
+```
+
+```{r}
+model_colors <- brewer.pal(3,"Dark2")[1:2]
+names(model_colors) <- c("aicZINB","aicNB")
+aic.dat <- rbindlist(list("F0" = TALLdf0[,-1],
+               # "F1" = TALLdf1[,-1],
+               # "F2" = TALLdf2[,-1],
+               "F3" = TALLdf2[,-1]), idcol = TRUE) 
+colnames(aic.dat) <- c("Filter", colnames(aic.dat)[-1])
+
+png(file = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/robustness_glmm/AICmethod_TALL.png", width = 6, height = 8, units = "in", res = 300)
+
+aic.dat %>% mutate(Methods=sub("\\..*", "", .id)) %>% select(Filter, aicNB, aicZINB, Methods) %>% reshape2::melt(id.var = c("Filter", "Methods")) %>% 
+  ggplot(aes(x = Methods, y = value, color = variable)) +
+  geom_boxplot() + #geom_jitter(width = 0.1, alpha = 0.2) +
+  scale_color_manual(values = model_colors) +
+  facet_wrap(~Filter) +
+  theme_minimal() +
+  theme(legend.position = "bottom",
+        #strip.text = element_blank(),
+        axis.text.x = element_text(hjust = 1,angle = 45),
+        # panel.spacing = unit(0.5, "lines"),
+        plot.margin = unit(c(0.1,0.1,0.1,0.1), "cm"))
+
+dev.off()
+
+aic.delta <- aic.dat %>% mutate(Methods=sub("\\..*", "", .id)) %>% select(Filter, deltaAIC, Methods) %>% reshape2::melt(id.var = c("Filter", "Methods"))
+aic.delta$Methods <- factor(aic.delta$Methods)
+aic.delta$Methods <- factor(aic.delta$Methods, levels = levels(aic.delta$Methods), 
+                            labels = c("ccp", "circExplorer2 - bwa", "circExplorer2 - STAR", "circExplorer2 - tophat", "CIRI", "DCC", "findcirc" ))
+aic.delta$Filter <- factor(aic.delta$Filter)
+aic.delta$Filter <- factor(aic.delta$Filter, levels = levels(aic.delta$Filter), 
+                           labels = c("None filter", "low filter", "medium filter", "stringent filter"))
+
+png(file = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/robustness_glmm/AICdelta_TALL.png", width = 6, height = 8, units = "in", res = 300)
+
+aic.delta %>% ggplot(aes(x = Methods, y = value, color = Methods)) +
+  geom_violin() + #geom_jitter(width = 0.1, alpha = 0.2) +
+  scale_color_manual(values = method_cols) +
+  facet_wrap(~Filter) + ylim(c(-100, 100)) +
+  theme_minimal() +
+  ylab(expression(Delta~AIC)) +
+  xlab("CircRNA detection methods") +
+  theme(legend.position = "bottom",
+        #strip.text = element_blank(),
+        axis.text.x = element_text(hjust = 1,angle = 45),
+        # panel.spacing = unit(0.5, "lines"),
+        plot.margin = unit(c(0.1,0.1,0.1,0.1), "cm"))
+
+dev.off()
+```
+
+
+```{r include=FALSE}
+
+IDCData_df <- rbindlist(IDCData_df_list, idcol = T, fill=TRUE)
+
+library('rlist')
+
+IPFdf0$deltaAIC <- IPFdf0$aicNB - IPFdf0$aicZINB
+heatmapresult.tab_IPFZ0 <- as.data.frame(table(IPFdf0$bestModelaic, IPFdf0$.id))
+
+IPFdf1$deltaAIC <- IPFdf1$aicNB - IPFdf1$aicZINB
+heatmapresult.tab_IPFZ1 <- as.data.frame(table(IPFdf1$bestModelaic, IPFdf1$.id))
+
+IPFdf2$deltaAIC <- IPFdf2$aicNB - IPFdf2$aicZINB
+heatmapresult.tab_IPFZ2 <- as.data.frame(table(IPFdf2$bestModelaic, IPFdf2$.id))
+
+IPFdf3$deltaAIC <- IPFdf3$aicNB - IPFdf3$aicZINB
+heatmapresult.tab_IPFZ3 <- as.data.frame(table(IPFdf3$bestModelaic, IPFdf3$.id))
+
+heatmapresult <- rbindlist(list("F0" = heatmapresult.tab_IPFZ0, 
+                       # "F1" = heatmapresult.tab_IPFZ1,
+                       # "F2" = heatmapresult.tab_IPFZ2,
+                       "F3" = heatmapresult.tab_IPFZ2), idcol = TRUE)
+```
+
+```{r}
+model_colors <- brewer.pal(3,"Dark2")[1:2]
+names(model_colors) <- c("aicZINB","aicNB")
+aic.dat <- rbindlist(list("F0" = IPFdf0[,-1],
+               # "F1" = IPFdf1[,-1],
+               # "F2" = IPFdf2[,-1],
+               "F3" = IPFdf2[,-1]), idcol = TRUE) 
+colnames(aic.dat) <- c("Filter", colnames(aic.dat)[-1])
+
+tiff(file = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/robustness_glmm/AICmethod_IPF.tiff", width = 6, height = 8, units = "in", res = 300)
+
+aic.dat %>% mutate(Methods=sub("\\..*", "", .id)) %>% select(Filter, aicNB, aicZINB, Methods) %>% reshape2::melt(id.var = c("Filter", "Methods")) %>% 
+  ggplot(aes(x = Methods, y = value, color = variable)) +
+  geom_violin() + #geom_jitter(width = 0.1, alpha = 0.2) +
+  scale_color_manual(values = model_colors) +
+  facet_wrap(~Filter) +#+ ylim(c(0, 100)) +
+  theme_minimal() +
+  theme(legend.position = "bottom",
+        #strip.text = element_blank(),
+        axis.text.x = element_text(hjust = 1,angle = 45),
+        # panel.spacing = unit(0.5, "lines"),
+        plot.margin = unit(c(0.1,0.1,0.1,0.1), "cm"))
+
+dev.off()
+
+aic.delta <- aic.dat %>% mutate(Methods=sub("\\..*", "", .id)) %>% select(Filter, deltaAIC, Methods) %>% reshape2::melt(id.var = c("Filter", "Methods"))
+aic.delta$Methods <- factor(aic.delta$Methods)
+aic.delta$Methods <- factor(aic.delta$Methods, levels = levels(aic.delta$Methods), 
+                            labels = c("ccp", "circExplorer2 - bwa", "circExplorer2 - STAR", "circExplorer2 - tophat", "CIRI", "DCC", "findcirc" ))
+aic.delta$Filter <- factor(aic.delta$Filter)
+aic.delta$Filter <- factor(aic.delta$Filter, levels = levels(aic.delta$Filter), 
+                           labels = c("None filter", "low filter", "medium filter", "stringent filter"))
+
+png(file = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/robustness_glmm/AICdelta_IPF.png", width = 6, height = 8, units = "in", res = 300)
+
+aic.delta %>% ggplot(aes(x = Methods, y = value, color = Methods)) +
+  geom_violin() + #geom_jitter(width = 0.1, alpha = 0.2) +
+  scale_color_manual(values = method_cols) +
+  facet_wrap(~Filter) + ylim(c(-100, 100)) +
+  theme_minimal() +
+  ylab(expression(Delta~AIC)) +
+  xlab("CircRNA detection methods") +
+  theme(legend.position = "bottom",
+        #strip.text = element_blank(),
+        axis.text.x = element_text(hjust = 1,angle = 45),
+        # panel.spacing = unit(0.5, "lines"),
+        plot.margin = unit(c(0.1,0.1,0.1,0.1), "cm"))
+
+dev.off()
+```
+
+```{r include=FALSE}
+library('rlist')
+
+IDCdf0$deltaAIC <- IDCdf0$aicNB - IDCdf0$aicZINB
+heatmapresult.tab_IDCZ0 <- as.data.frame(table(IDCdf0$bestModelaic, IDCdf0$.id))
+
+IDCdf1$deltaAIC <- IDCdf1$aicNB - IDCdf1$aicZINB
+heatmapresult.tab_IDCZ1 <- as.data.frame(table(IDCdf1$bestModelaic, IDCdf1$.id))
+
+IDCdf2$deltaAIC <- IDCdf2$aicNB - IDCdf2$aicZINB
+heatmapresult.tab_IDCZ2 <- as.data.frame(table(IDCdf2$bestModelaic, IDCdf2$.id))
+
+IDCdf3$deltaAIC <- IDCdf3$aicNB - IDCdf3$aicZINB
+heatmapresult.tab_IDCZ3 <- as.data.frame(table(IDCdf3$bestModelaic, IDCdf3$.id))
+
+heatmapresult <- rbindlist(list("F0" = heatmapresult.tab_IDCZ0, 
+                       # "F1" = heatmapresult.tab_IDCZ1,
+                       # "F2" = heatmapresult.tab_IDCZ2,
+                       "F3" = heatmapresult.tab_IDCZ2), idcol = TRUE)
+```
+
+```{r}
+model_colors <- brewer.pal(3,"Dark2")[1:2]
+names(model_colors) <- c("aicZINB","aicNB")
+aic.dat <- rbindlist(list("F0" = IDCdf0[,-1],
+               # "F1" = IDCdf1[,-1],
+               # "F2" = IDCdf2[,-1],
+               "F3" = IDCdf2[,-1]), idcol = TRUE) 
+colnames(aic.dat) <- c("Filter", colnames(aic.dat)[-1])
+
+tiff(file = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/robustness_glmm/AICmethod_IDC.tiff", width = 6, height = 8, units = "in", res = 300)
+
+aic.dat %>% mutate(Methods=sub("\\..*", "", .id)) %>% select(Filter, aicNB, aicZINB, Methods) %>% reshape2::melt(id.var = c("Filter", "Methods")) %>% 
+  ggplot(aes(x = Methods, y = value, color = variable)) +
+  geom_boxplot() + #geom_jitter(width = 0.1, alpha = 0.2) +
+  scale_color_manual(values = model_colors) +
+  facet_wrap(~Filter) +#+ ylim(c(0, 100)) +
+  theme_minimal() +
+  theme(legend.position = "bottom",
+        #strip.text = element_blank(),
+        axis.text.x = element_text(hjust = 1,angle = 45),
+        # panel.spacing = unit(0.5, "lines"),
+        plot.margin = unit(c(0.1,0.1,0.1,0.1), "cm"))
+
+dev.off()
+
+aic.delta <- aic.dat %>% mutate(Methods=sub("\\..*", "", .id)) %>% select(Filter, deltaAIC, Methods) %>% reshape2::melt(id.var = c("Filter", "Methods"))
+aic.delta$Methods <- factor(aic.delta$Methods)
+aic.delta$Methods <- factor(aic.delta$Methods, levels = levels(aic.delta$Methods), 
+                            labels = c("ccp", "circExplorer2 - bwa", "circExplorer2 - STAR", "circExplorer2 - tophat", "CIRI", "DCC", "findcirc" ))
+aic.delta$Filter <- factor(aic.delta$Filter)
+aic.delta$Filter <- factor(aic.delta$Filter, levels = levels(aic.delta$Filter), 
+                           labels = c("None filter", "low filter", "medium filter", "stringent filter"))
+
+png(file = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/robustness_glmm/AICdelta_IDC.png", width = 6, height = 8, units = "in", res = 300)
+
+aic.delta %>% ggplot(aes(x = Methods, y = value, color = Methods)) +
+  geom_violin() + #geom_jitter(width = 0.1, alpha = 0.2) +
+  scale_color_manual(values = method_cols) +
+  facet_wrap(~Filter) + ylim(c(-100, 100)) +
+  theme_minimal() +
+  ylab(expression(Delta~AIC)) +
+  xlab("CircRNA detection methods") +
+  theme(legend.position = "bottom",
+        #strip.text = element_blank(),
+        axis.text.x = element_text(hjust = 1,angle = 45),
+        # panel.spacing = unit(0.5, "lines"),
+        plot.margin = unit(c(0.1,0.1,0.1,0.1), "cm"))
+
+dev.off()
+```
+
+```{r include=FALSE}
+library('rlist')
+
+DM1df0$deltaAIC <- DM1df0$aicNB - DM1df0$aicZINB
+heatmapresult.tab_DM1Z0 <- as.data.frame(table(DM1df0$bestModelaic, DM1df0$.id))
+
+DM1df1$deltaAIC <- DM1df1$aicNB - DM1df1$aicZINB
+heatmapresult.tab_DM1Z1 <- as.data.frame(table(DM1df1$bestModelaic, DM1df1$.id))
+
+DM1df2$deltaAIC <- DM1df2$aicNB - DM1df2$aicZINB
+heatmapresult.tab_DM1Z2 <- as.data.frame(table(DM1df2$bestModelaic, DM1df2$.id))
+
+DM1df3$deltaAIC <- DM1df3$aicNB - DM1df3$aicZINB
+heatmapresult.tab_DM1Z3 <- as.data.frame(table(DM1df3$bestModelaic, DM1df3$.id))
+
+heatmapresult <- rbindlist(list("F0" = heatmapresult.tab_DM1Z0, 
+                       # "F1" = heatmapresult.tab_DM1Z1,
+                       # "F2" = heatmapresult.tab_DM1Z2,
+                       "F3" = heatmapresult.tab_DM1Z2), idcol = TRUE)
+```
+
+Goodness of fit is evaluated through Root Mean Square Error (RMSE). 
+
+```{r}
+model_colors <- brewer.pal(3,"Dark2")[1:2]
+names(model_colors) <- c("ZINB","NB")
+```
+
+```{r}
+gof_indexes_IPF <- list()
+for (f in c(1,2)){
+  name = paste0("F", f-1)
+  temp <- compute_RMSE(IPFData_df_list[[f]])
+  gof_indexes_IPF[[name]] = temp
+}
+
+
+gof_indexes_IPF <- rbindlist(gof_indexes_IPF, idcol = T)
+head(gof_indexes_IPF)
+
+gof_indexes_IDC <- list()
+for (f in 1:2){
+  name = paste0("F", f-1)
+  temp <- compute_RMSE(IDCData_df_list[[f]])
+  gof_indexes_IDC[[name]] = temp
+}
+
+gof_indexes_IDC <- rbindlist(gof_indexes_IDC, idcol = T)
+head(gof_indexes_IDC)
+
+gof_indexes_TALL <- list()
+for (f in 1:2){
+  name = paste0("F", f-1)
+  temp <- compute_RMSE(TALLData_df_list[[f]])
+  gof_indexes_TALL[[name]] = temp
+}
+
+gof_indexes_TALL <- rbindlist(gof_indexes_TALL, idcol = T)
+head(gof_indexes_TALL)
+# head(gof_indexes_Li)
+
+gof_indexes_DM1 <- list()
+for (f in 1:2){
+  name = paste0("F", f-1)
+  temp <- compute_RMSE(DM1Data_df_list[[f]])
+  gof_indexes_DM1[[name]] = temp
+}
+
+gof_indexes_DM1 <- rbindlist(gof_indexes_DM1, idcol = T)
+head(gof_indexes_DM1)
+```
+
+## Plot
+
+```{r include=FALSE}
+# GOF for all datasets
+gof_indexes_list <- list(TALL = gof_indexes_TALL, 
+                         DM1 = gof_indexes_DM1,
+                         IPF = gof_indexes_IPF,
+                         IDC = gof_indexes_IDC)
+gof_indexes <- rbindlist(gof_indexes_list, idcol = T)
+gof_indexes$type <- "RMSE"
+colnames(gof_indexes) <- c("Datasets",     
+                           "Filter",
+                           "Models",  
+                           "Methods", 
+                           "MD",  
+                           "ZPD", 
+                           "type")
+# Model results for all datasets
+df_list <- list(IPF = IPFData_df, TALL = TALLData_df, IDC = IDCData_df, DM1 = DM1Data_df)
+df_whole <- ldply(lapply(df_list, function(x){
+                  estimated <- c(x$EY,x$EY0)
+                  observed <- c(x$Y,x$Y0)
+                  df_whole <- data.frame(Models = rep(x$Models,2),
+                                         Methods = rep(x$Methods,2),
+                                         Filter = rep(x$.id,2),
+                                         Observed = observed,
+                                         Estimated = estimated,
+                                         Variable = rep(c("MD","ZPD"),each = length(estimated)/2))
+}))
+```
+
+```{r include=FALSE}
+library(ggplot2)
+
+# Methods for plots
+
+gof_indexes = melt(gof_indexes, id.vars = c("Datasets", "Filter","Models","Methods","type"))
+gof_indexes$variable <- factor(gof_indexes$variable, levels = levels(gof_indexes$variable), labels = c("Expression", "Zero Probability"))
+
+gof_indexes$Methods <- factor(gof_indexes$Methods, 
+                              levels = methods.ccp, 
+                  labels = c("findcirc", "DCC", "CIRI", 
+                             "circExplorer2 - STAR", 
+                             "circExplorer2 - bwa", "circExplorer2 - tophat",
+                             "ccp"))
+
+# RMSE_plot <- function(dataset){
+#   ord <- order(gof_indexes[gof_indexes$variable %in% variable & 
+#                            gof_indexes$type %in% type #& 
+#       # gof_indexes$Methods %in% method &
+#       # gof_indexes$.id %in% dataset
+#     ,"value"])
+#   ggplot(gof_indexes, #[gof_indexes$variable %in% variable & 
+#                      # gof_indexes$type %in% type, #&
+#                      # gof_indexes$.id %in% dataset
+#                      # gof_indexes$Methods %in% method & 
+#                      #], 
+#          aes(x = .id, y = value, fill = Models)) + 
+#     # facet_wrap(  ~ variable + Methods, scales = "free", ncol = 4, nrow = 4) +
+#     facet_grid( variable ~ Methods, scales = "free",
+#                 labeller = label_wrap_gen(width=10)) +
+# 
+#     # geom_bar(stat = "identity",position = "dodge") + 
+#     geom_violin() + 
+# 
+#     scale_shape_discrete(solid = FALSE) + 
+#     # scale_x_discrete(limits = gof_indexes[#gof_indexes$variable %in% variable & 
+#     #   gof_indexes$type %in% type, #& gof_indexes$Methods %in% method &
+#     #   # gof_indexes$.id %in% dataset,
+#     #   ".id"][ord]) +
+#     theme_minimal() +
+#     theme(legend.position = "top",
+#           strip.text.x = element_text(face = "bold.italic", size = 8),
+#           strip.text.y = element_text(face = "bold.italic", size = 8), #angle = 75),
+#           strip.background = element_rect(#fill = "lightblue",
+#                                         colour = "grey", size = 1),
+#           axis.text.x = element_text(hjust = 1, angle = 45),
+#           # axis.text.x = element_blank(),
+#           # axis.text.y = element_blank(),
+#           # panel.spacing = unit(0, "lines"),
+#           plot.margin = unit(c(0,0,0,0), "cm")) + 
+#     geom_hline(yintercept = 0, color = "darkgrey") + 
+#     labs(shape = "Index") +
+#     scale_fill_manual(values = model_colors) +
+#     # coord_flip() +
+#     xlab("Filters") + 
+#     ylab("RMSE")
+# }
+# 
+# RMSE_plot(dataset = "IPF")
+library(Rmisc)
+tgc <- summarySE(gof_indexes, measurevar="value", groupvars=c("Datasets", "Methods","Filter", "Models", "type", "variable"))
+tgc
+RMSE_plot = function(dataset){
+  ggplot(tgc[tgc$Datasets %in% dataset,],
+         aes(x = Filter, y = value, fill = Models)) + 
+    geom_bar(position = position_dodge(), stat = "identity",
+             colour = "black", # Use black outlines,
+             size = .3) +      # Thinner lines
+    geom_errorbar(aes(ymin = value-se, ymax = value+se),
+                  size = .3,    # Thinner lines
+                  width = .2,
+                  position = position_dodge(.9)) +
+    facet_grid(variable ~ Methods, scales = "free",
+                labeller = label_wrap_gen(width=10)) +
+    scale_fill_manual(name = "Distribution", # Legend label, use darker colors
+                   values = model_colors) +
+    ggtitle(paste0("RMSE of mean expression and zero probability estimates\n",dataset," Dataset")) +
+    # scale_y_continuous(breaks = 0:20*4) +
+    # geom_bar(stat = "identity",position = "dodge") + 
+    scale_shape_discrete(solid = FALSE) + 
+    # scale_x_discrete(limits = gof_indexes[#gof_indexes$variable %in% variable & 
+    #   gof_indexes$type %in% type, #& #gof_indexes$Methods %in% method &
+    #   # gof_indexes$.id %in% dataset,
+    #   ".id"][ord]) +
+    theme_minimal() +
+    theme(legend.position = "top",
+          strip.text.x = element_text(face = "bold.italic", size = 8),
+          strip.text.y = element_text(face = "bold.italic", size = 8), #angle = 75),
+          strip.background = element_rect(#fill = "lightblue",
+                                        colour = "grey", size = 1),
+          axis.text.x = element_text(hjust = 1, angle = 45),
+          # axis.text.x = element_blank(),
+          # axis.text.y = element_blank(),
+          # panel.spacing = unit(0, "lines"),
+          plot.margin = unit(c(0,0,0,0), "cm")) + 
+    # coord_flip() +
+    xlab("Filters") + 
+    ylab("RMSE")
+}
+RMSE_plot(dataset = "TALL")
+RMSE_plot(dataset = "DM1")
+RMSE_plot(dataset = "IDC")
+RMSE_plot(dataset = "IPF")
+
+
+```
+
+```{r}
+RMSEPlot <- function(data, difference = NULL){
+  if(difference == "MD"){
+    if("Model" %in% colnames(data) & "Y" %in% colnames(data) &
+       "MD" %in% colnames(data)){
+
+      RMSE <- plyr::ddply(.data = data,
+                          .variables = ~ Model,
+                          .fun = function(m) cbind("RMSE" = RMSE(m$MD)))
+
+      gobj <- ggplot(data = RMSE, aes(x = Model, y = RMSE, fill = Model)) +
+        geom_col() +
+        geom_label(aes(x = Model, y = RMSE, label = round(RMSE,2)),
+                   fill = "white") +
+        ggtitle(label = "RMSE",
+                subtitle = "Mean differences")
+
+    } else {stop("data should contains 'Model', 'Y', and 'MD' columns for model
+              name, observed values and mean difference values respectively.")}
+  } else if(difference == "ZPD"){
+    if("Model" %in% colnames(data) &
+       "Y0" %in% colnames(data) &
+       "ZPD" %in% colnames(data)){
+
+      RMSE <- plyr::ddply(.data = data,
+                          .variables = ~ Model,
+                          .fun = function(m) cbind("RMSE" = RMSE(m$ZPD)))
+
+      gobj <- ggplot(data = RMSE, aes(x = Model, y = RMSE, fill = Model)) +
+        geom_col() +
+        geom_label(aes(x = Model, y = RMSE, label = round(RMSE,4)),
+                   fill = "white") +
+        ggtitle(label = "RMSE",
+                subtitle = "Zero probability difference")
+
+    } else {stop("df should contains 'Model', 'Y0', and 'ZPD' columns for model
+              name, zero rate observed values and zero probability difference
+              values respectively.")}
+
+  } else stop("Difference must be 'MD' or 'ZPD'")
+
+  gobj <- gobj +
+    theme(legend.position = "bottom",
+          axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5)) +
+    scale_x_discrete(limits = RMSE$Model[order(RMSE$RMSE)])
+
+  return(gobj)
+}
+```
+
+
+
+```{r}
+MD_ZPD_plot <- function(variable,dataset){
+  df_whole$.id <- factor(df_whole$.id,levels = c("IPF", "TALL", "IDC", "DM1"), 
+                         labels = c("IPF", "T-ALL", "IDC", "DM1"))
+  ggplot(df_whole[df_whole$Variable %in% variable & 
+                    df_whole$.id %in% dataset,], aes(x = Observed, y = Estimated - Observed,color = Models)) + 
+    facet_grid(Filter ~ Methods, scales = "free",
+                labeller = label_wrap_gen(width=10)) + 
+    # geom_point(size = 0.001) +
+    geom_smooth(method = "loess", aes(lty = Models),se = FALSE) + 
+    # geom_point(size = 1, shape = 21, alpha = 0.3) +
+    theme_minimal() +
+    theme(legend.position = "bottom",
+          #strip.text = element_blank(),
+          axis.text.x = element_text(hjust = 1,angle = 45),
+          # panel.spacing = unit(0.5, "lines"),
+          plot.margin = unit(c(0.1,0.1,0.1,0.1), "cm")) + 
+    geom_hline(yintercept = 0, color = "darkgrey") + 
+    scale_color_manual(values = model_colors) +
+    xlab("Observed values") + 
+    ylab("Estimated - Observed") +
+    ggtitle(label = paste(variable,"-plot",sep = ""),subtitle = paste("dataset", dataset, sep="-"))#,method,sep = "-"))
+}
+MD_ZPD_plot(variable = "MD", dataset = "T-ALL")
+MD_ZPD_plot(variable = "ZPD", dataset = "T-ALL")
+MD_ZPD_plot(variable = "MD", dataset = "IPF")
+MD_ZPD_plot(variable = "ZPD", dataset = "IPF")
+MD_ZPD_plot(variable = "MD", dataset = "DM1")
+MD_ZPD_plot(variable = "ZPD", dataset = "DM1")
+MD_ZPD_plot(variable = "MD", dataset = "IDC")
+MD_ZPD_plot(variable = "ZPD", dataset = "IDC")
+
+```
+
+
+```{r include=FALSE}
+
+g_legend <- get_legend(ggplot(df_whole[df_whole$Methods %in% "dcc" & df_whole$Variable %in% "MD",],
+                              aes(x = Observed, y = Estimated - Observed,color = Models)) + 
+                         facet_wrap(~ Methods + Variable + Filter, nrow = 3, scales = "free") + 
+                         # geom_point(size = 0.001) + 
+                         geom_smooth(aes(lty = Models),se = FALSE) + 
+                         # geom_point(size = 1, shape = 21, alpha = 0.3) +
+                         theme_minimal() +
+                         theme(legend.position = "bottom") +
+                         guides(color = guide_legend(nrow=1,byrow=TRUE)) +
+                         scale_color_manual(values = model_colors))
+
+```
+
+```{r}
+RMSE_plot_all <- function(variable, type, dataset){
+ord <- order(gof_indexes[gof_indexes$variable %in% variable & gof_indexes$type %in% type & gof_indexes$.id %in% dataset,"value"])
+  ggplot(gof_indexes[gof_indexes$variable %in% variable & gof_indexes$type %in% type & gof_indexes$.id %in% dataset,],aes(x = Models, y = value, fill = Models)) + 
+    facet_wrap( ~ Methods, nrow = 2) +
+    # geom_bar(stat = "identity",position = "dodge") + 
+    geom_boxplot() +
+    scale_shape_discrete(solid = FALSE) + 
+    scale_x_discrete(limits = gof_indexes[gof_indexes$variable %in% variable & gof_indexes$type %in% type & gof_indexes$.id %in% dataset,"Models"][ord]) +
+    theme_minimal() +
+    theme(legend.position = "none",
+          strip.background=element_rect(color = NA),
+          strip.text=element_text(size=8),
+          axis.text.x = element_text(hjust = 1,angle = 45)) +
+    geom_hline(yintercept = 0, color = "darkgrey") + 
+    labs(shape = "Index") +
+    scale_fill_manual(values = model_colors) +
+    # coord_flip() +
+    xlab("Models") + 
+    ylab("RMSE")
+}
+all.MD.rmse.plot <- RMSE_plot_all(variable = "MD", type = "RMSE", dataset = "TALL")
+# all.MD.rmse.plot
+```
+
+
+```{r include=FALSE}
+# Heatmap
+gof_indexes_ranked <- ddply(gof_indexes,.variables = ~ Methods + variable + type + .id,.fun = function(x) rank(x[,"value"]))
+colnames(gof_indexes_ranked) <- c("Methods","variable","type","Dataset",as.character(unique(gof_indexes$Models)))
+# Average ranks per project name
+all_RMSE_summary <- melt(ddply(gof_indexes_ranked,.variables = ~ variable + type + Dataset + Methods, function(x) colMeans(x[,5:6])))
+colnames(all_RMSE_summary) <- c("Variable","Type","Dataset","Methods","Model","Rank")
+
+all_RMSE_summary$Dataset <- factor(all_RMSE_summary$Dataset,levels = c("Li", "Zheng"),labels = c("Li", "Zheng"), ordered = TRUE)
+
+# Heatmap values
+gof_indexes_values <- ddply(gof_indexes,.variables = ~ Methods + variable + type + .id,.fun = function(x) x[,"value"])
+colnames(gof_indexes_values) <- c("Methods","variable","type","Dataset",as.character(unique(gof_indexes$Models)))
+# Average mean per method
+all_RMSE_summary_values <- melt(ddply(gof_indexes_values,.variables = ~ variable + type + Dataset + Methods, function(x) colMeans(x[,5:6])))
+colnames(all_RMSE_summary_values) <- c("Variable","Type","Dataset", "Methods", "Model","Value")
+
+all_RMSE_summary$Value <- all_RMSE_summary_values$Value
+
+
+g_legend_heat <- get_legend(ggplot(all_RMSE_summary[all_RMSE_summary$Type == "RMSE" & all_RMSE_summary$Variable == "ZPD",], aes(x = Model, y = Methods, fill = Rank)) +
+  geom_tile(height = 0.2, width = 0.2) + 
+  theme_minimal() + 
+  scale_fill_distiller(palette = "RdYlBu") +
+  theme(legend.position = "bottom",
+        panel.grid = element_blank(),
+        axis.text.x = element_text(angle = 45, hjust = 1)) +
+  guides(fill = guide_colorbar()) + 
+  labs(fill = "Mean Rank:"))
+
+plot_heat <- function(variable,type, digits = 1){
+  ord <- order(ddply(all_RMSE_summary[all_RMSE_summary$Type==type & all_RMSE_summary$Variable == variable,],.variables = ~ Model, function(x) mean(x[,"Rank"]))$V1)
+  ggplot(all_RMSE_summary[all_RMSE_summary$Type == type & all_RMSE_summary$Variable == variable,], 
+         aes(x = Model, y = Methods, fill = Rank)) +
+    geom_tile(height = 0.6, width = 0.6) + 
+    geom_text(mapping = aes(x = Model, y = Methods, label=ifelse(Value<0.005,"<0.01",round(Value,digits = digits))), size = 2) +
+    coord_equal() +
+    # facet_wrap(~ Methods, labeller = label_wrap_gen(width=10)) +
+    theme_minimal() + 
+    scale_y_discrete(limits = levels(all_RMSE_summary$Methods)[ord]) +
+    scale_fill_distiller(palette = "RdYlBu") +
+    theme(#legend.position = "none",
+      legend.key.size = unit(0.3, "cm"),
+      legend.text = element_text(size = 4),
+      panel.grid = element_blank(),
+      axis.text.x = element_text(angle = 45, hjust = 1)) +
+    ggtitle(label = paste("Mean",type,"ranks for",variable),subtitle = "Li datasets") +
+    guides(fill = guide_colorbar()) + 
+    labs(fill = "Mean Rank:") + xlab("Dataset")
+}
+
+c <- plot_heat(variable = "MD",type = "RMSE", digits = 1)
+f <- plot_heat(variable = "ZPD",type = "RMSE", digits = 2)
+
+C <- plot_heat(variable = "MD", type = "RMSE", digits = 1)
+D <- plot_heat(variable = "ZPD", type = "RMSE", digits = 1)
+
+AB <- plot_grid(plotlist = list(A,B), nrow = 2, ncol = 1, labels = c("A", "B"))
+AB_legend <- plot_grid(plotlist = list(AB,g_legend), nrow = 2, rel_heights = c(1,0.1))
+
+A_legend <- plot_grid(plotlist = list(A, g_legend), nrow = 2, rel_heights = c(1,0.1))
+B_legend <- plot_grid(plotlist = list(B, g_legend), nrow = 2, rel_heights = c(1,0.1))
+
+abde <- plot_grid(plotlist = list(a,b,d,e),nrow = 2,ncol = 2,labels = c("a","b","d","e"))
+cf <- plot_grid(plotlist = list(c,f),nrow = 2, labels = c("c","f"))
+
+CD <- plot_grid(plotlist = list(C,D), nrow = 2, ncol = 1, labels = c("C", "D"))
+CD_legend <- plot_grid(plot_list = list(CD, g_legend_heat), nrow = 2, rel_heights = c(1,0.01))
+
+abde_legend <- plot_grid(plotlist = list(abde,g_legend),nrow = 2, rel_heights = c(1,0.1))
+cf_legend <- plot_grid(plotlist = list(cf,g_legend_heat),nrow = 2, rel_heights = c(1,0.1))
+
+fig <- plot_grid(plotlist = list(AB_legend, CD), ncol = 2, rel_widths = c(1,0.5))
+
+```
+
+## AIC 
+
+Goodness of fit is evaluated through Akaike information criterion (AIC). 
+
+## Plot
+
+```{r}
+Pm <- heatmapresult
+colnames(Pm) <- c("Filter", "Model", "Method", "n.circ")
+Pm.p <- dplyr::group_by(Pm, Method, Filter) %>% dplyr::mutate(perc.circ = n.circ/sum(n.circ)) %>% mutate_at(5, round, 3)
+
+tiff(file = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/GOF/AIC_Zheng.tiff", 
+     width = 6, height = 8, units = "in", res = 300)
+ggplot(Pm.p, 
+       aes(x=reorder(Model, perc.circ, median, order = T), 
+           y=reorder(Method, perc.circ, median, order = T), fill=perc.circ)) + geom_tile() +
+  geom_text(aes(label=Pm.p$perc.circ),colour="white") + 
+  facet_wrap(~Filter) + 
+  theme_minimal() + 
+   labs(title = "Heatmap of AIC across circular detection methods", x = "Model", y = "Method")+
+  theme(strip.background=element_rect(color = NA),
+                strip.text=element_text(size=7),
+                axis.text.x = element_text(size = 9, angle = 90), axis.title.x = element_text(size = 10),
+                axis.text.y = element_text(size = 9), axis.title.y = element_text(size = 10),
+                plot.title = element_text(size = 10, face = "bold", color = "darkgreen"))
+dev.off()
+
+c <- ggplot(Pm.p, 
+         aes(x = reorder(Model, perc.circ, median, order = T), 
+             y=reorder(Method, perc.circ, median, order = T), fill=perc.circ)) +
+    geom_tile(height = 0.8, width = 0.8) + 
+    geom_text(aes(label=Pm.p$perc.circ),colour="white") +
+    coord_equal() +
+    # facet_wrap(~ Methods, labeller = label_wrap_gen(width=10)) +
+    theme_minimal() + 
+    scale_y_discrete() +
+    scale_fill_distiller(palette = "RdYlBu") +
+    theme(#legend.position = "none",
+      legend.key.size = unit(0.3, "cm"),
+      legend.text = element_text(size = 4),
+      panel.grid = element_blank(),
+      axis.text.x = element_text(angle = 45, hjust = 1)) +
+    ggtitle(label = "AIC ranks across circRNA datasets", subtitle = "Zheng datasets") +
+    guides(fill = guide_colorbar()) + 
+    labs(fill = "% of circRNA:") + xlab("Model") + ylab("Methods")
+
+```
+
+```{r}
+fig <- plot_grid(plotlist = list(AB_legend, c), ncol = 2, rel_widths = c(1,0.5))
+fig
+
+```
+
+# References
+

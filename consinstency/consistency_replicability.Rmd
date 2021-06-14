@@ -1,0 +1,643 @@
+---
+title: 'REAL DATA BENCHMARK: experimental reproducibility on independent samples'
+author: "Alessia Buratin"
+date: 'Compiled: `r format(Sys.Date(), "%d %B, %Y")`'
+output:
+  html_document:
+    code_folding: hide
+    df_print: kable
+    number_sections: no
+    theme: united
+    toc: yes
+    toc_float: yes
+  pdf_document:
+    toc: yes
+editor_options: 
+  chunk_output_type: console
+---
+
+<style>
+#TOC {
+  top: 1%;
+  opacity: 0.5;
+}
+#TOC:hover {
+  opacity: 1;
+}
+</style>
+
+```{r setup, include=FALSE}
+current.dir = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/robustness_glmm"
+
+knitr::opts_chunk$set(echo = TRUE, fig.path = file.path(current.dir, "DM1/figure/"))
+```
+
+# Data loading
+
+Data from DM1 
+
+```{r message=FALSE, warning=FALSE}
+library(plyr)
+library(phyloseq)
+library(reshape2)
+library(ggplot2)
+library(ggpubr)
+library(vegan)
+library(cowplot)
+library("ggdendro")
+library("gridExtra")
+library(data.table)
+source("/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/robustness_glmm/additional_functions.R")
+# source("/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/reference/R/eval_functions.R")
+# source("/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/reference/R/colors.R")
+cols <- c(
+  # DEseq
+  brewer.pal(n = 9, "YlOrRd")[c(4,5,6,7)],
+  # Edger
+  brewer.pal(n = 9, "GnBu")[c(6,7,8)],
+  # limma
+  brewer.pal(n = 9, "RdPu")[c(5, 8)]
+)
+
+methods2 <- c("DESeq2",
+             "DESeq2-ZeroInflated",
+             "DESeq2-apeGLM",
+             "DESeq2-ZINB Wave",
+             "edgeR",
+             "edgeR-robust",
+             "edgeR-ZINB Wave",
+             # "voom",
+             # "EBSeq", 
+             # "GLMM-NB", 
+             "GLMM-ZINB")
+
+names(cols) <- methods2
+
+renameAtoB <- function(f,a,b) {
+  levels(f)[levels(f) == a] <- b
+  f
+}
+```
+
+# Consistency and Replicability
+
+## Between and Within method Concordance
+
+### TALL data
+
+```{r}
+load("/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/robustness_glmm/DM1/sensitivityPrecision50.RData")
+load(file = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/robustness_glmm/DM1/sensitivityPrecisionTMB_5rep.RData")
+load(file = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/robustness_glmm/DM1/sensitivityPrecisionTMB_5rep2.RData")
+load(file = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/robustness_glmm/DM1/sensitivityPrecisionTMB_20rep3.RData")
+# resNB = result$`ZINB:FALSE_detection_methods:all_niter:5`[1:5]
+# resZINB = result$`ZINB:TRUE_detection_methods:all_niter:5`[1:5]
+
+resTestGLMM <- c(resTestGLMM_TMB, resTestGLMM_TMB2, resTestGLMM_TMB3)
+resHeldoutGLMM <- c(resHeldoutGLMM_TMB, resHeldoutGLMM_TMB2, resHeldoutGLMM_TMB3)
+lfcTestGLMM <- c(lfcTestGLMM_TMB,lfcTestGLMM_TMB, lfcTestGLMM_TMB3)
+lfcHeldoutGLMM <- c(lfcHeldoutGLMM_TMB, lfcHeldoutGLMM_TMB2, lfcHeldoutGLMM_TMB3)
+
+nreps = 30
+resTestGLMM = lapply(resTestGLMM, function(x) {colnames(x)="GLMM"
+x})
+resHeldoutGLMM = lapply(resHeldoutGLMM, function(x) {colnames(x)="GLMM"
+x})
+lfcTestGLMM = lapply(lfcTestGLMM, function(x) {colnames(x)="GLMM"
+x})
+lfcHeldoutGLMM = lapply(lfcHeldoutGLMM, function(x) {colnames(x)="GLMM"
+x})
+
+resHeldoutALL = lapply(resHeldout, function(d) lapply(1:nreps, function(r)
+   merge(d[r], resHeldoutGLMM[r], by = "row.names")))
+resTestALL = lapply(resTes, function(d) lapply(1:nreps, function(r)
+   merge(d[r], resTestGLMM[r], by = "row.names")))
+
+lfcHeldoutALL = lapply(lfcHeldout, function(d) lapply(1:nreps, function(r)
+   merge(d[r], lfcHeldoutGLMM[r], by = "row.names")))
+lfcTestALL = lapply(lfcTest, function(d) lapply(1:nreps, function(r)
+   merge(d[r], lfcTestGLMM[r], by = "row.names")))
+# resTestGLMM <- lapply(resNB, "[[", "resTestGLMM")
+# resHeldoutGLMM <- lapply(resNB, "[[", "resHeldoutGLMM")
+# lfcTestGLMM <- lapply(resNB, "[[", "lfcTestGLMM")
+# lfcHeldoutGLMM <- lapply(resNB, "[[", "lfcHeldoutGLMM")
+
+resTes$ccp2 = lapply(resTes$ccp2, function(x) {
+  oldCircID = rownames(x)
+  newEndCircID = as.numeric(sub(".*-", "", rownames(x)))-1
+  chr = sub(":.*", "", rownames(x))
+  StartCircID = gsub(pattern = "(.*:)(.*)(-.*)",
+                     replacement = "\\2",
+                     x = rownames(x))
+  rownames(x) = paste0(chr, ":", StartCircID, "-", newEndCircID)
+  return(x)
+  })
+
+resHeldout$ccp2 = lapply(resHeldout$ccp2, function(x) {
+  oldCircID = rownames(x)
+  newEndCircID = as.numeric(sub(".*-", "", rownames(x)))-1
+  chr = sub(":.*", "", rownames(x))
+  StartCircID = gsub(pattern = "(.*:)(.*)(-.*)",
+                     replacement = "\\2",
+                     x = rownames(x))
+  rownames(x) = paste0(chr, ":", StartCircID, "-", newEndCircID)
+  return(x)
+  })
+
+lfcHeldout$ccp2 = lapply(lfcHeldout$ccp2, function(x) {
+  oldCircID = rownames(x)
+  newEndCircID = as.numeric(sub(".*-", "", rownames(x)))-1
+  chr = sub(":.*", "", rownames(x))
+  StartCircID = gsub(pattern = "(.*:)(.*)(-.*)",
+                     replacement = "\\2",
+                     x = rownames(x))
+  rownames(x) = paste0(chr, ":", StartCircID, "-", newEndCircID)
+  return(x)
+  })
+
+lfcTest$ccp2 = lapply(lfcTest$ccp2, function(x) {
+  oldCircID = rownames(x)
+  newEndCircID = as.numeric(sub(".*-", "", rownames(x)))-1
+  chr = sub(":.*", "", rownames(x))
+  StartCircID = gsub(pattern = "(.*:)(.*)(-.*)",
+                     replacement = "\\2",
+                     x = rownames(x))
+  rownames(x) = paste0(chr, ":", StartCircID, "-", newEndCircID)
+  return(x)
+  })
+```
+
+```{r} 
+ps_fitted_dcc <- list()
+ps_fitted_dcc$test$pval <- resTestALL$dcc
+ps_fitted_dcc$Heldout$pval <- resHeldoutALL$dcc
+ps_fitted_dcc$test$lfc <- lfcTestALL$dcc
+ps_fitted_dcc$Heldout$lfc <- lfcHeldoutALL$dcc
+ps_fitted_ciri <- list()
+ps_fitted_ciri$test$pval <- resTestALL$ciri
+ps_fitted_ciri$Heldout$pval <- resHeldoutALL$ciri
+ps_fitted_ciri$test$lfc <- lfcTestALL$ciri
+ps_fitted_ciri$Heldout$lfc <- lfcHeldoutALL$ciri
+ps_fitted_ce.star <- list()
+ps_fitted_ce.star$test$pval <- resTestALL$circexplorer2_star
+ps_fitted_ce.star$Heldout$pval <- resHeldoutALL$circexplorer2_star
+ps_fitted_ce.star$test$lfc <- lfcTestALL$circexplorer2_star
+ps_fitted_ce.star$Heldout$lfc <- lfcHeldoutALL$circexplorer2_star
+ps_fitted_ce.bwa <- list()
+ps_fitted_ce.bwa$test$pval <- resTestALL$circexplorer2_bwa
+ps_fitted_ce.bwa$Heldout$pval <- resHeldoutALL$circexplorer2_bwa
+ps_fitted_ce.bwa$test$lfc <- lfcTestALL$circexplorer2_bwa
+ps_fitted_ce.bwa$Heldout$lfc <- lfcHeldoutALL$circexplorer2_bwa
+ps_fitted_ce.top <- list()
+ps_fitted_ce.top$test$pval <- resTestALL$circexplorer2_tophat
+ps_fitted_ce.top$Heldout$pval <- resHeldoutALL$circexplorer2_tophat
+ps_fitted_ce.top$test$lfc <- lfcTestALL$circexplorer2_tophat
+ps_fitted_ce.top$Heldout$lfc <- lfcHeldoutALL$circexplorer2_tophat
+ps_fitted_ccp2 <- list()
+ps_fitted_ccp2$test$pval <- resTestALL$ccp2
+ps_fitted_ccp2$Heldout$pval <- resHeldoutALL$ccp2
+ps_fitted_ccp2$test$lfc <- lfcTestALL$ccp2
+ps_fitted_ccp2$Heldout$lfc <- lfcHeldoutALL$ccp2
+ps_fitted_findcirc <- list()
+ps_fitted_findcirc$test$pval <- resTestALL$findcirc
+ps_fitted_findcirc$Heldout$pval <- resHeldoutALL$findcirc
+ps_fitted_findcirc$test$lfc <- lfcTestALL$findcirc
+ps_fitted_findcirc$Heldout$lfc <- lfcHeldoutALL$findcirc
+ps_fitted_all = list(ps_fitted_ccp2,
+                 ps_fitted_ce.bwa, ps_fitted_ce.star, ps_fitted_ce.top,
+                 ps_fitted_findcirc, ps_fitted_ciri, ps_fitted_dcc)
+
+names(ps_fitted_all) = c("ccp", "CE.bwa", "CE.star", "CE.tophat", "findcirc", "CIRI", "DCC")
+
+# ps_fitted_glmmNB <- list()
+# ps_fitted_glmmNB$test$pval <- resTestGLMM
+# ps_fitted_glmmNB$test$lfc <- lfcTestGLMM
+# ps_fitted_glmmNB$Heldout$pval <- resHeldoutGLMM
+# ps_fitted_glmmNB$Heldout$lfc <- lfcHeldoutGLMM
+ps_fitted_dcc <- list()
+ps_fitted_dcc$test$pval <- resTes$dcc
+ps_fitted_dcc$Heldout$pval <- resHeldout$dcc
+ps_fitted_dcc$test$lfc <- lfcTest$dcc
+ps_fitted_dcc$Heldout$lfc <- lfcHeldout$dcc
+ps_fitted_ciri <- list()
+ps_fitted_ciri$test$pval <- resTes$ciri
+ps_fitted_ciri$Heldout$pval <- resHeldout$ciri
+ps_fitted_ciri$test$lfc <- lfcTest$ciri
+ps_fitted_ciri$Heldout$lfc <- lfcHeldout$ciri
+ps_fitted_ce.star <- list()
+ps_fitted_ce.star$test$pval <- resTes$circexplorer2_star
+ps_fitted_ce.star$Heldout$pval <- resHeldout$circexplorer2_star
+ps_fitted_ce.star$test$lfc <- lfcTest$circexplorer2_star
+ps_fitted_ce.star$Heldout$lfc <- lfcHeldout$circexplorer2_star
+ps_fitted_ce.bwa <- list()
+ps_fitted_ce.bwa$test$pval <- resTes$circexplorer2_bwa
+ps_fitted_ce.bwa$Heldout$pval <- resHeldout$circexplorer2_bwa
+ps_fitted_ce.bwa$test$lfc <- lfcTest$circexplorer2_bwa
+ps_fitted_ce.bwa$Heldout$lfc <- lfcHeldout$circexplorer2_bwa
+ps_fitted_ce.top <- list()
+ps_fitted_ce.top$test$pval <- resTes$circexplorer2_tophat
+ps_fitted_ce.top$Heldout$pval <- resHeldout$circexplorer2_tophat
+ps_fitted_ce.top$test$lfc <- lfcTest$circexplorer2_tophat
+ps_fitted_ce.top$Heldout$lfc <- lfcHeldout$circexplorer2_tophat
+ps_fitted_ccp2 <- list()
+ps_fitted_ccp2$test$pval <- resTes$ccp2
+ps_fitted_ccp2$Heldout$pval <- resHeldout$ccp2
+ps_fitted_ccp2$test$lfc <- lfcTest$ccp2
+ps_fitted_ccp2$Heldout$lfc <- lfcHeldout$ccp2
+ps_fitted_findcirc <- list()
+ps_fitted_findcirc$test$pval <- resTes$findcirc
+ps_fitted_findcirc$Heldout$pval <- resHeldout$findcirc
+ps_fitted_findcirc$test$lfc <- lfcTest$findcirc
+ps_fitted_findcirc$Heldout$lfc <- lfcHeldout$findcirc
+ps_fitted_glmm <- list()
+ps_fitted_glmm$test$pval <- resTestGLMM
+ps_fitted_glmm$test$lfc <- lfcTestGLMM
+ps_fitted_glmm$Heldout$pval <- resHeldoutGLMM
+ps_fitted_glmm$Heldout$lfc <- lfcHeldoutGLMM
+ps_fitted_glmmZINB <- list()
+ps_fitted_glmmZINB$test$pval <- resTestGLMM
+ps_fitted_glmmZINB$test$lfc <- lfcTestGLMM
+ps_fitted_glmmZINB$Heldout$pval <- resHeldoutGLMM
+ps_fitted_glmmZINB$Heldout$lfc <- lfcHeldoutGLMM
+
+ps_fitted = list(ps_fitted_ccp2,
+                 ps_fitted_ce.bwa, ps_fitted_ce.star, ps_fitted_ce.top,
+                 ps_fitted_findcirc, ps_fitted_ciri, ps_fitted_dcc)
+
+names(ps_fitted) = c("ccp", "CE.bwa", "CE.star", "CE.tophat", "findcirc", "CIRI", "DCC")
+
+# conc <- ldply(ps_fitted, function(x) compute_concordance(ps_fitted_list = x, maxrank = 1000))
+# conc.glmm <- ldply(ps_fitted_all, function(x) compute_concordance_withGLMM(ps_fitted_list = x, maxrank = 1000))
+# conc.glmmNB <-  compute_concordance.glmm(ps_fitted_glmmNB, maxrank = 1000)
+conc.glmmZI <-  compute_concordance.glmm(ps_fitted_list = ps_fitted_glmmZINB, maxrank = 1000)
+
+# save(conc, file = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/robustness_glmm/DM1/concordanceGLM.RData")
+# save(conc.glmm, file = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/robustness_glmm/DM1/concordancewithGLMM.RData")
+
+load(file.path(current.dir, "DM1/concordanceGLM.RData"))
+load(file.path(current.dir, "DM1/concordancewithGLMM.RData"))
+
+concordance_df_summary <- suppressWarnings(ddply(conc, ~ .id + rank + method1, function(x) colMeans(x[,c("concordance", "nfeatures")])))
+
+AUC_AOC_between_methods <- suppressWarnings(ddply(concordance_df_summary, ~ .id + method1, function(x) AucAocFun(cVals = x$concordance[x$rank <= 200], nfeatures = mean(x$nfeatures[x$rank <= 200]), threshold = 200)))
+
+# plot <- gheat(AUC_AOC_between_methods = AUC_AOC_between_methods,
+#            concordance_df_summary = concordance_df_summary)
+# title <- ggdraw() +
+#   draw_label(
+#     "Concordance Heatmap",
+#     fontface = 'bold',
+#     x = 0,
+#     hjust = 0
+#   ) +
+#   theme(
+#     # add margin on the left of the drawing canvas,
+#     # so title is aligned with left edge of first plot
+#     plot.margin = margin(0, 0, 0, 7)
+#   )
+# fig = plot_grid(title, plot_grid(cowplot::plot_grid(plotlist = lapply(plot, "[[", "plot"), 
+#                              ncol = 2, #align = 'vh',
+#                              hjust = -0.1, 
+#                              vjust = -1.4,
+#                              labels = names(ps_fitted)), 
+#           plot_grid(plot$ccp$legend_dendro, plot$ccp$legend_heat, ncol = 2, rel_widths = c(1,0.4)), 
+#           nrow = 2, rel_heights = c(1,0.1)),
+#           ncol = 1,
+#           # rel_heights values control vertical title margins
+#           rel_heights = c(0.1, 1))
+# heatmap <- plot_grid(title, plot_grid(plotlist = lapply(plot, "[[", "plot"), 
+#                              ncol = 2, #align = 'vh',
+#                              hjust = -0.1, 
+#                              vjust = -1.4,
+#                              labels = names(ps_fitted), 
+#                              label_size = 9), ncol = 1, rel_heights = c(0.1, 1))
+# legend = plot_grid(plot$ccp$legend_dendro, plot$ccp$legend_heat, ncol = 2, rel_widths = c(1,0.4))
+# fig = grid.arrange(heatmap, legend, ncol=1, nrow=2, heights=c(1, 0.1))
+# fig
+
+# png("/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/robustness_glmm/TALL/fig4.png",
+#     width = 10, height = 12, units = "cm", res=300)
+# fig
+# dev.off()
+```
+
+### Replicability
+
+```{r}
+conc_df_sub <- conc[conc$rank == 500 & conc$subset == "HeldoutvsTest",]
+conc_df_sub <- conc.glmm[conc.glmm$rank == 400 & conc.glmm$subset == "HeldoutvsTest",]
+# df.nb <- conc.glmmNB[conc.glmmNB$rank == 1000,]
+df.zi <- conc.glmmZI[conc.glmmZI$rank == 400,]
+
+# df.nb <- df.nb[rep(seq_len(nrow(df.nb)), each = 7), ]
+# df.nb$`.id` <- names(ps_fitted)
+# df.nb$method1 = factor(df.nb$method1)
+# df.nb$method1 = renameAtoB(df.nb$method1, "GLMM", "GLMM-NB")
+# conc_df_glmmNB <- rbind(conc_df_sub, df.nb)
+
+df.zi <- df.zi[rep(seq_len(nrow(df.zi)), each = 7), ]
+df.zi$`.id` <- names(ps_fitted)
+df.zi$method1 = factor(df.zi$method1)
+df.zi$method1 = renameAtoB(df.zi$method1, "GLMM", "GLMM-ZINB")
+
+# conc_df_glmm <- rbind(conc_df_sub, df.zi)
+conc_df_glmm <- conc_df_sub
+# df.zi$method1 = renameAtoB(df.zi$method1, "GLMM", "GLMM-ZINB")
+
+ord <- order(ddply(conc_df_glmm,.variables = ~ method1, function(x) median(x[,"concordance"]))$V1)
+conc_df_glmm$method1 <- factor(conc_df_glmm$method1)
+conc_df_glmm$method1 <- factor(conc_df_glmm$method1, levels = levels(conc_df_glmm$method1), 
+                              labels = c("DESeq2",
+                                         "DESeq2-ZeroInflated",
+                                         "DESeq2-apeGLM",
+                                         "DESeq2-ZINB Wave",
+                                         "edgeR",
+                                         "edgeR-robust",
+                                         "edgeR-ZINB Wave",
+                                         # "GLMM-NB", 
+                                         "GLMM-ZINB"))#,
+                                         # "voom",
+                                         # "EBSeq"))
+png("/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/robustness_glmm/DM1/ConcordanceGLMM_top400.png", res = 200, units = "cm", width = 20, height = 25)
+ggplot(conc_df_glmm,aes(x = method1, y = concordance, color = method1)) +
+    geom_boxplot() +
+    coord_flip() +
+    scale_x_discrete(limits = unique(conc_df_glmm$method1)[rev(ord)]) +
+    xlab("Method") + ylab("Concordance") +
+  facet_wrap(~.id)+
+    ggtitle(label = "DM1 data",
+            subtitle = "Normal vs tumor") +
+    theme_minimal() +
+    theme(plot.margin = unit(c(0,0,0,0), "cm"),
+          legend.position = "none",
+          panel.spacing = unit(1,"lines"),
+          axis.text.x = element_text(angle = 90, hjust = 1, size = 12),
+          axis.text.y = element_text(size = 12),
+          title = element_text(size = 15),
+          axis.title=element_text(size=14,face="bold"),
+          strip.text.x = element_text(size = 13)) +
+    scale_color_manual(values = cols) +
+    scale_y_continuous(limits = c(0,1))
+dev.off()
+```
+
+### UpSet Plot about one replicate (yellow refer to TP in evaluation set)
+
+```{r message=FALSE, warning=FALSE}
+library(rJava)
+library(UpSetR)
+library(tidyverse)
+library(venneuler)
+library(grid)
+i = 2
+decs_list <- lapply(ps_fitted, FUN = function(det.method) {
+  nmethods <- length(names(det.method$test$pval[[i]]))
+
+  dec_list <- list()
+
+  for(j in 1:nmethods){
+    # j=1
+    # dec = data.frame(decs = rownames(det.method$test$pval[[i]][!is.na(det.method$test$pval[[i]][,j]) & det.method$test$pval[[i]][,j]<0.1,]))
+    dec_list[[colnames(det.method$test$pval[[i]])[j]]] = data.frame(decs = rownames(det.method$test$pval[[i]][!is.na(det.method$test$pval[[i]][,j]) & det.method$test$pval[[i]][,j]<=0.1,]))
+
+  }
+  return(dec_list)
+})
+
+decs_list$glmm <- data.frame(methods = "GLMM", decs = rownames(ps_fitted_glmm$test$pval[[i]])[!is.na(ps_fitted_glmm$test$pval[[i]]) & ps_fitted_glmm$test$pval[[i]]<=0.1])
+
+decsT_list <- lapply(ps_fitted, FUN = function(det.method) {
+  nmethods <- length(names(det.method$Heldout$pval[[i]]))
+  dec_list <- list()
+
+  for(j in 1:nmethods){
+    # j=1
+    # dec = data.frame(decsT = rownames(det.method$Heldout$pval[[i]][!is.na(det.method$Heldout$pval[[i]][,j]) & det.method$Heldout$pval[[i]][,j]<0.1,]))
+    dec_list[[colnames(det.method$Heldout$pval[[i]])[j]]] = data.frame(decsT = rownames(det.method$Heldout$pval[[i]][!is.na(det.method$Heldout$pval[[i]][,j]) & det.method$Heldout$pval[[i]][,j]<=0.1,]))
+
+  }
+  return(dec_list)
+})
+
+decsT_list$glmm <- data.frame(methods = "GLMM", decsT = rownames(ps_fitted_glmm$Heldout$pval[[i]])[!is.na(ps_fitted_glmm$Heldout$pval[[i]]) & ps_fitted_glmm$Heldout$pval[[i]]<=0.1])
+# decs_list <- lapply(ps_fitted, FUN = function(method) data.frame(decs = names(method$pValMat[!is.na(method$pValMat[,2]) & method$pValMat[,2]<0.05,2])))
+# ps = ps_fitted$ccp
+# decsT_list <- lapply(ps, FUN = function(method) {
+#                                             # wh.TP = grep("TP", rownames(method$pValMat))
+#                                             decs = names(method$pValMat[!is.na(method$pValMat[,2]) & method$pValMat[,2]<0.05,2])
+#                                             decsT = decs[grep("TP", decs)]
+#                                             return(data.frame(decsT))
+# })
+decs_rlist <- lapply(decs_list[1:7], function(x) rbindlist(x, idcol = "methods"))
+decs_rlist <- lapply(names(decs_rlist), function(x) rbind(decs_rlist[[x]], decs_list$glmm))
+names(decs_rlist) <- names(decs_list[1:7])
+decsT_rlist <- lapply(decsT_list[1:7], function(x) rbindlist(x, idcol = "methods"))
+decsT_rlist <- lapply(names(decsT_rlist), function(x) rbind(decsT_rlist[[x]], decsT_list$glmm))
+names(decsT_rlist) <- names(decsT_list[1:7])
+
+decs_tabs <- lapply(decs_rlist, function(x) reshape2::dcast(as.data.frame(xtabs(~methods+decs, data=x)), decs ~ methods, value.var = "Freq"))
+decsT_tabs <- lapply(decsT_rlist, function(x) reshape2::dcast(as.data.frame(xtabs(~methods+decsT, data=x)), decsT ~ methods, value.var = "Freq"))
+
+
+# rawSets <- read.csv(
+#           file = "https://raw.githubusercontent.com/lgellis/MiscTutorial/master/sets/seniorTransportation.csv",
+#           header = TRUE, sep = ",", stringsAsFactors = FALSE
+#         )
+# rawSets[is.na(rawSets)] <- 0
+# sets <- rawSets %>%
+#           rename(TTC = ttcTransportation, Walk = walkTransportation, Drive = driveTransportation, Cycle = cycleTransportation, Taxi = taxiTransportation, `Community Ride` = communityRideTransportation, `Wheel Trans` = wheelTransTransportation, Friends = friendsTransportation)
+# vennSets <- sets %>%
+#           gather(transportation, binary,6:13) %>% # take all binary mappings and convert to be a the set indicator
+#           filter(binary == 1) %>% # only include set matches
+#           select(ID, transportation) %>% # only include ID and set category
+#           mutate(transportation = factor(transportation)) # set the transportation column as a factor
+
+# vennSets <- as.data.frame(xtabs(~methods+decs, data=decs_rlist)) %>% 
+          # mutate(ID = row_number()) %>% 
+          # filter(Freq == 1) %>% 
+          # select(decs, methods) %>% 
+          # mutate(methods = factor(methods)) 
+# v <- venneuler(data.frame(vennSets))
+
+#Note that if you need to move around the labels so that they are not overlapping, you can use the new line breaks like the example below.
+#v$labels <- c("TTC", "Walk", "Drive", "Cycle\n\n\n", "\nTaxi", "Community Ride", "Wheel Trans", "Friends")
+
+# par(cex = 0.7) 
+# plot(v, main = "DECs intersection -- Li Data", cex.main = 1.5)
+# grid.text(
+#   "@littlemissdata",
+#   x = 0.52,
+#   y = 0.15,
+#   gp = gpar(
+#     fontsize = 10,
+#     fontface = 3
+#   )
+# )
+# plot_list <- list()
+
+# for(m in names(decs_tabs)){
+# # m="ccp"
+#   decs_t = decs_tabs[[m]]
+#   decs_t$TP = "FP"
+#   tp <- rownames(decsT_tabs[[m]][which(rowSums(decsT_tabs[[m]][,-1])>1),])
+#   decs_t$TP[rownames(decs_t)%in%tp] = "TP"
+#   plot_list[[m]] <- upset(decs_t,
+#       queries = list(
+#         list(query = elements, 
+#          params = list("TP", "TP"), color = "#e69f00", active = T)),
+#     sets = colnames(decs_t)[-c(1, ncol(decs_t))], 
+#     number.angles = 30, #point.size = 2, line.size = 1, 
+#     mainbar.y.label = paste0("DECs Intersections in ", m), 
+#     sets.x.label = paste0("DECs Per method in ", m), 
+#     text.scale = c(1, 1, 1, 1, 1, 0.75), order.by = "freq")
+
+  # grid.text(
+  #   paste0("Detection method:", m),
+  #   x = 0,
+  #   hjust = 0,
+  #   y = 0.15,
+  #   gp = gpar(
+  #     fontsize = 10,
+  #     fontface = 3
+  #     )
+  # )
+# }
+
+
+lapply(names(decs_tabs), function(m) {
+  decs_t = decs_tabs[[m]]
+  decs_t$TP = "FP"
+  tp <- decsT_tabs[[m]][which(rowSums(decsT_tabs[[m]][,-1])>1),"decsT"]
+  decs_t$TP[decs_t$decs%in%tp] = "TP"
+  UpSetR::upset(decs_t,
+      queries = list(
+        list(query = elements, 
+         params = list("TP", "FP"), color = "#e69f00", active = T)),
+    sets = colnames(decs_t)[-c(1, ncol(decs_t))], 
+    number.angles = 30, #point.size = 2, line.size = 1, 
+    mainbar.y.label = paste0("DECs Intersections in ", m), 
+    sets.x.label = paste0("DECs Per method in ", m), 
+    text.scale = c(1.3, 1.3, 1, 1, 2, 0.7), order.by = "freq")
+})
+
+# decs_tabs$TP <- "FP"
+# decs_tabs$TP[grep("TP", decs_tabs$decs)] <- "TP"
+# upset(decs_tabs, 
+#       queries = list(
+#         list(query = elements, 
+#          params = list("TP", "TP"), color = "#e69f00", active = T)),
+#     sets = colnames(decs_tabs)[-c(1, ncol(decs_tabs))], 
+#     number.angles = 30, #point.size = 2, line.size = 1, 
+#     mainbar.y.label = "DECs Intersections", sets.x.label = "DECs Per method", 
+#     text.scale = c(1, 1, 1, 1, 1, 0.75), order.by = "freq")
+
+# library(ComplexHeatmap)
+# decs_list <- lapply(ps_fitted_list[[1]], FUN = function(method) decs = names(method$pValMat[!is.na(method$pValMat[,2]) & method$pValMat[,2]<0.05,2]))
+# m1 = make_comb_mat(decs_list)
+# m2 = make_comb_mat(decs_list, mode = "intersect")
+# evals <- readRDS(file = evals_file)
+# sim1 <- evals$`simulation: 1_dataset:dcc_distribution:NB_sampleSize:3_TPR:0.5_foldEffect:3_compensation:no_sparsityEffect:0.25_seed:233321070`$Y
+# circTP <- rownames(sim1)[grep("TP", rownames(sim1))]
+# m3 = make_comb_mat(decs_list, mode = "intersect", universal_set = circTP)
+# comb_name(m3)
+# extract_comb(m3, "0000000000")
+
+# UpSet(m1, comb_order = order(comb_size(m1)),
+#      top_annotation = upset_top_annotation(
+#         m1,
+#         axis_param = list(at = c(0, 20, 40, 60),
+#             labels = c("0", "20", "40", "60")),
+#         height = unit(4, "cm")
+#     ),
+#     right_annotation = rowAnnotation(
+#     "Set size" = anno_barplot(set_size(m1), 
+#         # axis_param = list(direction = "reverse"),
+#         border = FALSE, 
+#         gp = gpar(fill = "black"), 
+#         width = unit(2, "cm")
+#     )), 
+#     # right_annotation = NULL,
+#     row_names_side = "left",
+#     left_annotation = rowAnnotation(
+#         # diffFromTrue = anno_boxplot(lapply(comb_sets, function(gr) gr$dist_to_tss), outline = FALSE),
+#         perc_TP = sapply(decs_list, function(methods) sum(methods%in%circTP)/length(circTP)),
+#         show_annotation_name = FALSE
+#     ))
+```
+
+### UpSet Plot about one replicate (evaluation set)
+
+
+```{r}
+lapply(names(decsT_tabs), function(m){
+  d = decsT_tabs[[m]]
+  UpSetR::upset(d, sets = colnames(d)[-1], number.angles = 30, point.size = 3.5, line.size = 2, 
+    mainbar.y.label = paste0("TP DECs Intersections in ", m), 
+    sets.x.label = paste0("TP DECs Per method in ", m), 
+    text.scale = c(1, 1, 1, 1, 1, 0.75), order.by = "freq")
+})
+
+```
+
+```{r message=FALSE, warning=FALSE}
+library(rJava)
+library(UpSetR)
+library(tidyverse)
+library(venneuler)
+library(grid)
+i = 3
+decs_list <- lapply(ps_fitted_all, FUN = function(det.method) {
+  nmethods <- length(names(det.method$test$pval[[i]][,-1]))
+
+  dec_list <- list()
+
+  for(j in 1:nmethods){
+    # j=1
+    # dec = data.frame(decs = rownames(det.method$test$pval[[i]][!is.na(det.method$test$pval[[i]][,j]) & det.method$test$pval[[i]][,j]<0.1,]))
+    dec_list[[colnames(det.method$test$pval[[i]][,-1])[j]]] = data.frame(decs = det.method$test$pval[[i]][!is.na(det.method$test$pval[[i]][,-1][,j]) & det.method$test$pval[[i]][,-1][,j]<=0.1,1])
+
+  }
+  return(dec_list)
+})
+
+decsT_list <- lapply(ps_fitted_all, FUN = function(det.method) {
+  nmethods <- length(names(det.method$Heldout$pval[[i]][,-1]))
+  dec_list <- list()
+
+    dec_list[["GLMM"]] = data.frame(decsT = det.method$Heldout$pval[[i]][!is.na(det.method$Heldout$pval[[i]][,-1][,"GLMM"]) & det.method$Heldout$pval[[i]][,-1][,"GLMM"]<=0.1,1])
+
+  return(dec_list)
+})
+
+
+decs_rlist <- lapply(decs_list[1:7], function(x) rbindlist(x, idcol = "methods"))
+
+
+decsT_rlist <- lapply(decsT_list[1:7], function(x) rbindlist(x, idcol = "methods"))
+
+
+decs_tabs <- lapply(decs_rlist, function(x) reshape2::dcast(as.data.frame(xtabs(~methods+decs, data=x)), decs ~ methods, value.var = "Freq"))
+decsT_tabs <- lapply(decsT_rlist, function(x) reshape2::dcast(as.data.frame(xtabs(~methods+decsT, data=x)), decsT ~ methods, value.var = "Freq"))
+
+lapply(names(decs_tabs), function(m) {
+  m="findcirc"
+  decs_t = decs_tabs[[m]]
+  decs_t$TP = "FP"
+  tp <- decsT_tabs[[m]]$decsT
+  decs_t$TP[decs_t$decs%in%tp] = "TP"
+  png(paste0("/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/robustness_glmm/DM1/UPset_",m, ".png"), units = "cm", width = 20, height = 15, res = 150)
+  UpSetR::upset(decs_t,
+      queries = list(
+        list(query = elements, 
+         params = list("TP", "FP"), color = "#e69f00", active = T)),
+    sets = colnames(decs_t)[-c(1, ncol(decs_t))], 
+    number.angles = 30, #point.size = 2, line.size = 1, 
+    mainbar.y.label = paste0("DECs Intersections in ", m), 
+    sets.x.label = paste0("DECs Per method in ", m), 
+    text.scale = c(2, 2, 1.3, 2, 2, 0.75), order.by = "freq")
+  dev.off()
+})
+
+```
+
+

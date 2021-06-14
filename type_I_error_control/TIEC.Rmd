@@ -1,0 +1,203 @@
+---
+title: 'Type I Error Control'
+author: "Alessia Buratin"
+date: 'Compiled: `r format(Sys.Date(), "%d %B, %Y")`'
+output:
+  html_document:
+    code_folding: hide
+    df_print: kable
+    number_sections: no
+    theme: united
+    toc: yes
+    toc_float: yes
+  pdf_document:
+    toc: yes
+editor_options: 
+  chunk_output_type: console
+---
+
+<style>
+#TOC {
+  top: 1%;
+  opacity: 0.5;
+}
+#TOC:hover {
+  opacity: 1;
+}
+</style>
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Data loading
+
+```{r}
+library(reshape2)
+library(ggplot2)
+library(cowplot)
+library(plyr)
+```
+
+Choose samples in completely random way and create two groups of equal sample size.
+
+```{r}
+### DM1 Data
+load("/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/data/DM1Data_list.RData")
+meta.data <- read.csv("/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/realdata/DM1/analyses/meta_DM1.csv")
+meta.data = as.data.table(meta.data)
+meta.data <- meta.data[, .(sample_id = sample,
+                           condition = ifelse(disease_class=="myotonic dystrophy type 1", "DM1","Normal"))]
+meta.data = meta.data[order(meta.data$sample_id),][seq(1,nrow(meta.data), by = 2),]     # for odd rows
+
+coldata <- data.frame(group = meta.data$condition,
+                      sample = meta.data$sample,
+                      row.names = meta.data$sample)
+coldata$group <- factor(coldata$group)
+coldata$sample <- as.character(coldata$sample)
+
+library(caret)
+grp1_name = "Normal"
+grp2_name = "DM1"
+variable_name = "group"
+
+printIdx <- function() {
+  NormSub <- sample(coldata$sample, size = 10, replace = FALSE)
+  tumorSub <- sample(setdiff(coldata$sample, NormSub), size = 10, replace = FALSE)
+  idx <- c(NormSub, tumorSub)
+  
+  idx
+  
+}
+
+set.seed(5)
+randomSubsets <- t(replicate(50, printIdx()))
+
+# set.seed(5)
+# numSubsets <- t(replicate(30, numIdx()))
+# all(dist(numSubsets) > 0)
+
+# write.table(randomSubsets,file="/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/robustness_glmm/DM1/random_shuffle50.txt",quote=FALSE,row.names=FALSE,col.names=FALSE)
+randomSubsets <- read.table("/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/robustness_glmm/DM1/random_subsets50.txt",strings=FALSE)
+```
+
+# Mock dataset creation
+
+```{r subsetting, echo=FALSE}
+
+glmm.db <- rbindlist(lapply(DM1Data_list[1:6], function(x) data.frame(x, circ_id = rownames(x))), 
+                     idcol = "method", use.names = TRUE)
+glmm.melt <- rbindlist(lapply(DM1Data_list[1:6], function(x) reshape2::melt(x)), 
+                       idcol = "method", use.names = TRUE)
+
+count.data.melt <- as.data.table(reshape2::melt(glmm.db, id.vars = c("method", "circ_id")))
+name.sep <- "."
+count.data.melt[, sample.name.ext := paste0(variable, name.sep, method)]
+count.data.merge <- merge(count.data.melt, coldata, by.x = "variable", by.y = "sample")
+
+colData.dt <- as.data.table(count.data.merge)[, .N, by = .(variable, method, 
+                                                           group,
+                                                           sample.name.ext)][, N := NULL][]
+
+colData <- data.frame(colData.dt, 
+                      row.names = "sample.name.ext")
+glmm.wide = dcast(glmm.melt, method+Var2~Var1, value.var = "value", fill=0)
+colnames(glmm.wide) = c("MethodID", "SampleID", colnames(glmm.wide)[-c(1,2)])
+
+count.data.melt <- as.data.table(reshape2::melt(glmm.db, id.vars = c("method", "circ_id")))
+name.sep <- "."
+count.data.melt[, sample.name.ext := paste0(variable, name.sep, method)]
+count.data.merge <- merge(count.data.melt, coldata, by.x = "variable", by.y = "sample")
+
+count.matrix.dt <- dcast(data = as.data.table(count.data.merge), 
+                         formula = circ_id ~ sample.name.ext, 
+                         fill = 0, fun.aggregate = sum, 
+                         value.var = "value")
+count.matrix.filtered.dt <- as.data.table(count.matrix.dt)[rowSums(as.data.table(count.matrix.dt)[,-"circ_id"]>=2)>3,]
+count.matrix <- as.matrix(count.matrix.filtered.dt, 
+                          rownames = "circ_id")[, rownames(colData)]
+
+se <- SummarizedExperiment(assays = list(counts = count.matrix),
+                           colData = colData)
+eset <- ExpressionSet(assay(se),
+                      AnnotatedDataFrame(as.data.frame(colData(se))))
+
+```
+
+# Differential abundance tests
+
+Use "diffExprs_GLMM.R" for GLMM-ZINB model and "DiffExpr_circ.R" for GLM-NB model to evaluate mock datasets. An output is generated for each evaluation. 
+
+```{r}
+load(file = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/robustness_glmm/DM1/typeIerrorGLM_50rep.RData")
+load(file = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/robustness_glmm/DM1/typeIerrorGLMM_5rep_TMB.RData")
+load(file = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/robustness_glmm/DM1/typeIerrorGLMM_5rep_TMB2.RData")
+
+rateGLM = melt(rbindlist(lapply(resRate, function(x) rbindlist(x, idcol = "Rep")), idcol = "DataSet"), id.vars = c("DataSet", "Rep"))
+colnames(rateGLM) = c("DataSet","Rep","Method","rate")
+rateGLMM = data.frame(rate = rbind(rbindlist(res_tIe_TMB2), rbindlist(res_tIe_TMB)))
+rateGLMM$Rep = seq(1:nrow(rateGLMM))
+rateGLMM$Method = "GLMM-ZINB"
+rateGLMM = dplyr::rename(rateGLMM, rate=rateNBMM_TBM)
+df <- rateGLMM[rep(seq_len(nrow(rateGLMM)), each = 7), ]
+df$DataSet <- rep(names(resRate), 10)
+rate_df = rbind(rateGLM, df)
+```
+
+# Plot
+
+```{r}
+cols <- c(
+  # DEseq
+  brewer.pal(n = 9, "YlOrRd")[c(4,5,6,7)],
+  # Edger
+  brewer.pal(n = 9, "GnBu")[c(6,7,8)],
+  # limma
+  brewer.pal(n = 9, "RdPu")[c(5)]
+)
+
+methods2 <- c("DESeq2",
+             "DESeq2-ZeroInflated",
+             "DESeq2-apeGLM",
+             "DESeq2-ZINB Wave",
+             "edgeR",
+             "edgeR-robust",
+             "edgeR-ZINB Wave",
+             # "voom",
+             # "EBSeq", 
+             # "GLMM-NB", 
+             "GLMM-ZINB")
+
+names(cols) <- methods2
+rate_df$Method <- renameAtoB(rate_df$Method, "edgeR.robust", "edgeR-robust")
+rate_df$Method<- renameAtoB(rate_df$Method, "edgeR.ZINBWave", "edgeR-ZINB Wave")
+rate_df$Method<- renameAtoB(rate_df$Method, "DESeq2.ZINBWave", "DESeq2-ZINB Wave")
+rate_df$Method<- renameAtoB(rate_df$Method, "DESeq2.apeglm", "DESeq2-apeGLM")
+rate_df$Method<- renameAtoB(rate_df$Method, "DESeq2.ZI", "DESeq2-ZeroInflated")
+rate_df$Method<- as.character(rate_df$Method)
+
+png(paste0("/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/robustness_glmm/DM1/TIE.png"), units = "cm", width = 15, height = 15, res = 150)
+ggplot(data = rate_df, aes(color = Method)) +
+    geom_boxplot(data = rate_df,aes(x = "0.1",y = rate)) +
+    # geom_boxplot(data = pval_df_FDR_mean005,aes(x = "0.05",y = FDR_obs005)) +
+    # geom_boxplot(data = pval_df_FDR_mean01,aes(x = "0.1",y = FDR_obs01)) + 
+    #geom_hline(yintercept = c(0.01,0.05,0.1),lty = 2, color = "darkgray") +
+    geom_segment(aes(x = 1-0.5,xend = 1+0.5,y = 0.1,yend = 0.1), color = "red", lty = 2) +
+    # geom_segment(aes(x = 2-0.5,xend = 2+0.5,y = 0.05,yend = 0.05), color = "red", lty = 2) +
+    # geom_segment(aes(x = 3-0.5,xend = 3+0.5,y = 0.1,yend = 0.1), color = "red", lty = 2) +
+    facet_wrap(~ DataSet) + 
+    xlab(expression(Nominal~alpha)) + ylab(expression("Observed"~alpha)) +
+    #ggtitle(label = "False discoveries for each method") + 
+    scale_color_manual(values = cols) +
+    theme_minimal() + 
+    ggtitle(label = paste("False discoveries for DM1 data samples"),subtitle = "Raw p-values") +
+    theme(legend.position = "none",
+          axis.text.x = element_text(angle = 90, hjust = 1, size = 15),
+        axis.text.y = element_text(size = 15),
+        axis.title=element_text(size=14,face="bold"),
+          # axis.text.y.left = element_text(size = 11),
+        title=element_text(size=14),
+        strip.text.x = element_text(size = 14))
+dev.off()
+
+```
