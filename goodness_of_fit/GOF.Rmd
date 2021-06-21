@@ -89,7 +89,7 @@ methods <- c("findcirc", "dcc", "ciri", "circexplorer2_star", "circexplorer2_bwa
 
 methods.ccp <- c(methods, "ccp2")
 ## import data
-if(!file.exists("/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/data/TALLData_list.RData")){
+if(!file.exists("/blackhole/alessia/CircModel/data/TALLData_list.RData")){
   
   count.data.file <- "/blackhole/circrna/analyses/VanVlierberghe/merge_T/circrnas.gtf.list.txt"
   colClasses <- c("factor", "factor", "character", "integer", "integer", 
@@ -137,8 +137,8 @@ if(!file.exists("/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution
   ps.ccp2 <- ps.ccp2[rowSums(ps.ccp2>=2)>=2,]
   colnames(ps.ccp2) <- gsub("-", "_", colnames(ps.ccp2))
   TALLData_list[["ccp2"]] <- ceiling(ps.ccp2)
-  save(TALLData_list, file = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/data/TALLData_list.RData")
-} else load("/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/data/TALLData_list.RData")
+  save(TALLData_list, file = "/blackhole/alessia/CircModel/data/TALLData_list.RData")
+} else load("/blackhole/alessia/CircModel/data/TALLData_list.RData")
 
 ```
 
@@ -324,7 +324,7 @@ dat_text.TALL <- data.frame(
 
 
 ```{r, echo=FALSE,message=FALSE,warning=FALSE}
-source("/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/GOF/add_functions.R")
+source("/blackhole/alessia/CircModel/goodness_of_fit/add_functions.R")
 
 # TALLmat.filt.1 <- lapply(seq(1:7), function(x) rbind(makeplot.TALL[[x]][[2]][[1]]))
 # names(TALLmat.filt.1) <- methods
@@ -344,8 +344,8 @@ names(TALLmat.filt.2) <- methods.ccp
 # df0 = ldply(df_list0)
 # write.csv(df0, file = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/data/TALL/AIC_df0.csv")
 # write.csv(TData_df0, file = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/data/TALL/TData_df0.csv")
-TData_df0 = read.csv(file = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/data/TALL/TData_df0.csv")
-TALLdf0 = read.csv(file = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/data/TALL/AIC_df0.csv")
+TData_df0 = read.csv(file = "/blackhole/alessia/CircModel/data/TALL/TData_df0.csv")
+TALLdf0 = read.csv(file = "/blackhole/alessia/CircModel/data/TALL/AIC_df0.csv")
 
 # TData_df1 <- model_to_data.frame(TData_models_1f)
 # df_list1 = sapply(methods, function(x) list.match(TData_models_1f[[x]], "AIC"))
@@ -368,8 +368,8 @@ TALLdf0 = read.csv(file = "/blackhole/alessia/circzi/checkCircRNAnormalizationdi
 # df3 = ldply(df_list3)
 # write.csv(df3, file = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/data/TALL/AIC_df3.csv")
 # write.csv(TData_df3, file = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/data/TALL/TData_df3.csv")
-TData_df3 = read.csv(file = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/data/TALL/TData_df3.csv")
-TALLdf3 = read.csv(file = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/data/TALL/AIC_df3.csv")
+TData_df3 = read.csv(file = "/blackhole/alessia/CircModel/data/TALL/TData_df3.csv")
+TALLdf3 = read.csv(file = "/blackhole/alessia/CircModel/data/TALL/AIC_df3.csv")
 ```
 
 ## DM1 (Christine Voellenkle et al. 2019)
@@ -388,7 +388,7 @@ get.method.count.matrix <- function(method, x){
 }
 
 ## import data
-if(!file.exists("/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/data/DM1Data_list.RData")){
+if(!file.exists("/blackhole/alessia/CircModel/data/DM1Data_list.RData")){
   
   colClasses <- c("factor", "factor", "character", "integer", "integer", 
                 "integer", "factor", "character", "character")
@@ -436,8 +436,8 @@ if(!file.exists("/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution
   ps.ccp2 <- ps.ccp2[rowSums(ps.ccp2>=2)>=1,]
   colnames(ps.ccp2) <- gsub("-", "_", colnames(ps.ccp2))
   DM1Data_list[["ccp2"]] <- ceiling(ps.ccp2)
-  save(DM1Data_list, file = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/data/DM1Data_list.RData")
-} else load("/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/data/DM1Data_list.RData")
+  save(DM1Data_list, file = "/blackhole/alessia/CircModel/data/DM1Data_list.RData")
+} else load("/blackhole/alessia/CircModel/data/DM1Data_list.RData")
 
 ```
 
@@ -496,7 +496,6 @@ dat_text.DM1 <- data.frame(
 
 
 ```{r, echo=FALSE,message=FALSE,warning=FALSE}
-source("/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/GOF/add_functions.R")
 colData <- data.frame(meta_dm1, 
                       row.names = "sample_id")
 DM1mat.filt.1 <- lapply(seq(1:7), function(x) rbind(makeplot.DM1[[x]][[2]][[1]]))
@@ -515,12 +514,12 @@ names(DM1mat.filt.3) <- methods
 
 # DM1Data_df11 <- model_to_data.frame(DM1Data_models_1f)
 # write.csv(DM1Data_df1, file = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/data/DM1/DM1Data_df11.csv")
-DM1Data_df11 = read.csv(file = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/data/DM1/DM1Data_df11.csv")
+DM1Data_df11 = read.csv(file = "/blackhole/alessia/CircModel/data/DM1/DM1Data_df11.csv")
 
 
 # DM1Data_df22 <- model_to_data.frame(DM1Data_models_2f)
 # write.csv(DM1Data_df22, file = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/data/DM1/DM1Data_df22.csv")
-DM1Data_df22 = read.csv(file = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/data/DM1/DM1Data_df22.csv")
+DM1Data_df22 = read.csv(file = "/blackhole/alessia/CircModel/data/DM1/DM1Data_df22.csv")
 
 # DM1Data_df33 <- model_to_data.frame(DM1Data_models_3f)
 # write.csv(DM1Data_df33, file = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/data/DM1/DM1Data_df33.csv")

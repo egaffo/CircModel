@@ -29,7 +29,7 @@ The directory _./power/_ contains for each real-dataset several files:
 ### Consinstency
 The directory _./consinstency/_ contains for each real-dataset several files:
 <ul>
-<li> consistency_replicability.Rmd which loads DECs results and then tests the differential abundance detection methods in terms of Concordance At the Top. </li>
+<li> consistency_replicability.Rmd which loads DECs results and then tests the differential expression detection methods in terms of Concordance At the Top. </li>
 </ul>
 
 ## Type I Error Control

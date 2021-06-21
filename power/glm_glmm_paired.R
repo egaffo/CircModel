@@ -11,14 +11,12 @@ pkgs <- c("edgeR",
           "apeglm",
           "ZIM",
           "zinbwave",
-          "BiocParallel",
           "AUC",
           "genefilter",
           "MAST",
           # "scde", # It is important to use flexmix v2.3-13 and scde 1.99.1
           # "Seurat",
           "crayon",
-          "MAST",
           "aod",
           "arm",
           "fdrtool",
@@ -35,11 +33,9 @@ pkgs <- c("edgeR",
           # "samr",
           #"EBseq",
           "limma",
-          "data.table")
+          "data.table",
+          "dplyr")
 for(i in pkgs) { library(i, quietly=TRUE, verbose=FALSE, warn.conflicts=FALSE, character.only=TRUE) }
-library(dplyr)
-library(data.table)
-library(plyr)
 load("/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/data/DM1Data_list.RData")
 randomSubsets <- read.table("/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/robustness_glmm/DM1/random_subsets50.txt",strings=FALSE)
 
@@ -68,6 +64,14 @@ e <- lapply(eset, function (x) {
   x.new = x[which(rowSums(exprs(x))!=0),]
   return(x.new)})
 
+# oldCircID = rownames(e$ccp2)
+# newEndCircID = as.numeric(sub(".*-", "", rownames(e$ccp2 )))
+# chr = sub(":.*", "", rownames(e$ccp2 ))
+# StartCircID = gsub(pattern = "(.*:)(.*)(-.*)",
+#                    replacement = "\\2",
+#                    x = rownames(e$ccp2))
+# rownames(e$ccp2) = paste0(chr, ":", as.numeric(StartCircID)+1, "-", newEndCircID)
+
 glmm.db <- rbindlist(lapply(DM1Data_list[1:6], function(x) data.frame(x, circ_id = rownames(x))), 
                      idcol = "method", use.names = TRUE)
 glmm.melt <- rbindlist(lapply(DM1Data_list[1:6], function(x) reshape2::melt(x)), 
@@ -87,7 +91,7 @@ colData <- data.frame(colData.dt,
 glmm.wide = dcast(glmm.melt, method+Var2~Var1, value.var = "value", fill=0)
 colnames(glmm.wide) = c("MethodID", "SampleID", colnames(glmm.wide)[-c(1,2)])
 head(glmm.wide[,c(1:8)])
-nreps = 50
+nreps = 10
 
 count.data.melt <- as.data.table(reshape2::melt(glmm.db, id.vars = c("method", "circ_id")))
 name.sep <- "."
@@ -98,7 +102,7 @@ count.matrix.glmm.dt <- dcast(data = as.data.table(count.data.merge),
                          formula = circ_id ~ sample.name.ext, 
                          fill = 0, fun.aggregate = sum, 
                          value.var = "value")
-count.matrix.filtered.glmm.dt <- as.data.table(count.matrix.glmm.dt)[rowSums(as.data.table(count.matrix.glmm.dt)[,-"circ_id"]>=2)>3,]
+count.matrix.filtered.glmm.dt <- as.data.table(count.matrix.glmm.dt)#[rowSums(as.data.table(count.matrix.glmm.dt)[,-"circ_id"]>=2)>1,]
 count.matrix.glmm <- as.matrix(count.matrix.filtered.glmm.dt, 
                           rownames = "circ_id")[, rownames(colData)]
 
@@ -149,22 +153,21 @@ resHeldoutGLMM <- list()
 lfcTestGLMM <- list()
 lfcHeldoutGLMM <- list()
 
-nreps <- 50
 set.seed(12388)
-library("future.apply")
+#library("future.apply")
 
-plan(multisession, workers = 2)
+#plan(multisession, workers = 3)
 
-res <- future_lapply(X = e, future.seed = T, FUN =  function(x) { 
-  for(i in pkgs) { library(i, quietly=TRUE, verbose=FALSE, warn.conflicts=FALSE, character.only=TRUE) }
-  library(dplyr)
-  library(data.table)
-  library(plyr)
-  resMethods <- bplapply(1:nreps, function(i) {   
+# res <- future_lapply(X = e, future.seed = T, FUN =  function(x) { 
+#   for(i in pkgs) { library(i, quietly=TRUE, verbose=FALSE, warn.conflicts=FALSE, character.only=TRUE) }
+#   library(dplyr)
+#   library(data.table)
+#   library(plyr)
+  resMethods <- bplapply(1:10, function(i) {   
     
     cat(i," ")
-    # i = 2
-    # x = e$findcirc
+    # i = 1
+    x = e$ciri
     testSet <- as.character(randomSubsets[i,c(1:6)])
     heldOutSet <- as.character(randomSubsets[i,-c(1:6)])
     eTest <- x[,testSet]
@@ -190,7 +193,7 @@ res <- future_lapply(X = e, future.seed = T, FUN =  function(x) {
       relocate(condition)
     pheno <- glmm.wide.test[,c("MethodID", "SampleID", "condition")]
     circularcounts <- as.matrix(t(glmm.wide.test[,-c(1:3)]))
-    circularcounts <- circularcounts[rownames(eTest), ]
+    circularcounts <- circularcounts[rownames(circularcounts)%in%rownames(eTest), ]
     testIDx = rownames(circularcounts)
     dge <- edgeR::DGEList(circularcounts)
     dge <- edgeR::calcNormFactors(dge, method = "TMM")
@@ -288,24 +291,24 @@ res <- future_lapply(X = e, future.seed = T, FUN =  function(x) {
     
     list(resTest=resTest,resHeldout=resHeldout,lfcTest=lfcTest,lfcHeldout=lfcHeldout,
          resTestGLMM=resTestGLMM,resHeldoutGLMM=resHeldoutGLMM,lfcTestGLMM=lfcTestGLMM,lfcHeldoutGLMM=lfcHeldoutGLMM)
-  })
+  }, BPPARAM =  MulticoreParam(workers = 3))
   # return(list(res=resMethods))
-  resMethods
-})
+  # resMethods
+# })
 
-resTesGLMMp <- lapply(res, function(x) lapply(x, "[[", "resTestGLMM"))
-resHeldoutGLMMp <- lapply(res, function(x) lapply(x, "[[", "resHeldoutGLMM"))
-lfcTestGLMMp <- lapply(res, function(x) lapply(x, "[[", "lfcTestGLMM"))
-lfcHeldoutGLMMp <- lapply(res, function(x) lapply(x, "[[", "lfcHeldoutGLMM"))
-resTes <- lapply(res, function(x) lapply(x, "[[", "resTest"))
-resHeldout <- lapply(res, function(x) lapply(x, "[[", "resHeldout"))
-lfcTest <- lapply(res, function(x) lapply(x, "[[", "lfcTest"))
-lfcHeldout<- lapply(res, function(x) lapply(x, "[[", "lfcHeldout"))
+resTesGLMMp <-lapply(resMethods, "[[", "resTestGLMM") #lapply(res, function(x) lapply(x, "[[", "resTestGLMM"))
+resHeldoutGLMMp <- lapply(resMethods, "[[", "resHeldoutGLMM") #lapply(res, function(x) lapply(x, "[[", "resHeldoutGLMM"))
+lfcTestGLMMp <- lapply(resMethods, "[[", "lfcTestGLMM") #lapply(res, function(x) lapply(x, "[[", "lfcTestGLMM"))
+lfcHeldoutGLMMp <- lapply(resMethods, "[[", "lfcHeldoutGLMM") #lapply(res, function(x) lapply(x, "[[", "lfcHeldoutGLMM"))
+resTes <- lapply(resMethods, "[[", "resTest") #lapply(res, function(x) lapply(x, "[[", "resTest"))
+resHeldout <- lapply(resMethods, "[[", "resHeldout") #lapply(res, function(x) lapply(x, "[[", "resHeldout"))
+lfcTest <- lapply(resMethods, "[[", "lfcTest") #lapply(res, function(x) lapply(x, "[[", "lfcTest"))
+lfcHeldout<- lapply(resMethods, "[[", "lfcHeldout") #lapply(res, function(x) lapply(x, "[[", "lfcHeldout"))
 
 save(resTes,resHeldout,lfcTest,lfcHeldout,
      resTesGLMMp,resHeldoutGLMMp,lfcTestGLMMp,lfcHeldoutGLMMp,
      namesAlgos,
-     file="/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/robustness_glmm/IPF/sensitivityPrecision50.RData")
+     file="/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/robustness_glmm/DM1/sensitivityPrecision10_CIRI.RData")
 
 ## type I error rate
 randomSubsets <- read.table("/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/robustness_glmm/DM1/random_shuffle50.txt",strings=FALSE)
@@ -327,8 +330,8 @@ res <- future_lapply(X = e, future.seed = T, FUN =  function(x) {
   resMethods <- bplapply(1:nreps, function(i) {   
     
     cat(i," ")
-    # i = 2
-    # x = e$findcirc
+     i = 1
+     x = e$ccp2
     NormSet <- as.character(randomSubsets[i,c(1:10)])
     TumorSet <- as.character(randomSubsets[i,-c(1:10)])
     data <- x[,c(NormSet, TumorSet)]

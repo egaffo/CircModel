@@ -153,52 +153,122 @@ compute_concordance <- function(ps_fitted_list, maxrank){
   return(conc_df)
 }
 
+compute_concordance_withbetw <- function(ps_fitted_list, maxrank){
+  conc_df <- NULL
+  for(i in 1:length(ps_fitted_list$test$lfc)){ # i in 1:n comparisons
+    # i = 3
+    # pval extraction
+    P_df1 <- ps_fitted_list$Heldout$pval[[i]] # first half data
+    P_df2 <- ps_fitted_list$test$pval[[i]] # second half data
+    lfc_df1 <- ps_fitted_list$test$lfc[[i]]
+    lfc_df1[is.na(lfc_df1)] = 0
+    lfc_df2 <- ps_fitted_list$Heldout$lfc[[i]]
+    lfc_df2[is.na(lfc_df2)] = 0
+    
+    nmethods <- length(names(ps_fitted_list$test$pval[[i]]))
+    for(j in 1:nmethods){ # j in method names
+      # j = 1
+      cat("Mehod", names(ps_fitted_list$test$pval[[i]])[j], "with") #,"with GLMM")
+      vec1_pdf1 = P_df1[-abs(lfc_df1[,j]),j]
+      names(vec1_pdf1) <- rownames(P_df1[-abs(lfc_df1[,j]),])
+      vec1_pdf2 = P_df2[-abs(lfc_df2[,j]),j]
+      names(vec1_pdf2) <- rownames(P_df2[-abs(lfc_df2[,j]),])
+      
+      for(k in 1:nmethods){ # k in method names again
+        # k = 2
+        cat("\t",names(ps_fitted_list$test$pval[[i]])[k],"\n")
+        vec2_pdf1 = P_df2[-abs(lfc_df2[,k]),k]
+        names(vec2_pdf1) <- rownames(P_df2[-abs(lfc_df2[,k]),])
+        vec2_pdf2 = P_df2[-abs(lfc_df2[,k]),k]
+        names(vec2_pdf2) <- rownames(P_df2[-abs(lfc_df2[,k]),])
+        if(j != k){ # BMC computation
+          # BMC for Hedlout data
+          conc_subset1 <- data.frame(CATplot(vec1 = vec1_pdf1,vec2 = vec2_pdf1,
+                                             make.plot = FALSE, maxrank = maxrank),
+                                     method1 = names(ps_fitted_list$test$pval[[i]])[j],
+                                     method2 = names(ps_fitted_list$test$pval[[i]])[k],
+                                     nfeatures = length(ps_fitted_list$Heldout$pval[[i]][[j]]),
+                                     comparison = i,
+                                     subset = "Heldout")
+          # BMC for test data
+          conc_subset2 <- data.frame(CATplot(vec1 = vec1_pdf2,vec2 = vec2_pdf2,
+                                             make.plot = FALSE,maxrank = maxrank),
+                                     method1 = names(ps_fitted_list$test$pval[[i]])[j],
+                                     method2 = names(ps_fitted_list$test$pval[[i]])[k],
+                                     #ndisc_0.1_method1 = length(adjP_df2[[j]]),
+                                     #ndisc_0.1_method2 = length(adjP_df2[[k]]),
+                                     nfeatures = length(ps_fitted_list$test$pval[[i]][[k]]),
+                                     comparison = i,
+                                     subset = "test")
+          conc <- rbind(conc_subset1,conc_subset2)
+        } else {
+          # WMC computed between Subset1 and Subset2
+          conc <- data.frame(CATplot(vec1 = vec1_pdf1,
+                                     vec2 = vec1_pdf2, make.plot = FALSE, maxrank = maxrank), 
+                             method1 = names(ps_fitted_list$test$pval[[i]])[j], 
+                             method2 =  names(ps_fitted_list$test$pval[[i]])[j],
+                             #ndisc_0.1_method1 = length(adjP_df1[[j]]),
+                             #ndisc_0.1_method2 = length(adjP_df2[[k]]),
+                             nfeatures = mean(length(ps_fitted_list$test$pval[[i]][,j]), 
+                                              length(ps_fitted_list$Heldout$pval[[i]][,j])),
+                             comparison = i,
+                             subset = "HeldoutvsTest")
+        }
+        conc_df <- rbind(conc_df,conc)
+      }
+    }
+  }
+  return(conc_df)
+}
+
+
 compute_concordance_withGLMM <- function(ps_fitted_list, maxrank){
   conc_df <- NULL
   for(i in 1:length(ps_fitted_list$test$lfc)){ # i in 1:n comparisons
     # i = 1
     # pval extraction
-    P_df1 <- ps_fitted_list$Heldout$pval[[i]][,-1] # first half data
-    P_df2 <- ps_fitted_list$test$pval[[i]][,-1] # second half data
-    lfc_df1 <- ps_fitted_list$test$lfc[[i]][,-1]
+    P_df1 <- ps_fitted_list$Heldout$pval[[i]] # first half data
+    P_df2 <- ps_fitted_list$test$pval[[i]] # second half data
+    lfc_df1 <- ps_fitted_list$test$lfc[[i]]
     lfc_df1[is.na(lfc_df1)] = 0
-    lfc_df2 <- ps_fitted_list$Heldout$lfc[[i]][,-1]
+    lfc_df2 <- ps_fitted_list$Heldout$lfc[[i]]
     lfc_df2[is.na(lfc_df2)] = 0
     
-    nmethods <- length(names(ps_fitted_list$test$pval[[i]][,-1]))
+    nmethods <- length(names(ps_fitted_list$test$pval[[i]]))
     for(j in 1:nmethods){ # j in method names
-      # j = 1
-      cat("Mehod", names(ps_fitted_list$test$pval[[i]][,-1])[j],"with GLMM")
+      # j = 2
+      cat("Mehod", names(ps_fitted_list$test$pval[[i]])[j],"with GLMM")
       vec1 = P_df1[-abs(lfc_df1[,j]),j]
       names(vec1) <- rownames(P_df1[-abs(lfc_df1[,j]),])
       vec2 = P_df2[-abs(lfc_df2[,"GLMM"]),"GLMM"]
       names(vec2) <- rownames(P_df2[-abs(lfc_df2[,"GLMM"]),])
       # for(k in 1:nmethods){ # k in method names again
       # k = 1
-      # cat("\t",names(ps_fitted_list$test[[i]])[k],"\n")
+      # cat("\t",names(ps_fitted_list$test$pval[[i]][,-1])[k],"\n")
       # if(j != k){ # BMC computation
       #   # BMC for Hedlout data
-      #   conc_subset1 <- data.frame(CATplot(vec1 = P_df1[,j],vec2 = P_df1[,k],make.plot = FALSE,maxrank = 100), 
-      #                              method1 = names(ps_fitted_list$Heldout[[i]])[j], 
+      #   conc_subset1 <- data.frame(CATplot(vec1 = P_df1[,j],vec2 = P_df1[,k],make.plot = FALSE,maxrank = maxrank),
+      #                              method1 = names(ps_fitted_list$Heldout[[i]])[j],
       #                              method2 = names(ps_fitted_list$Heldout[[i]])[k],
       #                              nfeatures = length(ps_fitted_list$Heldout[[i]][[j]]),
       #                              comparison = i,
       #                              subset = "Heldout")
       #   # BMC for test data
-      #   conc_subset2 <- data.frame(CATplot(vec1 = P_df2[,j],vec2 = P_df2[,k],make.plot = FALSE,maxrank = 100), 
-      #                              method1 = names(ps_fitted_list$test[[i]])[j], 
-      #                              method2 = names(ps_fitted_list$test[[i]])[k],
+      #   conc_subset2 <- data.frame(CATplot(vec1 = P_df2[,j],vec2 = P_df2[,k],make.plot = FALSE,maxrank = maxrank),
+      #                              method1 = names(ps_fitted_list$test$pval[[i]][,-1])[j],
+      #                              method2 = names(ps_fitted_list$test$pval[[i]][,-1])[k],
       #                              #ndisc_0.1_method1 = length(adjP_df2[[j]]),
       #                              #ndisc_0.1_method2 = length(adjP_df2[[k]]),
-      #                              nfeatures = length(ps_fitted_list$test[[i]][[j]]),
+      #                              nfeatures = mean(length(ps_fitted_list$test$pval[[i]][,j]), 
+      #                                               length(ps_fitted_list$Heldout$pval[[i]][,k])),
       #                              comparison = i,
       #                              subset = "test")
       #   conc <- rbind(conc_subset1,conc_subset2)
       # } else {
       # WMC computed between Subset1 and Subset2
       conc <- data.frame(CATplot(vec1 = vec1,
-                                 vec2 = vec2, make.plot = FALSE, maxrank = 1000), 
-                         method1 = names(ps_fitted_list$test$pval[[i]][,-1])[j], 
+                                 vec2 = vec2, make.plot = FALSE, maxrank = maxrank), 
+                         method1 = names(ps_fitted_list$test$pval[[i]])[j], 
                          method2 = "GLMM",
                          #ndisc_0.1_method1 = length(adjP_df1[[j]]),
                          #ndisc_0.1_method2 = length(adjP_df2[[k]]),
@@ -216,7 +286,7 @@ compute_concordance_withGLMM <- function(ps_fitted_list, maxrank){
 
 compute_concordance.glmm <- function(ps_fitted_list, maxrank){
   conc_df <- NULL
-  for(i in 1:length(ps_fitted_list$test$lfc)){ # i in 1:100 comparisons
+  for(i in 1:length(ps_fitted_list$test$lfc)){ # i in 1:10 comparisons
     # i = 10
     # pval extraction
     P_df1 <- ps_fitted_list$Heldout$pval[[i]] # first half data

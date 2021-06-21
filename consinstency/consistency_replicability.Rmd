@@ -27,7 +27,7 @@ editor_options:
 </style>
 
 ```{r setup, include=FALSE}
-current.dir = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/robustness_glmm"
+current.dir = "/blackhole/alessia/CircModel/"
 
 knitr::opts_chunk$set(echo = TRUE, fig.path = file.path(current.dir, "DM1/figure/"))
 ```
@@ -47,25 +47,25 @@ library(cowplot)
 library("ggdendro")
 library("gridExtra")
 library(data.table)
-source("/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/robustness_glmm/additional_functions.R")
+source("/blackhole/alessia/CircModel/additional_functions.R")
 # source("/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/reference/R/eval_functions.R")
 # source("/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/reference/R/colors.R")
 cols <- c(
   # DEseq
-  brewer.pal(n = 9, "YlOrRd")[c(4,5,6,7)],
+  brewer.pal(n = 9, "YlOrRd")[c(4,5)],
   # Edger
-  brewer.pal(n = 9, "GnBu")[c(6,7,8)],
+  brewer.pal(n = 9, "GnBu")[c(6,7)],
   # limma
-  brewer.pal(n = 9, "RdPu")[c(5, 8)]
+  brewer.pal(n = 9, "RdPu")[c(5)]
 )
 
 methods2 <- c("DESeq2",
              "DESeq2-ZeroInflated",
-             "DESeq2-apeGLM",
-             "DESeq2-ZINB Wave",
+             # "DESeq2-apeGLM",
+             # "DESeq2-ZINB Wave",
              "edgeR",
              "edgeR-robust",
-             "edgeR-ZINB Wave",
+             # "edgeR-ZINB Wave",
              # "voom",
              # "EBSeq", 
              # "GLMM-NB", 
@@ -86,285 +86,56 @@ renameAtoB <- function(f,a,b) {
 ### TALL data
 
 ```{r}
-load("/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/robustness_glmm/DM1/sensitivityPrecision50.RData")
-load(file = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/robustness_glmm/DM1/sensitivityPrecisionTMB_5rep.RData")
-load(file = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/robustness_glmm/DM1/sensitivityPrecisionTMB_5rep2.RData")
-load(file = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/robustness_glmm/DM1/sensitivityPrecisionTMB_20rep3.RData")
-# resNB = result$`ZINB:FALSE_detection_methods:all_niter:5`[1:5]
-# resZINB = result$`ZINB:TRUE_detection_methods:all_niter:5`[1:5]
+load("/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/robustness_glmm/DM1/sensitivityPrecision10_CIRI.RData")
 
-resTestGLMM <- c(resTestGLMM_TMB, resTestGLMM_TMB2, resTestGLMM_TMB3)
-resHeldoutGLMM <- c(resHeldoutGLMM_TMB, resHeldoutGLMM_TMB2, resHeldoutGLMM_TMB3)
-lfcTestGLMM <- c(lfcTestGLMM_TMB,lfcTestGLMM_TMB, lfcTestGLMM_TMB3)
-lfcHeldoutGLMM <- c(lfcHeldoutGLMM_TMB, lfcHeldoutGLMM_TMB2, lfcHeldoutGLMM_TMB3)
+nreps = 10
 
-nreps = 30
-resTestGLMM = lapply(resTestGLMM, function(x) {colnames(x)="GLMM"
-x})
-resHeldoutGLMM = lapply(resHeldoutGLMM, function(x) {colnames(x)="GLMM"
-x})
-lfcTestGLMM = lapply(lfcTestGLMM, function(x) {colnames(x)="GLMM"
-x})
-lfcHeldoutGLMM = lapply(lfcHeldoutGLMM, function(x) {colnames(x)="GLMM"
-x})
-
-resHeldoutALL = lapply(resHeldout, function(d) lapply(1:nreps, function(r)
-   merge(d[r], resHeldoutGLMM[r], by = "row.names")))
-resTestALL = lapply(resTes, function(d) lapply(1:nreps, function(r)
-   merge(d[r], resTestGLMM[r], by = "row.names")))
-
-lfcHeldoutALL = lapply(lfcHeldout, function(d) lapply(1:nreps, function(r)
-   merge(d[r], lfcHeldoutGLMM[r], by = "row.names")))
-lfcTestALL = lapply(lfcTest, function(d) lapply(1:nreps, function(r)
-   merge(d[r], lfcTestGLMM[r], by = "row.names")))
-# resTestGLMM <- lapply(resNB, "[[", "resTestGLMM")
-# resHeldoutGLMM <- lapply(resNB, "[[", "resHeldoutGLMM")
-# lfcTestGLMM <- lapply(resNB, "[[", "lfcTestGLMM")
-# lfcHeldoutGLMM <- lapply(resNB, "[[", "lfcHeldoutGLMM")
-
-resTes$ccp2 = lapply(resTes$ccp2, function(x) {
-  oldCircID = rownames(x)
-  newEndCircID = as.numeric(sub(".*-", "", rownames(x)))-1
-  chr = sub(":.*", "", rownames(x))
-  StartCircID = gsub(pattern = "(.*:)(.*)(-.*)",
-                     replacement = "\\2",
-                     x = rownames(x))
-  rownames(x) = paste0(chr, ":", StartCircID, "-", newEndCircID)
-  return(x)
-  })
-
-resHeldout$ccp2 = lapply(resHeldout$ccp2, function(x) {
-  oldCircID = rownames(x)
-  newEndCircID = as.numeric(sub(".*-", "", rownames(x)))-1
-  chr = sub(":.*", "", rownames(x))
-  StartCircID = gsub(pattern = "(.*:)(.*)(-.*)",
-                     replacement = "\\2",
-                     x = rownames(x))
-  rownames(x) = paste0(chr, ":", StartCircID, "-", newEndCircID)
-  return(x)
-  })
-
-lfcHeldout$ccp2 = lapply(lfcHeldout$ccp2, function(x) {
-  oldCircID = rownames(x)
-  newEndCircID = as.numeric(sub(".*-", "", rownames(x)))-1
-  chr = sub(":.*", "", rownames(x))
-  StartCircID = gsub(pattern = "(.*:)(.*)(-.*)",
-                     replacement = "\\2",
-                     x = rownames(x))
-  rownames(x) = paste0(chr, ":", StartCircID, "-", newEndCircID)
-  return(x)
-  })
-
-lfcTest$ccp2 = lapply(lfcTest$ccp2, function(x) {
-  oldCircID = rownames(x)
-  newEndCircID = as.numeric(sub(".*-", "", rownames(x)))-1
-  chr = sub(":.*", "", rownames(x))
-  StartCircID = gsub(pattern = "(.*:)(.*)(-.*)",
-                     replacement = "\\2",
-                     x = rownames(x))
-  rownames(x) = paste0(chr, ":", StartCircID, "-", newEndCircID)
-  return(x)
-  })
 ```
 
 ```{r} 
-ps_fitted_dcc <- list()
-ps_fitted_dcc$test$pval <- resTestALL$dcc
-ps_fitted_dcc$Heldout$pval <- resHeldoutALL$dcc
-ps_fitted_dcc$test$lfc <- lfcTestALL$dcc
-ps_fitted_dcc$Heldout$lfc <- lfcHeldoutALL$dcc
-ps_fitted_ciri <- list()
-ps_fitted_ciri$test$pval <- resTestALL$ciri
-ps_fitted_ciri$Heldout$pval <- resHeldoutALL$ciri
-ps_fitted_ciri$test$lfc <- lfcTestALL$ciri
-ps_fitted_ciri$Heldout$lfc <- lfcHeldoutALL$ciri
-ps_fitted_ce.star <- list()
-ps_fitted_ce.star$test$pval <- resTestALL$circexplorer2_star
-ps_fitted_ce.star$Heldout$pval <- resHeldoutALL$circexplorer2_star
-ps_fitted_ce.star$test$lfc <- lfcTestALL$circexplorer2_star
-ps_fitted_ce.star$Heldout$lfc <- lfcHeldoutALL$circexplorer2_star
-ps_fitted_ce.bwa <- list()
-ps_fitted_ce.bwa$test$pval <- resTestALL$circexplorer2_bwa
-ps_fitted_ce.bwa$Heldout$pval <- resHeldoutALL$circexplorer2_bwa
-ps_fitted_ce.bwa$test$lfc <- lfcTestALL$circexplorer2_bwa
-ps_fitted_ce.bwa$Heldout$lfc <- lfcHeldoutALL$circexplorer2_bwa
-ps_fitted_ce.top <- list()
-ps_fitted_ce.top$test$pval <- resTestALL$circexplorer2_tophat
-ps_fitted_ce.top$Heldout$pval <- resHeldoutALL$circexplorer2_tophat
-ps_fitted_ce.top$test$lfc <- lfcTestALL$circexplorer2_tophat
-ps_fitted_ce.top$Heldout$lfc <- lfcHeldoutALL$circexplorer2_tophat
-ps_fitted_ccp2 <- list()
-ps_fitted_ccp2$test$pval <- resTestALL$ccp2
-ps_fitted_ccp2$Heldout$pval <- resHeldoutALL$ccp2
-ps_fitted_ccp2$test$lfc <- lfcTestALL$ccp2
-ps_fitted_ccp2$Heldout$lfc <- lfcHeldoutALL$ccp2
-ps_fitted_findcirc <- list()
-ps_fitted_findcirc$test$pval <- resTestALL$findcirc
-ps_fitted_findcirc$Heldout$pval <- resHeldoutALL$findcirc
-ps_fitted_findcirc$test$lfc <- lfcTestALL$findcirc
-ps_fitted_findcirc$Heldout$lfc <- lfcHeldoutALL$findcirc
-ps_fitted_all = list(ps_fitted_ccp2,
-                 ps_fitted_ce.bwa, ps_fitted_ce.star, ps_fitted_ce.top,
-                 ps_fitted_findcirc, ps_fitted_ciri, ps_fitted_dcc)
+ps_fitted <- list()
+ps_fitted$test$pval <- resTes
+ps_fitted$Heldout$pval <- resHeldout
+ps_fitted$test$lfc <- lfcTest
+ps_fitted$Heldout$lfc <- lfcHeldout
 
-names(ps_fitted_all) = c("ccp", "CE.bwa", "CE.star", "CE.tophat", "findcirc", "CIRI", "DCC")
+conc.witbet <- compute_concordance_withbetw(ps_fitted_list = ps_fitted, maxrank = 500)
+conc.betglmm <- compute_concordance_withGLMM(ps_fitted_list = ps_fitted, maxrank = 500)
 
-# ps_fitted_glmmNB <- list()
-# ps_fitted_glmmNB$test$pval <- resTestGLMM
-# ps_fitted_glmmNB$test$lfc <- lfcTestGLMM
-# ps_fitted_glmmNB$Heldout$pval <- resHeldoutGLMM
-# ps_fitted_glmmNB$Heldout$lfc <- lfcHeldoutGLMM
-ps_fitted_dcc <- list()
-ps_fitted_dcc$test$pval <- resTes$dcc
-ps_fitted_dcc$Heldout$pval <- resHeldout$dcc
-ps_fitted_dcc$test$lfc <- lfcTest$dcc
-ps_fitted_dcc$Heldout$lfc <- lfcHeldout$dcc
-ps_fitted_ciri <- list()
-ps_fitted_ciri$test$pval <- resTes$ciri
-ps_fitted_ciri$Heldout$pval <- resHeldout$ciri
-ps_fitted_ciri$test$lfc <- lfcTest$ciri
-ps_fitted_ciri$Heldout$lfc <- lfcHeldout$ciri
-ps_fitted_ce.star <- list()
-ps_fitted_ce.star$test$pval <- resTes$circexplorer2_star
-ps_fitted_ce.star$Heldout$pval <- resHeldout$circexplorer2_star
-ps_fitted_ce.star$test$lfc <- lfcTest$circexplorer2_star
-ps_fitted_ce.star$Heldout$lfc <- lfcHeldout$circexplorer2_star
-ps_fitted_ce.bwa <- list()
-ps_fitted_ce.bwa$test$pval <- resTes$circexplorer2_bwa
-ps_fitted_ce.bwa$Heldout$pval <- resHeldout$circexplorer2_bwa
-ps_fitted_ce.bwa$test$lfc <- lfcTest$circexplorer2_bwa
-ps_fitted_ce.bwa$Heldout$lfc <- lfcHeldout$circexplorer2_bwa
-ps_fitted_ce.top <- list()
-ps_fitted_ce.top$test$pval <- resTes$circexplorer2_tophat
-ps_fitted_ce.top$Heldout$pval <- resHeldout$circexplorer2_tophat
-ps_fitted_ce.top$test$lfc <- lfcTest$circexplorer2_tophat
-ps_fitted_ce.top$Heldout$lfc <- lfcHeldout$circexplorer2_tophat
-ps_fitted_ccp2 <- list()
-ps_fitted_ccp2$test$pval <- resTes$ccp2
-ps_fitted_ccp2$Heldout$pval <- resHeldout$ccp2
-ps_fitted_ccp2$test$lfc <- lfcTest$ccp2
-ps_fitted_ccp2$Heldout$lfc <- lfcHeldout$ccp2
-ps_fitted_findcirc <- list()
-ps_fitted_findcirc$test$pval <- resTes$findcirc
-ps_fitted_findcirc$Heldout$pval <- resHeldout$findcirc
-ps_fitted_findcirc$test$lfc <- lfcTest$findcirc
-ps_fitted_findcirc$Heldout$lfc <- lfcHeldout$findcirc
-ps_fitted_glmm <- list()
-ps_fitted_glmm$test$pval <- resTestGLMM
-ps_fitted_glmm$test$lfc <- lfcTestGLMM
-ps_fitted_glmm$Heldout$pval <- resHeldoutGLMM
-ps_fitted_glmm$Heldout$lfc <- lfcHeldoutGLMM
-ps_fitted_glmmZINB <- list()
-ps_fitted_glmmZINB$test$pval <- resTestGLMM
-ps_fitted_glmmZINB$test$lfc <- lfcTestGLMM
-ps_fitted_glmmZINB$Heldout$pval <- resHeldoutGLMM
-ps_fitted_glmmZINB$Heldout$lfc <- lfcHeldoutGLMM
 
-ps_fitted = list(ps_fitted_ccp2,
-                 ps_fitted_ce.bwa, ps_fitted_ce.star, ps_fitted_ce.top,
-                 ps_fitted_findcirc, ps_fitted_ciri, ps_fitted_dcc)
+concordance_df_summary <- suppressWarnings(ddply(conc.witbet, ~ rank + method1 + method2, function(x) colMeans(x[,c("concordance", "nfeatures")])))
 
-names(ps_fitted) = c("ccp", "CE.bwa", "CE.star", "CE.tophat", "findcirc", "CIRI", "DCC")
+AUC_AOC_between_methods <- suppressWarnings(ddply(concordance_df_summary, ~ method1 + method2, function(x) AucAocFun(cVals = x$concordance[x$rank <= 400], nfeatures = mean(x$nfeatures[x$rank <= 400]), threshold = 400)))
 
-# conc <- ldply(ps_fitted, function(x) compute_concordance(ps_fitted_list = x, maxrank = 1000))
-# conc.glmm <- ldply(ps_fitted_all, function(x) compute_concordance_withGLMM(ps_fitted_list = x, maxrank = 1000))
-# conc.glmmNB <-  compute_concordance.glmm(ps_fitted_glmmNB, maxrank = 1000)
-conc.glmmZI <-  compute_concordance.glmm(ps_fitted_list = ps_fitted_glmmZINB, maxrank = 1000)
-
-# save(conc, file = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/robustness_glmm/DM1/concordanceGLM.RData")
-# save(conc.glmm, file = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/robustness_glmm/DM1/concordancewithGLMM.RData")
-
-load(file.path(current.dir, "DM1/concordanceGLM.RData"))
-load(file.path(current.dir, "DM1/concordancewithGLMM.RData"))
-
-concordance_df_summary <- suppressWarnings(ddply(conc, ~ .id + rank + method1, function(x) colMeans(x[,c("concordance", "nfeatures")])))
-
-AUC_AOC_between_methods <- suppressWarnings(ddply(concordance_df_summary, ~ .id + method1, function(x) AucAocFun(cVals = x$concordance[x$rank <= 200], nfeatures = mean(x$nfeatures[x$rank <= 200]), threshold = 200)))
-
-# plot <- gheat(AUC_AOC_between_methods = AUC_AOC_between_methods,
-#            concordance_df_summary = concordance_df_summary)
-# title <- ggdraw() +
-#   draw_label(
-#     "Concordance Heatmap",
-#     fontface = 'bold',
-#     x = 0,
-#     hjust = 0
-#   ) +
-#   theme(
-#     # add margin on the left of the drawing canvas,
-#     # so title is aligned with left edge of first plot
-#     plot.margin = margin(0, 0, 0, 7)
-#   )
-# fig = plot_grid(title, plot_grid(cowplot::plot_grid(plotlist = lapply(plot, "[[", "plot"), 
-#                              ncol = 2, #align = 'vh',
-#                              hjust = -0.1, 
-#                              vjust = -1.4,
-#                              labels = names(ps_fitted)), 
-#           plot_grid(plot$ccp$legend_dendro, plot$ccp$legend_heat, ncol = 2, rel_widths = c(1,0.4)), 
-#           nrow = 2, rel_heights = c(1,0.1)),
-#           ncol = 1,
-#           # rel_heights values control vertical title margins
-#           rel_heights = c(0.1, 1))
-# heatmap <- plot_grid(title, plot_grid(plotlist = lapply(plot, "[[", "plot"), 
-#                              ncol = 2, #align = 'vh',
-#                              hjust = -0.1, 
-#                              vjust = -1.4,
-#                              labels = names(ps_fitted), 
-#                              label_size = 9), ncol = 1, rel_heights = c(0.1, 1))
-# legend = plot_grid(plot$ccp$legend_dendro, plot$ccp$legend_heat, ncol = 2, rel_widths = c(1,0.4))
-# fig = grid.arrange(heatmap, legend, ncol=1, nrow=2, heights=c(1, 0.1))
-# fig
-
-# png("/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/robustness_glmm/TALL/fig4.png",
-#     width = 10, height = 12, units = "cm", res=300)
-# fig
-# dev.off()
 ```
 
 ### Replicability
 
 ```{r}
-conc_df_sub <- conc[conc$rank == 500 & conc$subset == "HeldoutvsTest",]
-conc_df_sub <- conc.glmm[conc.glmm$rank == 400 & conc.glmm$subset == "HeldoutvsTest",]
-# df.nb <- conc.glmmNB[conc.glmmNB$rank == 1000,]
-df.zi <- conc.glmmZI[conc.glmmZI$rank == 400,]
+# conc_df_sub <- conc[conc$rank == 500 & conc$subset == "HeldoutvsTest",]
+conc_df_sub <- conc.betglmm[conc.betglmm$rank == 400 & conc.betglmm$subset == "HeldoutvsTest",]
 
-# df.nb <- df.nb[rep(seq_len(nrow(df.nb)), each = 7), ]
-# df.nb$`.id` <- names(ps_fitted)
-# df.nb$method1 = factor(df.nb$method1)
-# df.nb$method1 = renameAtoB(df.nb$method1, "GLMM", "GLMM-NB")
-# conc_df_glmmNB <- rbind(conc_df_sub, df.nb)
-
-df.zi <- df.zi[rep(seq_len(nrow(df.zi)), each = 7), ]
-df.zi$`.id` <- names(ps_fitted)
-df.zi$method1 = factor(df.zi$method1)
-df.zi$method1 = renameAtoB(df.zi$method1, "GLMM", "GLMM-ZINB")
-
-# conc_df_glmm <- rbind(conc_df_sub, df.zi)
-conc_df_glmm <- conc_df_sub
-# df.zi$method1 = renameAtoB(df.zi$method1, "GLMM", "GLMM-ZINB")
-
-ord <- order(ddply(conc_df_glmm,.variables = ~ method1, function(x) median(x[,"concordance"]))$V1)
-conc_df_glmm$method1 <- factor(conc_df_glmm$method1)
-conc_df_glmm$method1 <- factor(conc_df_glmm$method1, levels = levels(conc_df_glmm$method1), 
+ord <- order(ddply(conc_df_sub,.variables = ~ method1, function(x) median(x[,"concordance"]))$V1)
+conc_df_sub$method1 <- factor(conc_df_sub$method1)
+conc_df_sub$method1 <- factor(conc_df_sub$method1, levels = levels(conc_df_sub$method1), 
                               labels = c("DESeq2",
                                          "DESeq2-ZeroInflated",
                                          "DESeq2-apeGLM",
-                                         "DESeq2-ZINB Wave",
+                                         # "DESeq2-ZINB Wave",
                                          "edgeR",
                                          "edgeR-robust",
-                                         "edgeR-ZINB Wave",
+                                         # "edgeR-ZINB Wave",
                                          # "GLMM-NB", 
                                          "GLMM-ZINB"))#,
                                          # "voom",
                                          # "EBSeq"))
 png("/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/robustness_glmm/DM1/ConcordanceGLMM_top400.png", res = 200, units = "cm", width = 20, height = 25)
-ggplot(conc_df_glmm,aes(x = method1, y = concordance, color = method1)) +
+ggplot(conc_df_sub, aes(x = method1, y = concordance, color = method1)) +
     geom_boxplot() +
     coord_flip() +
-    scale_x_discrete(limits = unique(conc_df_glmm$method1)[rev(ord)]) +
+    scale_x_discrete(limits = unique(conc_df_sub$method1)[rev(ord)]) +
     xlab("Method") + ylab("Concordance") +
-  facet_wrap(~.id)+
+  # facet_wrap(~.id)+
     ggtitle(label = "DM1 data",
             subtitle = "Normal vs tumor") +
     theme_minimal() +
