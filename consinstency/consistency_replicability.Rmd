@@ -29,7 +29,7 @@ editor_options:
 ```{r setup, include=FALSE}
 current.dir = "/blackhole/alessia/CircModel/"
 
-knitr::opts_chunk$set(echo = TRUE, fig.path = file.path(current.dir, "DM1/figure/"))
+knitr::opts_chunk$set(echo = TRUE, fig.path = file.path(current.dir, "consinstency/"))
 ```
 
 # Data loading
@@ -129,7 +129,7 @@ conc_df_sub$method1 <- factor(conc_df_sub$method1, levels = levels(conc_df_sub$m
                                          "GLMM-ZINB"))#,
                                          # "voom",
                                          # "EBSeq"))
-png("/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/robustness_glmm/DM1/ConcordanceGLMM_top400.png", res = 200, units = "cm", width = 20, height = 25)
+png("/blackhole/alessia/CircModel/consinstency/ConcordancewithGLMM_top400_DM1dataset.png", res = 200, units = "cm", width = 20, height = 25)
 ggplot(conc_df_sub, aes(x = method1, y = concordance, color = method1)) +
     geom_boxplot() +
     coord_flip() +

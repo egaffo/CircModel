@@ -14,12 +14,9 @@ The \texttt{SummarizedExperiment} object used for this analysis is
 contained in \texttt{/DM1/DM1Data\_summexp.RData}.
 
 <<loadData>>=
-basedir = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/robustness_glmm/"
-load(file = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/robustness_glmm/DM1/sensitivityPrecision50.RData")
-load(file = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/robustness_glmm/DM1/sensitivityPrecisionTMB_5rep.RData")
-load(file = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/robustness_glmm/DM1/sensitivityPrecisionTMB_5rep2.RData")
-load(file = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/robustness_glmm/DM1/sensitivityPrecisionTMB_20rep3.RData")
-load(file = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/robustness_glmm/DM1/sens.RData")
+basedir = "/blackhole/alessia/CircModel/"
+load(file = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/robustness_glmm/DM1/sensitivityPrecision10_CIRI.RData")
+
 @ 
 
 The evaluation set results are contained in the \texttt{resTes} object 
@@ -37,20 +34,21 @@ library("data.table")
 library("dplyr")
 alpha=.1
 getCalls <- function(m, alpha=NULL) {
-  t(sapply(1:nreps, function(i) sapply(namesAlgos, function(algo) {
-    sum((m[[i]][[algo]] < alpha))
+  t(sapply(1:nreps, function(i) sapply(namesAlgosALL, function(algo) {
+    sum(m[[i]][[algo]][!is.na(m[[i]][[algo]])]<0.1)
+    # sum((m[[i]][[algo]] < alpha))
   })))
 }
 
 getSensitivityAlgo <- function(m, alpha, alphaOut) {
-  t(sapply(1:nreps, function(i) sapply(namesAlgos, function(algo) {
+  t(sapply(1:nreps, function(i) sapply(namesAlgosALL, function(algo) {
     sigHeldout <- resHeldout[[m]][[i]][[algo]] <= alpha
     mean((resTes[[m]][[i]][[algo]] <= alpha)[sigHeldout])
   })))
 }
 
 getPrecisionAlgo <- function(m, alpha, alphaOut) {
-  t(sapply(1:nreps, function(i) sapply(namesAlgos, function(algo) {
+  t(sapply(1:nreps, function(i) sapply(namesAlgosALL, function(algo) {
     sigTest <- resTes[[m]][[i]][[algo]] <= alpha #Evaluation set
     if (sum(sigTest) == 0) return(0)
     mean((resHeldout[[m]][[i]][[algo]] <= alpha)[sigTest]) #TP rate
@@ -95,9 +93,9 @@ library(RColorBrewer)
 
 cols <- c(
   # DEseq
-  brewer.pal(n = 9, "YlOrRd")[c(4,5,6,7)],
+  brewer.pal(n = 9, "YlOrRd")[c(4,5,6)],
   # Edger
-  brewer.pal(n = 9, "GnBu")[c(6,7,8)],
+  brewer.pal(n = 9, "GnBu")[c(6,7)],
   # limma
   brewer.pal(n = 9, "RdPu")[c(5)]
 )
@@ -105,60 +103,17 @@ cols <- c(
 methods2 <- c("DESeq2",
              "DESeq2-ZeroInflated",
              "DESeq2-apeGLM",
-             "DESeq2-ZINB Wave",
+             # "DESeq2-ZINB Wave",
              "edgeR",
              "edgeR-robust",
-             "edgeR-ZINB Wave",
+             # "edgeR-ZINB Wave",
              # "voom",
              # "EBSeq", 
              # "GLMM-NB", 
-             "GLMM-ZINB")
+             "GLMM")
 
 names(cols) <- methods2
 
-resTes$ccp2 = lapply(resTes$ccp2, function(x) {
-  oldCircID = rownames(x)
-  newEndCircID = as.numeric(sub(".*-", "", rownames(x)))-1
-  chr = sub(":.*", "", rownames(x))
-  StartCircID = gsub(pattern = "(.*:)(.*)(-.*)",
-                     replacement = "\\2",
-                     x = rownames(x))
-  rownames(x) = paste0(chr, ":", StartCircID, "-", newEndCircID)
-  return(x)
-  })
-
-resHeldout$ccp2 = lapply(resHeldout$ccp2, function(x) {
-  oldCircID = rownames(x)
-  newEndCircID = as.numeric(sub(".*-", "", rownames(x)))-1
-  chr = sub(":.*", "", rownames(x))
-  StartCircID = gsub(pattern = "(.*:)(.*)(-.*)",
-                     replacement = "\\2",
-                     x = rownames(x))
-  rownames(x) = paste0(chr, ":", StartCircID, "-", newEndCircID)
-  return(x)
-  })
-
-lfcHeldout$ccp2 = lapply(lfcHeldout$ccp2, function(x) {
-  oldCircID = rownames(x)
-  newEndCircID = as.numeric(sub(".*-", "", rownames(x)))-1
-  chr = sub(":.*", "", rownames(x))
-  StartCircID = gsub(pattern = "(.*:)(.*)(-.*)",
-                     replacement = "\\2",
-                     x = rownames(x))
-  rownames(x) = paste0(chr, ":", StartCircID, "-", newEndCircID)
-  return(x)
-  })
-
-lfcTest$ccp2 = lapply(lfcTest$ccp2, function(x) {
-  oldCircID = rownames(x)
-  newEndCircID = as.numeric(sub(".*-", "", rownames(x)))-1
-  chr = sub(":.*", "", rownames(x))
-  StartCircID = gsub(pattern = "(.*:)(.*)(-.*)",
-                     replacement = "\\2",
-                     x = rownames(x))
-  rownames(x) = paste0(chr, ":", StartCircID, "-", newEndCircID)
-  return(x)
-  })
 @
 
 \clearpage
@@ -169,71 +124,37 @@ Here we produce boxplots of the number of calls based on adjusted $p$-value
 for each algorithm in the evaluation set and verification set for each random replicate.
 
 <<countCalls>>=
-nreps <- length(resHeldout$findcirc)
+nreps <- length(resHeldout)
 nalgo <- length(namesAlgos)
-nmethods <- length(names(resHeldout))
+# nmethods <- length(names(resHeldout))
 
-# resNB = result$`ZINB:FALSE_detection_methods:all_niter:5`[1:5]
-# resZINB = result$`ZINB:TRUE_detection_methods:all_niter:5`[1:5]
+heldMat <- getCalls(m = resHeldout, alpha = .1)
+testMat <- getCalls(m = resTes, alpha = .1)
 
-# resTestGLMMZI <- lapply(resTestGLMM, "[[", "resTestGLMM")
-# resHeldoutGLMMZI <- lapply(res, "[[", "resHeldoutGLMM")
-# lfcTestGLMMZI <- lapply(res, "[[", "lfcTestGLMM")
-# lfcHeldoutGLMMZI <- lapply(res, "[[", "lfcHeldoutGLMM")
-
-# resTestGLMM <- c(lapply(resTestGLMM_TMB, "[[", "resTestGLMM_TMB"), lapply(res_TMB2, "[[", "resTestGLMM_TMB"))
-# resHeldoutGLMM <- c(lapply(res_TMB, "[[", "resHeldoutGLMM_TMB"), lapply(res_TMB2, "[[", "resHeldoutGLMM_TMB"))
-# lfcTestGLMM <- c(lapply(res_TMB, "[[", "lfcTestGLMM_TMB"), lapply(res_TMB2, "[[", "lfcTestGLMM_TMB"))
-# lfcHeldoutGLMM <- c(lapply(res_TMB, "[[", "lfcHeldoutGLMM_TMB"), lapply(res_TMB2, "[[", "lfcHeldoutGLMM_TMB"))
-
-resTestGLMM <- c(resTestGLMM_TMB, resTestGLMM_TMB2, resTestGLMM_TMB3)
-resHeldoutGLMM <- c(resHeldoutGLMM_TMB, resHeldoutGLMM_TMB2, resHeldoutGLMM_TMB3)
-lfcTestGLMM <- c(lfcTestGLMM_TMB,lfcTestGLMM_TMB, lfcTestGLMM_TMB3)
-lfcHeldoutGLMM <- c(lfcHeldoutGLMM_TMB, lfcHeldoutGLMM_TMB2, lfcHeldoutGLMM_TMB3)
-
-
-heldMat <- lapply(resHeldout, function(m) getCalls(m = m, alpha = .1))
-
-heldMat$GLMMZI <- t(t(sapply(1:30, function(i) sum(resHeldoutGLMM[[i]][!is.na(resHeldoutGLMM[[i]][,1]),1] <= 0.1))))
-# heldMat$GLMMNB <- t(t(sapply(1:5, function(i) sum(resHeldoutGLMM[[i]][!is.na(resHeldoutGLMM[[i]][,1]),1] < 0.05))))
-
-testMat <- lapply(resTes, function(m) getCalls(m = m, alpha = .1))
-testMat$GLMMZI <- t(t(sapply(1:30, function(i) sum(resTestGLMM[[i]][!is.na(resTestGLMM[[i]][,1]),1] <= 0.1))))
-# testMat$GLMMNB <- t(t(sapply(1:5, function(i) sum(resTestGLMM[[i]][!is.na(resTestGLMM[[i]][,1]),1] < 0.05))))
-
-d <- data.frame(heldoutCalls=reshape2::melt(rbindlist(lapply(heldMat[c(1:7)], function(x) as.data.frame(x)), idcol = "detection.method"), id.var = "detection.method")$value,
-                testCalls=reshape2::melt(rbindlist(lapply(testMat[c(1:7)], function(x) as.data.frame(x)), idcol = "detection.method"), id.var = "detection.method")$value,
-                algorithm=factor(rep(namesAlgos,each=nrow(heldMat[[1]])*nmethods),
-                levels=namesAlgos),
-                detection.method=rep(factor(rep(names(resHeldout), each=nrow(heldMat[[1]]))), nalgo))
+d <- data.frame(heldoutCalls=reshape2::melt(heldMat)$value,
+                testCalls=reshape2::melt(testMat)$value,
+                algorithm=factor(rep(namesAlgosALL,each=nrow(heldMat)),
+                levels=namesAlgosALL))
+                #detection.method=rep(factor(rep(names(resHeldout), each=nrow(heldMat))), nalgo))
 d$algorithm <- renameAtoB(d$algorithm, "edgeR.robust", "edgeR-robust")
-d$algorithm <- renameAtoB(d$algorithm, "edgeR.ZINBWave", "edgeR-ZINB Wave")
-d$algorithm <- renameAtoB(d$algorithm, "DESeq2.ZINBWave", "DESeq2-ZINB Wave")
+# d$algorithm <- renameAtoB(d$algorithm, "edgeR.ZINBWave", "edgeR-ZINB Wave")
+# d$algorithm <- renameAtoB(d$algorithm, "DESeq2.ZINBWave", "DESeq2-ZINB Wave")
 d$algorithm <- renameAtoB(d$algorithm, "DESeq2.apeglm", "DESeq2-apeGLM")
 d$algorithm <- renameAtoB(d$algorithm, "DESeq2.ZI", "DESeq2-ZeroInflated")
 d$algorithm <- as.character(d$algorithm)
-d$detection.method <- as.character(d$detection.method)
-# df <- data.frame(heldoutCalls=heldMat$GLMMNB, testCalls=testMat$GLMMNB, algorithm="GLMM-NB")
-# df <- df[rep(seq_len(nrow(df)), each = 7), ]
-# df$detection.method <- c(names(resHeldout))
-# d.glmm <- rbind(d, df)
-df <- data.frame(heldoutCalls=heldMat$GLMMZI, testCalls=testMat$GLMMZI, algorithm="GLMM-ZINB")
-df <- df[rep(seq_len(nrow(df)), each = 7), ]
-df$detection.method <- c(names(resHeldout))
-d.glmm2 <- rbind(d, df)
 
-d.glmm <- d.glmm2 %>%
-  mutate_if(sapply(d.glmm2, is.character), as.factor)
-d.glmm$heldoutCalls <- as.numeric(d.glmm$heldoutCalls)
-d.glmm$testCalls <- as.numeric(d.glmm$testCalls)
+d <- d %>%
+  mutate_if(sapply(d, is.character), as.factor)
+d$heldoutCalls <- as.numeric(d$heldoutCalls)
+d$testCalls <- as.numeric(d$testCalls)
 @
 
 <<testCalls, dev="pdf", fig.align="center", fig.width=8, fig.height=6, fig.cap="Evaluation set calls (adjusted $p$-value $< .1$)">>=
-p <- ggplot(d.glmm, aes(x=reorder(algorithm,testCalls,median),y=testCalls,color=algorithm))
+p <- ggplot(d, aes(x=reorder(algorithm,testCalls,median),y=testCalls,color=algorithm))
 png("/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/robustness_glmm/DM1/DEcalls_evaluation.png", res = 200, units = "cm", width = 25, height = 15)
 p + geom_boxplot(outlier.colour=rgb(0,0,0,0)) + theme_bw() +
     geom_point(position = position_jitter(w = 0.1, h = 0), color="grey50", size=1) +
-    facet_grid(.~detection.method) +
+    # facet_grid(.~detection.method) +
     scale_color_manual(values = cols, guide="none") +
     theme(axis.text.x = element_text(angle = 90, hjust = 1, size = 12),
           axis.text.y = element_text(size = 9),
@@ -244,11 +165,11 @@ dev.off()
 @ 
 
 <<heldoutCalls, dev="pdf", fig.align="center", fig.width=8, fig.height=6, fig.cap="Verification set calls (adjusted $p$-value $< .1$)">>=
-p <- ggplot(d.glmm, aes(x=reorder(algorithm,heldoutCalls,median),y=heldoutCalls,color=algorithm))
+p <- ggplot(d, aes(x=reorder(algorithm,heldoutCalls,median),y=heldoutCalls,color=algorithm))
 png("/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/robustness_glmm/DM1/DEcalls_verification.png", res = 200, units = "cm", width = 25, height = 15)
 p + geom_boxplot(outlier.colour=rgb(0,0,0,0)) + theme_bw() +
     geom_point(position = position_jitter(w = 0.1, h = 0), color="grey50", size=1) +
-    facet_grid(.~detection.method) +
+    # facet_grid(.~detection.method) +
     scale_color_manual(values = cols, guide="none") +
     theme(axis.text.x = element_text(angle = 90, hjust = 1, size = 12),
           axis.text.y = element_text(size = 9),
@@ -267,72 +188,34 @@ precision estimates for every algorithm in the
 evaluation set and the verification set.
 
 <<constructGrid>>=
-nreps = 30
-resTestGLMM = lapply(resTestGLMM, function(x) {colnames(x)="GLMM"
-x})
-resHeldoutGLMM = lapply(resHeldoutGLMM, function(x) {colnames(x)="GLMM"
-x})
+nreps = 10
+gold = "GLMM"
+alpha = .1 
+alphaOut = .1
+resHeldout = lapply(resHeldout, function(x){z=x[complete.cases(x),]
+return(z)})
+resTes = lapply(resTes, function(x){z=x[complete.cases(x),]
+return(z)})
 
-resHeldoutALL = lapply(resHeldout, function(d) lapply(1:30, function(r)
-   merge(d[r], resHeldoutGLMM[r], by = "row.names")))
-resTestALL = lapply(resTes, function(d) lapply(1:30, function(r)
-   merge(d[r], resTestGLMM[r], by = "row.names")))
+res = t(sapply(1:nreps, function(i) sapply(namesAlgosALL, function(algo) {
+    sigHeldout <- resHeldout[[i]][[gold]] < alphaOut
+    mean((resTes[[i]][[algo]] < alpha)[sigHeldout])
+  })))
 
-sensMat=list()
-for(m in names(resHeldoutALL)){
-  res = getSensitivityAlgoGold(m = m, alpha = .1, alphaOut = .1, gold = "GLMM")
-  sensMat[[m]]  = data.frame(res, heldout=rep("GLMM",nrow(res)), detection_method = rep(m, nrow(res)))
-}
+sensMat  = data.frame(res, heldout=rep("GLMM",nrow(res)))
 
-# sensMat=list()
-# for(m in names(resHeldout)){
-#   sensMat[[m]] <- do.call(rbind, lapply(namesAlgos, function(algo){
-#     res = getSensitivityAlgo(m = m, alpha = .1, alphaOut = .1)
-#     data.frame(res, heldout=rep(algo,nrow(res)), detection_method = rep(m, nrow(res)))
-#   }))
-# }
-# sensMat$GLMMNB <- do.call(rbind, lapply(1:5, function(i){
-#     sigHeldout <- resHeldoutGLMM[[i]][!is.na(resHeldoutGLMM[[i]][,1]),1] < 0.05 
-#     sigTest <- resTestGLMM[[i]][!is.na(resTestGLMM[[i]][,1]),1] < 0.05
-#     data.frame(sensitivity = mean(sigTest[sigHeldout]), heldout="GLMM-NB")
-# }))
-# sensMat$GLMMZINB <- do.call(rbind, lapply(1:10, function(i){
-#     sigHeldout <- resHeldoutGLMM[[i]][!is.na(resHeldoutGLMM[[i]][,1]),1] < 0.1
-#     sigTest <- resTestGLMM[[i]][!is.na(resTestGLMM[[i]][,1]),1] < 0.1
-#     data.frame(sensitivity = mean(sigTest[sigHeldout]), heldout="GLMM-ZINB")
-# }))
+sensMelt <- suppressWarnings(melt(sensMat, id=c("heldout")))
+names(sensMelt) <- c("verification", "evaluation","sensitivity")
 
-sensMelt <- suppressWarnings(lapply(sensMat[c(1:7)], function(x) melt(x, id=c("heldout", "detection_method"))))
-sensMelt <- rbindlist(sensMelt, use.names = T)
-names(sensMelt) <- c("verification", "detection.method", "evaluation","sensitivity")
+res = t(sapply(1:nreps, function(i) sapply(namesAlgosALL, function(algo) {
+    sigTest <- resTes[[i]][[algo]] < alpha
+    if (sum(sigTest) == 0) return(0)
+    mean((resHeldout[[i]][[gold]] < alphaOut)[sigTest])
+  })))
+precMat = data.frame(res, heldout=rep("GLMM", nrow(res)))
 
-precMat = list()
-for(m in names(resTes)){
-  res = getPrecisionAlgoGold(m = m, alpha = .1, alphaOut = .1, gold = "GLMM")
-  precMat[[m]] = data.frame(res, heldout=rep("GLMM", nrow(res)), detection_method = rep(m, nrow(res)))
-  }
-
-# precMat = list()
-# for(m in names(resTes)){
-#   precMat[[m]] <- do.call(rbind, lapply(namesAlgos, function(algo){
-#     res = getPrecisionAlgoGold(m = m, alpha = .1, alphaOut = .1)
-#     data.frame(res, heldout=rep(algo, nrow(res)), detection_method = rep(m, nrow(res)))
-#   }))
-# }
-# precMat$GLMMNB <- do.call(rbind, lapply(1:5, function(i){
-#       sigTest <- resTestGLMM[[i]][!is.na(resTestGLMM[[i]][,1]),1] <= 0.05
-#       sigHeldout <- resHeldoutGLMM[[i]][!is.na(resHeldoutGLMM[[i]][,1]),1] <= 0.05 
-#     data.frame(precision = mean(sigHeldout[sigTest]), heldout="GLMM-NB")
-# }))
-# precMat$GLMMZINB <- do.call(rbind, lapply(1:10, function(i){
-#       sigTest <- resTestGLMM[[i]][!is.na(resTestGLMM[[i]][,1]),1] <= 0.1 
-#       sigHeldout <- resHeldoutGLMM[[i]][!is.na(resHeldoutGLMM[[i]][,1]),1] <= 0.1 
-#       
-#     data.frame(precision = mean(sigHeldout[sigTest]), heldout="GLMM-ZINB")
-# }))
-precMelt <- suppressWarnings(lapply(precMat[c(1:7)], function(x) melt(x, id=c("heldout", "detection_method"))))
-precMelt <- rbindlist(precMelt, use.names = T)
-names(precMelt) <- c("verification", "detection.method", "evaluation","precision")
+precMelt <- suppressWarnings(melt(precMat, id=c("heldout")))
+names(precMelt) <- c("verification", "evaluation","precision")
 
 d <- data.frame(sensMelt, precision=precMelt$precision)
 d$evaluation <- factor(d$evaluation)
@@ -342,37 +225,26 @@ d$verification <- factor(d$verification)
 <<renameSensResults>>=
 d$evaluation <- renameAtoB(d$evaluation, "edgeR.robust", "edgeR-robust")
 d$verification <- renameAtoB(d$verification, "edgeR.robust", "edgeR-robust")
-d$verification <- renameAtoB(d$verification, "edgeR.ZINBWave", "edgeR-ZINB Wave")
-d$evaluation <- renameAtoB(d$evaluation, "edgeR.ZINBWave", "edgeR-ZINB Wave")
-d$evaluation <- renameAtoB(d$evaluation, "DESeq2.ZINBWave", "DESeq2-ZINB Wave")
-d$verification <- renameAtoB(d$verification, "DESeq2.ZINBWave", "DESeq2-ZINB Wave")
+# d$verification <- renameAtoB(d$verification, "edgeR.ZINBWave", "edgeR-ZINB Wave")
+# d$evaluation <- renameAtoB(d$evaluation, "edgeR.ZINBWave", "edgeR-ZINB Wave")
+# d$evaluation <- renameAtoB(d$evaluation, "DESeq2.ZINBWave", "DESeq2-ZINB Wave")
+# d$verification <- renameAtoB(d$verification, "DESeq2.ZINBWave", "DESeq2-ZINB Wave")
 d$evaluation <- renameAtoB(d$evaluation, "DESeq2.apeglm", "DESeq2-apeGLM")
 d$verification <- renameAtoB(d$verification, "DESeq2.apeglm", "DESeq2-apeGLM")
 d$evaluation <- renameAtoB(d$evaluation, "DESeq2.ZI", "DESeq2-ZeroInflated")
 d$verification <- renameAtoB(d$verification, "DESeq2.ZI", "DESeq2-ZeroInflated")
 d <- d %>%
   mutate_if(sapply(d, is.character), as.factor)
-d$verification <- renameAtoB(d$verification, "GLMM", "GLMM-ZINB")
-d$evaluation <- renameAtoB(d$evaluation, "GLMM", "GLMM-ZINB")
-# d.uni = d[which(d$evaluation==d$verification),]
-# df <- data.frame(verification="GLMM-NB", evaluation="GLMM-NB", sensitivity=sensMat$GLMMNB$sensitivity, precision=precMat$GLMMNB$precision)
-# df <- df[rep(seq_len(nrow(df)), each = 7), ]
-# df$detection.method <- c(names(resHeldout))
-# d.glmm <- rbind(d.uni, df)
-# df <- data.frame(verification="GLMM-ZINB", evaluation="GLMM-ZINB", sensitivity=sensMat$GLMMZINB$sensitivity, precision=precMat$GLMMZINB$precision)
-# df <- df[rep(seq_len(nrow(df)), each = 7), ]
-# df$detection.method <- c(names(resHeldout))
-# d.glmm <- rbind(d.uni, df)
-# 
-# d.glmm <- d.glmm %>%
-#   mutate_if(sapply(d.glmm, is.character), as.factor)
+# d$verification <- renameAtoB(d$verification, "GLMM", "GLMM-ZINB")
+# d$evaluation <- renameAtoB(d$evaluation, "GLMM", "GLMM-ZINB")
+
 @ 
 
 <<sensitivityGrid, dev="pdf", fig.width=8, fig.height=6, fig.cap="Sensitivity, where each algorithm's calls (adjusted $p$-value $< .1$) in the evaluation set (color boxes) is compared against itselfs (adjusted $p$-value $< .1$) in the verification set (grey labels).">>=
 # d.glmm <- d.glmm[complete.cases(d.glmm),]
 p <- ggplot(d, aes(x=evaluation,y=sensitivity,color=evaluation))
-png("/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/robustness_glmm/DM1/sensitivity.png", res = 200, units = "cm", width = 25, height = 30)
-p + geom_boxplot(outlier.colour=rgb(0,0,0,0)) + theme_bw() + facet_wrap(~ detection.method) + 
+p + geom_boxplot(outlier.colour=rgb(0,0,0,0)) + theme_bw() + 
+  # facet_wrap(~ detection.method) + 
   geom_point(position = position_jitter(w = 0.1, h = 0), color="grey50", size=1) +
   scale_color_manual(values=cols) +
   theme(axis.text.x = element_text(angle = 90, hjust = 1, size = 15),
@@ -381,13 +253,12 @@ p + geom_boxplot(outlier.colour=rgb(0,0,0,0)) + theme_bw() + facet_wrap(~ detect
           # axis.text.y.left = element_text(size = 11),
           strip.text.x = element_text(size = 13)) + 
   xlab("")
-dev.off()
 @
 
 <<precisionGrid, dev="pdf", fig.width=8, fig.height=6, fig.cap="Precision, where each algorithm's calls (adjusted $p$-value $< .1$) in the evaluation set (color boxes) is compared against itselfs (adjusted $p$-value $< .1$) in the verification set (grey labels).">>=
 p <- ggplot(d, aes(x=evaluation,y=precision,color=evaluation))
-png("/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/robustness_glmm/DM1/precision.png", res = 200, units = "cm", width = 25, height = 30)
-p + geom_boxplot(outlier.colour=rgb(0,0,0,0)) + theme_bw() + facet_wrap(~ detection.method) + 
+p + geom_boxplot(outlier.colour=rgb(0,0,0,0)) + theme_bw() + 
+  # facet_wrap(~ detection.method) + 
   scale_color_manual(values = cols) + 
   geom_point(position = position_jitter(w = 0.1, h = 0), color="grey50", size=1) +
   theme(axis.text.x = element_text(angle = 90, hjust = 1, size = 15),
@@ -396,7 +267,6 @@ p + geom_boxplot(outlier.colour=rgb(0,0,0,0)) + theme_bw() + facet_wrap(~ detect
           # axis.text.y.left = element_text(size = 11),
           strip.text.x = element_text(size = 13)) + 
   xlab("")
-dev.off()
 @
 
 \clearpage
