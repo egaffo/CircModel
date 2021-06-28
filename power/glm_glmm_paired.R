@@ -2,6 +2,7 @@ library("GenomicRanges")
 library("Biobase")
 library("BiocParallel")
 pkgs <- c("edgeR", 
+          "glmGamPoi",
           "DESeq2",
           "phyloseq", 
           "plyr", 
@@ -37,7 +38,7 @@ pkgs <- c("edgeR",
           "dplyr")
 for(i in pkgs) { library(i, quietly=TRUE, verbose=FALSE, warn.conflicts=FALSE, character.only=TRUE) }
 load("/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/data/DM1Data_list.RData")
-randomSubsets <- read.table("/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/robustness_glmm/DM1/random_subsets50.txt",strings=FALSE)
+randomSubsets <- read.table("/blackhole/alessia/CircModel/power/random_subsets_eval_veri_B10.txt",strings=FALSE)
 
 meta.data <- read.csv("/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/realdata/DM1/analyses/meta_DM1.csv")
 meta.data = as.data.table(meta.data)
@@ -63,14 +64,6 @@ e <- lapply(eset, function (x) {
   levels(pData(x)$condition) <- c("A", "B")
   x.new = x[which(rowSums(exprs(x))!=0),]
   return(x.new)})
-
-# oldCircID = rownames(e$ccp2)
-# newEndCircID = as.numeric(sub(".*-", "", rownames(e$ccp2 )))
-# chr = sub(":.*", "", rownames(e$ccp2 ))
-# StartCircID = gsub(pattern = "(.*:)(.*)(-.*)",
-#                    replacement = "\\2",
-#                    x = rownames(e$ccp2))
-# rownames(e$ccp2) = paste0(chr, ":", as.numeric(StartCircID)+1, "-", newEndCircID)
 
 glmm.db <- rbindlist(lapply(DM1Data_list[1:6], function(x) data.frame(x, circ_id = rownames(x))), 
                      idcol = "method", use.names = TRUE)
@@ -135,13 +128,83 @@ computeExactWeights <- function (model, x)
   zinbwg
 }
 
-algos <- list("DESeq2"=runDESeq2,"DESeq2-ZI"=runDESeq2.ZI,"DESeq2-apeglm"=runDESeq2.apeglm, 
+## specify the algorithms to be compared
+algos <- list("DESeq2"=runDESeq2,"DESeq2-ZI"=runDESeq2.ZI,
+              "DESEq2-glmGamPoi"=runDESeq2_gampoi,
+              # "DESeq2-apeglm"=runDESeq2.apeglm, 
               # "DESeq2-ZINBWave"=DESeq_zinbweights,
-              "edgeR"=runEdgeR,"edgeR-robust"=runEdgeRRobust)#,
+              "edgeR"=runEdgeR,"edgeR-robust"=runEdgeRRobust,
+              "voom" = runVoom)#,
 # "edgeR-ZINBWave"=edgeR_zinbweights) #"voom","EBSeq"=runEBSeq)
 
 namesAlgos <- names(algos)
 names(namesAlgos) <- namesAlgos
+
+resTest <- list()
+resHeldout <- list()
+lfcTest <- list()
+lfcHeldout <- list()
+ratemodel <- list()
+
+set.seed(12388)
+
+## run benchmark of NB and ZINB models across evaluation and verification datasets
+resMethods <- bplapply(1:2, function(i) {   
+  
+  cat(i," ")
+  # i = 1
+  x = e$ciri
+  testSet <- as.character(randomSubsets[i,c(1:6)])
+  heldOutSet <- as.character(randomSubsets[i,-c(1:6)])
+  eTest <- x[,testSet]
+  keep = which(rowSums(exprs(eTest))==0)
+  eTest <- eTest[-keep,]
+  eTest <- eTest[which(rowSums(exprs(eTest)) > 2),]
+  
+  eHeldout <- x[,heldOutSet]
+  keep = which(rowSums(exprs(eHeldout))==0)
+  eHeldout <- eHeldout[-keep,]
+  eHeldout <- eHeldout[which(rowSums(exprs(eHeldout)) > 2),]
+  
+  testSetGLMM <- coldata[coldata$sample%in%as.character(randomSubsets[i,1:6]),]
+  heldOutSetGLMM <- coldata[coldata$sample%in%as.character(randomSubsets[i,-c(1:6)]),]
+  
+  zinbmodelTest <- zinbFit(Y = round(exprs(eTest)),
+                           X = model.matrix(~ pData(eTest)$condition), K = 0,
+                           epsilon = 1e10, commondispersion = FALSE, verbose = FALSE)
+  weightsTest <- computeExactWeights(model = zinbmodelTest, x = exprs(eTest))
+  
+  zinbmodelHeldout <- zinbFit(Y = round(exprs(eHeldout)),
+                              X = model.matrix(~ pData(eHeldout)$condition), K = 0,
+                              epsilon = 1e10, commondispersion = TRUE, verbose = FALSE)
+  weightsHeldout <- computeExactWeights(model = zinbmodelHeldout, x = exprs(eHeldout))
+  
+  resTest0 <- lapply(namesAlgos, function(n) algos[[n]](e=eTest, w=NULL))
+  resHeldout0 <- lapply(namesAlgos, function(n) algos[[n]](e=eHeldout, w=NULL))
+  resIdx <- rownames(eHeldout)[rownames(eHeldout)%in%rownames(eTest)]
+  resTest <- as.data.frame(c(lapply(resTest0, function(z) z$padj[resIdx])))
+  resHeldout <- as.data.frame(c(lapply(resHeldout0, function(z) z$padj[resIdx])))
+  lfcTest <- as.data.frame(c(lapply(resTest0, function(z) z$beta[resIdx])))
+  lfcHeldout <- as.data.frame(c(lapply(resHeldout0, function(z) z$beta[resIdx])))
+  rownames(resTest) <- resIdx
+  rownames(resHeldout) <- resIdx
+  rownames(lfcTest) <- resIdx
+  rownames(lfcHeldout) <- resIdx
+  
+  list(resTest=resTest,resHeldout=resHeldout,lfcTest=lfcTest,lfcHeldout=lfcHeldout)
+}, BPPARAM =  MulticoreParam(workers = 3))
+
+resTes <- lapply(resMethods, "[[", "resTest") #lapply(res, function(x) lapply(x, "[[", "resTest"))
+resHeldout <- lapply(resMethods, "[[", "resHeldout") #lapply(res, function(x) lapply(x, "[[", "resHeldout"))
+lfcTest <- lapply(resMethods, "[[", "lfcTest") #lapply(res, function(x) lapply(x, "[[", "lfcTest"))
+lfcHeldout<- lapply(resMethods, "[[", "lfcHeldout") #lapply(res, function(x) lapply(x, "[[", "lfcHeldout"))
+
+save(resTes,resHeldout,lfcTest,lfcHeldout,
+     namesAlgos,
+     file="/blackhole/alessia/CircModel/power/DM1_sensitivityPrecision10_CIRI_NBZINBmodels.RData")
+
+# ---------------------------------------------------------------------------------------------------------------------------------
+## run benchmark of NB vs GLMM models across evaluation and verification datasets (using the same number of samples)
 
 resTest<- list()
 resHeldout <- list()
@@ -153,6 +216,7 @@ resHeldoutGLMM <- list()
 lfcTestGLMM <- list()
 lfcHeldoutGLMM <- list()
 
+
 set.seed(12388)
 #library("future.apply")
 
@@ -163,7 +227,7 @@ set.seed(12388)
 #   library(dplyr)
 #   library(data.table)
 #   library(plyr)
-  resMethods <- bplapply(1:10, function(i) {   
+resMethods <- bplapply(1:10, function(i) {   
     
     cat(i," ")
     # i = 1
@@ -308,8 +372,10 @@ lfcHeldout<- lapply(resMethods, "[[", "lfcHeldout") #lapply(res, function(x) lap
 save(resTes,resHeldout,lfcTest,lfcHeldout,
      resTesGLMMp,resHeldoutGLMMp,lfcTestGLMMp,lfcHeldoutGLMMp,
      namesAlgos,
-     file="/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/robustness_glmm/DM1/sensitivityPrecision10_CIRI.RData")
+     file="/blackhole/alessia/CircModel/power/DM1_sensitivityPrecision10_CIRI_glmglmm.RData")
 
+
+# ---------------------------------------------------------------------------------------------------------------------------------
 ## type I error rate
 randomSubsets <- read.table("/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/robustness_glmm/DM1/random_shuffle50.txt",strings=FALSE)
 resTest<- list()

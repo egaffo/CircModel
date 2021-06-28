@@ -41,9 +41,10 @@ library(plyr)
 
 Choose samples in completely random way and create two groups of equal sample size.
 
+### DM1 Data - Mock datasets
+
 ```{r}
-### DM1 Data
-load("/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/data/DM1Data_list.RData")
+## load meta data
 meta.data <- read.csv("/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/realdata/DM1/analyses/meta_DM1.csv")
 meta.data = as.data.table(meta.data)
 meta.data <- meta.data[, .(sample_id = sample,
@@ -51,16 +52,18 @@ meta.data <- meta.data[, .(sample_id = sample,
 meta.data = meta.data[order(meta.data$sample_id),][seq(1,nrow(meta.data), by = 2),]     # for odd rows
 
 coldata <- data.frame(group = meta.data$condition,
-                      sample = meta.data$sample,
-                      row.names = meta.data$sample)
+                     sample = meta.data$sample,
+                     row.names = meta.data$sample)
 coldata$group <- factor(coldata$group)
 coldata$sample <- as.character(coldata$sample)
+coldata
 
 library(caret)
 grp1_name = "Normal"
 grp2_name = "DM1"
 variable_name = "group"
 
+## create a random resampling B times
 printIdx <- function() {
   NormSub <- sample(coldata$sample, size = 10, replace = FALSE)
   tumorSub <- sample(setdiff(coldata$sample, NormSub), size = 10, replace = FALSE)
@@ -72,61 +75,11 @@ printIdx <- function() {
 
 set.seed(5)
 randomSubsets <- t(replicate(50, printIdx()))
-
-# set.seed(5)
-# numSubsets <- t(replicate(30, numIdx()))
-# all(dist(numSubsets) > 0)
-
-# write.table(randomSubsets,file="/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/robustness_glmm/DM1/random_shuffle50.txt",quote=FALSE,row.names=FALSE,col.names=FALSE)
-randomSubsets <- read.table("/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/robustness_glmm/DM1/random_subsets50.txt",strings=FALSE)
 ```
 
-# Mock dataset creation
+# Differential expression tests
 
-```{r subsetting, echo=FALSE}
-
-glmm.db <- rbindlist(lapply(DM1Data_list[1:6], function(x) data.frame(x, circ_id = rownames(x))), 
-                     idcol = "method", use.names = TRUE)
-glmm.melt <- rbindlist(lapply(DM1Data_list[1:6], function(x) reshape2::melt(x)), 
-                       idcol = "method", use.names = TRUE)
-
-count.data.melt <- as.data.table(reshape2::melt(glmm.db, id.vars = c("method", "circ_id")))
-name.sep <- "."
-count.data.melt[, sample.name.ext := paste0(variable, name.sep, method)]
-count.data.merge <- merge(count.data.melt, coldata, by.x = "variable", by.y = "sample")
-
-colData.dt <- as.data.table(count.data.merge)[, .N, by = .(variable, method, 
-                                                           group,
-                                                           sample.name.ext)][, N := NULL][]
-
-colData <- data.frame(colData.dt, 
-                      row.names = "sample.name.ext")
-glmm.wide = dcast(glmm.melt, method+Var2~Var1, value.var = "value", fill=0)
-colnames(glmm.wide) = c("MethodID", "SampleID", colnames(glmm.wide)[-c(1,2)])
-
-count.data.melt <- as.data.table(reshape2::melt(glmm.db, id.vars = c("method", "circ_id")))
-name.sep <- "."
-count.data.melt[, sample.name.ext := paste0(variable, name.sep, method)]
-count.data.merge <- merge(count.data.melt, coldata, by.x = "variable", by.y = "sample")
-
-count.matrix.dt <- dcast(data = as.data.table(count.data.merge), 
-                         formula = circ_id ~ sample.name.ext, 
-                         fill = 0, fun.aggregate = sum, 
-                         value.var = "value")
-count.matrix.filtered.dt <- as.data.table(count.matrix.dt)[rowSums(as.data.table(count.matrix.dt)[,-"circ_id"]>=2)>3,]
-count.matrix <- as.matrix(count.matrix.filtered.dt, 
-                          rownames = "circ_id")[, rownames(colData)]
-
-se <- SummarizedExperiment(assays = list(counts = count.matrix),
-                           colData = colData)
-eset <- ExpressionSet(assay(se),
-                      AnnotatedDataFrame(as.data.frame(colData(se))))
-
-```
-
-# Differential abundance tests
-
-Use "diffExprs_GLMM.R" for GLMM-ZINB model and "DiffExpr_circ.R" for GLM-NB model to evaluate mock datasets. An output is generated for each evaluation. 
+Use "glm_glmm_paired.R" for GLMM-ZINB model and GLM-NB model to evaluate mock datasets. An output is generated for each evaluation. 
 
 ```{r}
 load(file = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/robustness_glmm/DM1/typeIerrorGLM_50rep.RData")

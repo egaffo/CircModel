@@ -1,10 +1,10 @@
-meta.data <- read.csv("/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/realdata/sepsis/meta_sepsis.csv")
+meta.data <- read.csv("/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/realdata/DM1/analyses/meta_DM1.csv")
 meta.data = as.data.table(meta.data)
 meta.data <- meta.data[, .(sample_id = sample,
                                              condition = ifelse(disease_class=="myotonic dystrophy type 1", "DM1","Normal"))]
 meta.data = meta.data[order(meta.data$sample_id),][seq(1,nrow(meta.data), by = 2),]     # for odd rows
 
-coldata <- DataFrame(group = meta.data$condition,
+coldata <- data.frame(group = meta.data$condition,
                      sample = meta.data$sample,
                      row.names = meta.data$sample)
 coldata$group <- factor(coldata$group)
@@ -17,8 +17,8 @@ grp2_name = "DM1"
 variable_name = "group"
 NormIdx <- which(coldata$group == "Normal")
 TumorIdx <- which(coldata$group == "DM1")
-half_1_2 <- round(c(length(NormIdx)/2, length(TumorIdx)/2))
-names(half_1_2) <- c(grp1_name,grp2_name)
+# half_1_2 <- round(c(length(NormIdx)/2, length(TumorIdx)/2))
+# names(half_1_2) <- c(grp1_name,grp2_name)
 # If one of index lists is bigger than the other, we select only the first n indexes for both lists
 # So index_1 and index_2 lists are of equal lengths
 # min_length <- min(length(NormIdx),length(TumorIdx))
@@ -39,17 +39,18 @@ printIdx <- function() {
   index_2bis = index_2[-idx]
   
   NormSub2 <- sample(index_1bis, size = 2, replace = FALSE)
-  tumorSub2 <- sample(index_2bis, size = 3, replace = FALSE)
+  tumorSub2 <- sample(index_2bis, size = 5, replace = FALSE)
   idxbis = c(NormSub2, tumorSub2)
   
   c(coldata$sample[idx], coldata$sample[idxbis])
 }
 
 set.seed(5)
-randomSubsets <- t(replicate(50, printIdx()))
+randomSubsets <- t(replicate(10, printIdx()))
 
 # set.seed(5)
 # numSubsets <- t(replicate(30, numIdx()))
 # all(dist(numSubsets) > 0)
 
-write.table(randomSubsets,file="/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/robustness_glmm/DM1/random_subsets50.txt",quote=FALSE,row.names=FALSE,col.names=FALSE)
+write.table(randomSubsets,file="/blackhole/alessia/CircModel/power/random_subsets_eval_veri_B10.txt", 
+            quote=FALSE,row.names=FALSE,col.names=FALSE)

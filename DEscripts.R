@@ -61,6 +61,25 @@ DESeq_zinbweights <- function(e, w){
   cat("NB DESeq2 with ZINB-WaVe weights tests: DONE\n")
 }# END: DESeq - ZINBWaVE weights
 
+runDESeq2_gampoi <- function(e, w){
+  library(DESeq2)
+  library(glmGamPoi)
+  dds <- DESeqDataSetFromMatrix(exprs(e), DataFrame(pData(e)), ~ condition)
+  deg <- DESeq(dds, fitType="glmGamPoi")
+  res <- results(deg)
+  beta <- res$log2FoldChange
+  names(beta) <- rownames(exprs(e))
+  pvals <- res$pvalue
+  padj <- res$padj
+  pvals[is.na(pvals)] <- 1
+  pvals[rowSums(exprs(e)) == 0] <- NA
+  names(pvals) <- rownames(exprs(e))
+  padj[is.na(padj)] <- 1
+  names(padj) <- rownames(exprs(e))
+  return(list(pvals=pvals, padj=padj, beta=beta))
+  cat("NB DESeq2 with glmGamPoi: DONE\n")
+}# END: DESeq2 - GammaPoisson
+
 runDESeq2.apeglm <- function(e, retDDS=FALSE,w=NULL) {
   library(DESeq2)
   dds <- DESeqDataSetFromMatrix(exprs(e), DataFrame(pData(e)), ~ condition)
@@ -99,7 +118,7 @@ runEdgeR <- function(e,w=NULL) {
   names(padj) <- rownames(exprs(e))
   return(list(pvals=pvals, padj=padj, beta=log2(exp(1)) * edger.fit$coefficients[,"pData(e)$conditionB"],
        predbeta=predbeta[,"pData(e)$conditionB"], predbeta10=predbeta10[,"pData(e)$conditionB"]))
-  # cat("NB EdgeR tests: DONE\n")
+  cat("NB EdgeR tests: DONE\n")
 }
 
 runEdgeRRobust <- function(e,w=NULL) {
@@ -119,7 +138,7 @@ runEdgeRRobust <- function(e,w=NULL) {
   names(padj) <- rownames(exprs(e))
   return(list(pvals=pvals, padj=padj, beta=log2(exp(1)) * edger.fit$coefficients[,"pData(e)$conditionB"],
        predbeta=predbeta[,"pData(e)$conditionB"]))
-  # cat("NB EdgeR-Robust tests: DONE\n")
+  cat("NB EdgeR-Robust tests: DONE\n")
 }
 
 edgeR_zinbweights <- function(e, w){
@@ -142,7 +161,7 @@ edgeR_zinbweights <- function(e, w){
 
   return(list(pvals=pvals, padj=padj, beta=log2(exp(1)) * edger.fit$coefficients[,"pData(e)$conditionB"],
        predbeta=predbeta[,"pData(e)$conditionB"]))
-  # cat("NB EdgeR with ZINB-WaVe weights tests: DONE\n")
+  cat("NB EdgeR with ZINB-WaVe weights tests: DONE\n")
 }# END: edgeR - ZINBWaVE weights
 
 runVoom <- function(e,w) {
@@ -154,6 +173,7 @@ runVoom <- function(e,w) {
   fit <- eBayes(fit)
   tt <- topTable(fit,coef=ncol(design),n=nrow(dgel),sort.by="none")
   beta = tt$logFC
+  names(beta) <- rownames(exprs(e))
   names(beta) <- rownames(beta)
   pvals <- tt$P.Value 
   pvals[rowSums(exprs(e)) == 0] <- NA
@@ -162,7 +182,8 @@ runVoom <- function(e,w) {
   padj[is.na(padj)] <- 1
   names(padj) <- rownames(exprs(e))
   list(pvals=pvals, padj=padj, beta=beta)
-}
+  cat("Limma + Voom tests: DONE\n")
+}# END: limma+voom
 
 runSAMseq <- function(e,w) {
   set.seed(1)
