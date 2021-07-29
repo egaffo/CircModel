@@ -1,4 +1,4 @@
-meta.data <- read.csv("/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/realdata/DM1/analyses/meta_DM1.csv")
+meta.data <- read.csv("/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/realdata/DM1/meta_DM1.csv")
 meta.data = as.data.table(meta.data)
 meta.data <- meta.data[, .(sample_id = sample,
                                              condition = ifelse(disease_class=="myotonic dystrophy type 1", "DM1","Normal"))]
@@ -39,18 +39,18 @@ printIdx <- function() {
   index_2bis = index_2[-idx]
   
   NormSub2 <- sample(index_1bis, size = 2, replace = FALSE)
-  tumorSub2 <- sample(index_2bis, size = 5, replace = FALSE)
+  tumorSub2 <- sample(index_2bis, size = 6, replace = FALSE)
   idxbis = c(NormSub2, tumorSub2)
   
   c(coldata$sample[idx], coldata$sample[idxbis])
 }
 
 set.seed(5)
-randomSubsets <- t(replicate(10, printIdx()))
+randomSubsets <- t(replicate(30, printIdx()))
 
 # set.seed(5)
 # numSubsets <- t(replicate(30, numIdx()))
 # all(dist(numSubsets) > 0)
 
-write.table(randomSubsets,file="/blackhole/alessia/CircModel/power/random_subsets_eval_veri_B10.txt", 
+write.table(randomSubsets,file="/blackhole/alessia/CircModel/power/random_subsets_eval_veri.txt", 
             quote=FALSE,row.names=FALSE,col.names=FALSE)

@@ -242,10 +242,7 @@ colData$group2 <- factor(colData$group2)
 # write.csv(meta, "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/robustness_glmm/TALL/meta.csv")
 ```
 
-
-
 ```{r}
-
 ## plot of %0s vs %circular RNAs for each methdos using different filters in the expression in at least one sample
 makefiltexprplot <- function(matrix, filter = c(10), method = NULL, meta, zero.filt=TRUE){
   
@@ -296,6 +293,10 @@ makefiltexprplot <- function(matrix, filter = c(10), method = NULL, meta, zero.f
   data <- rbind(plotdata_nofilter, data)
   return(list(data, matfilt))
 }
+```
+
+
+```{r}
 
 makeplot.TALL <- lapply(methods.ccp, FUN = function(d) {
   print(d)
@@ -378,6 +379,10 @@ Keep circRNAs with more than 2 counts in more than 2 samples.
 A dataset is composed by samples from 5 normal and 25 DM1 samples.
 
 ```{r include=FALSE}
+# detection methods to be compared
+methods <- c("findcirc", "dcc", "ciri", "circexplorer2_star", "circexplorer2_bwa", "circexplorer2_tophat")
+
+methods.ccp <- c(methods, "ccp2")
 ## function to get count matrix for each detection methods
 get.method.count.matrix <- function(method, x){
   as.matrix(dcast(data = x[V2 == method],
@@ -395,7 +400,7 @@ if(!file.exists("/blackhole/alessia/CircModel/data/DM1Data_list.RData")){
   V9pattern <- '.*gene_id "([^"]*)".*transcript_id "([^"]*)".*'
   V9newCols <- c("gene_id", "transcript_id")
   ## load circRNA data
-  circrnas.gtf <- fread("/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/realdata/DM1/analyses/circular_expression/circRNA_collection/circrnas.gtf", colClasses = colClasses)
+  circrnas.gtf <- fread("/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/realdata/DM1/circular_expression/circRNA_collection/circrnas.gtf", colClasses = colClasses)
     # unique(rbindlist(lapply(gtf.file.list, fread, data.table = T, 
     #                                       colClasses = colClasses))) 
   count.data <- circrnas.gtf[, `:=`(circRNA_ID = paste0(V1, ":", V4, "-", V5),
@@ -427,7 +432,7 @@ if(!file.exists("/blackhole/alessia/CircModel/data/DM1Data_list.RData")){
     names(DM1Data_list)[i] <- methods[i]
   }
   
-  count.data.file <- "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/realdata/DM1/analyses/circular_expression/circRNA_collection/ccp_counts/bks.counts.union.intersected.csv"
+  count.data.file <- "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/realdata/DM1/circular_expression/circRNA_collection/ccp_counts/bks.counts.union.intersected.csv"
   count.data <- fread(count.data.file)
   count.data$circ_id = paste0(count.data$chr, ":", count.data$start+1, "-", count.data$end)
   ps.ccp2 <- as.matrix(dcast(data = count.data, formula = circ_id~sample_id, fill = 0,value.var = "read.count"),
@@ -457,7 +462,7 @@ fix.name <- function(x){
 ```{r DM1_meta, echo=FALSE, include=FALSE}
 library(stringr)
 basedir.dm1 <- "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/realdata/DM1"
-meta_file_dm1 <- file.path(basedir.dm1, "analyses/meta_DM1.csv")
+meta_file_dm1 <- file.path(basedir.dm1, "meta_DM1.csv")
 # create meta file with sample.ID, condition, from meta_tall.csv
 if(meta_file_dm1 != ""){
  meta_dm1 <- unique(fread(meta_file_dm1))[, .(sample_id = sample,

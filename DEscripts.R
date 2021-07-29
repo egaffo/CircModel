@@ -164,7 +164,7 @@ edgeR_zinbweights <- function(e, w){
   cat("NB EdgeR with ZINB-WaVe weights tests: DONE\n")
 }# END: edgeR - ZINBWaVE weights
 
-runVoom <- function(e,w) {
+runVoom <- function(e,w=NULL) {
   design <- model.matrix(~ condition, pData(e))
   dgel <- DGEList(exprs(e))
   dgel <- calcNormFactors(dgel)
@@ -184,6 +184,30 @@ runVoom <- function(e,w) {
   list(pvals=pvals, padj=padj, beta=beta)
   cat("Limma + Voom tests: DONE\n")
 }# END: limma+voom
+
+
+runPois.ztest<-function(dat){
+  sfs=colSums(exprs(e));sfs=sfs/min(sfs)
+  n0=sum(pData(e)$condition=="A")
+  n1=sum(pData(e)$condition=="B")
+  m0=rowMeans(exprs(e)[,pData(e)$condition=="A"])
+  m1=rowMeans(exprs(e)[,pData(e)$condition=="B"])
+  n=nrow(exprs(e))
+  pval=rep(1,n)
+  for(i in 1:n){
+    z=(m1[i]-m0[i])/sqrt(m1[i]/n1+m0[i]/n0)
+    pval[i]=2*pnorm(-abs(z))
+  }
+  pvals
+  names(pvals) <- rownames(exprs(e))
+  list(pvals=pvals, padj=pvals)
+  cat("two-stage circMETA tests: DONE\n")
+}
+
+
+
+
+
 
 runSAMseq <- function(e,w) {
   set.seed(1)
