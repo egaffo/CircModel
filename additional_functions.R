@@ -240,8 +240,8 @@ compute_concordance_withGLMM <- function(ps_fitted_list, maxrank){
       cat("Mehod", names(ps_fitted_list$test$pval[[i]])[j],"with GLMM")
       vec1 = P_df1[-abs(lfc_df1[,j]),j]
       names(vec1) <- rownames(P_df1[-abs(lfc_df1[,j]),])
-      vec2 = P_df2[-abs(lfc_df2[,"GLMM"]),"GLMM"]
-      names(vec2) <- rownames(P_df2[-abs(lfc_df2[,"GLMM"]),])
+      vec2 = P_df2[-abs(lfc_df2[,"GLMM_NB"]),"GLMM_NB"]
+      names(vec2) <- rownames(P_df2[-abs(lfc_df2[,"GLMM_NB"]),])
       # for(k in 1:nmethods){ # k in method names again
       # k = 1
       # cat("\t",names(ps_fitted_list$test$pval[[i]][,-1])[k],"\n")
@@ -269,7 +269,7 @@ compute_concordance_withGLMM <- function(ps_fitted_list, maxrank){
       conc <- data.frame(CATplot(vec1 = vec1,
                                  vec2 = vec2, make.plot = FALSE, maxrank = maxrank), 
                          method1 = names(ps_fitted_list$test$pval[[i]])[j], 
-                         method2 = "GLMM",
+                         method2 = "GLMM_NB",
                          #ndisc_0.1_method1 = length(adjP_df1[[j]]),
                          #ndisc_0.1_method2 = length(adjP_df2[[k]]),
                          nfeatures = mean(length(ps_fitted_list$test$pval[[i]][,j]), 

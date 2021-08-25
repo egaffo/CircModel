@@ -34,7 +34,7 @@ knitr::opts_chunk$set(echo = TRUE, fig.path = file.path(current.dir, "consinsten
 
 # Data loading
 
-Data from DM1 
+Data from IPF 
 
 ```{r message=FALSE, warning=FALSE}
 library(plyr)
@@ -52,24 +52,28 @@ source("/blackhole/alessia/CircModel/additional_functions.R")
 # source("/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/reference/R/colors.R")
 cols <- c(
   # DEseq
-  brewer.pal(n = 9, "YlOrRd")[c(4,5)],
+  brewer.pal(n = 9, "YlOrRd")[c(3,4,5,6)],
   # Edger
-  brewer.pal(n = 9, "GnBu")[c(6,7)],
+  brewer.pal(n = 9, name = "GnBu")[c(5,6,7)],
   # limma
-  brewer.pal(n = 9, "RdPu")[c(5)]
+  brewer.pal(n = 9, "RdPu")[c(5)],
+  # circMeta
+  brewer.pal(n = 9, "OrRd")[c(8)],
+  # GLMM
+  brewer.pal(n = 9, "BuPu")[c(5)]
+
 )
 
 methods2 <- c("DESeq2",
              "DESeq2-ZeroInflated",
-             # "DESeq2-apeGLM",
-             # "DESeq2-ZINB Wave",
+             "DESeq2-GamPoi",
+             "DESeq2-ZINB Wave",
              "edgeR",
              "edgeR-robust",
-             # "edgeR-ZINB Wave",
-             # "voom",
-             # "EBSeq", 
-             # "GLMM-NB", 
-             "GLMM-ZINB")
+             "edgeR-ZINB Wave",
+             "voom",
+             "circMeta",
+             "GLMM")
 
 names(cols) <- methods2
 
@@ -86,9 +90,9 @@ renameAtoB <- function(f,a,b) {
 ### TALL data
 
 ```{r}
-load("/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/robustness_glmm/DM1/sensitivityPrecision10_CIRI.RData")
+load(file = "/blackhole/alessia/CircModel/power/IPF_sensitivityPrecision_CCP2_glmglmm_30rep.RData")
 
-nreps = 10
+nreps = 30
 
 ```
 
@@ -98,14 +102,14 @@ ps_fitted$test$pval <- resTes
 ps_fitted$Heldout$pval <- resHeldout
 ps_fitted$test$lfc <- lfcTest
 ps_fitted$Heldout$lfc <- lfcHeldout
-
-conc.witbet <- compute_concordance_withbetw(ps_fitted_list = ps_fitted, maxrank = 500)
-conc.betglmm <- compute_concordance_withGLMM(ps_fitted_list = ps_fitted, maxrank = 500)
+maxrank = 400
+conc.witbet <- compute_concordance_withbetw(ps_fitted_list = ps_fitted, maxrank = maxrank)
+conc.betglmm <- compute_concordance_withGLMM(ps_fitted_list = ps_fitted, maxrank = maxrank)
 
 
 concordance_df_summary <- suppressWarnings(ddply(conc.witbet, ~ rank + method1 + method2, function(x) colMeans(x[,c("concordance", "nfeatures")])))
 
-AUC_AOC_between_methods <- suppressWarnings(ddply(concordance_df_summary, ~ method1 + method2, function(x) AucAocFun(cVals = x$concordance[x$rank <= 400], nfeatures = mean(x$nfeatures[x$rank <= 400]), threshold = 400)))
+AUC_AOC_between_methods <- suppressWarnings(ddply(concordance_df_summary, ~ method1 + method2, function(x) AucAocFun(cVals = x$concordance[x$rank <= maxrank], nfeatures = mean(x$nfeatures[x$rank <= maxrank]), threshold = maxrank)))
 
 ```
 
@@ -113,30 +117,30 @@ AUC_AOC_between_methods <- suppressWarnings(ddply(concordance_df_summary, ~ meth
 
 ```{r}
 # conc_df_sub <- conc[conc$rank == 500 & conc$subset == "HeldoutvsTest",]
-conc_df_sub <- conc.betglmm[conc.betglmm$rank == 400 & conc.betglmm$subset == "HeldoutvsTest",]
+conc_df_sub <- conc.betglmm[conc.betglmm$rank == maxrank & conc.betglmm$subset == "HeldoutvsTest",]
 
 ord <- order(ddply(conc_df_sub,.variables = ~ method1, function(x) median(x[,"concordance"]))$V1)
 conc_df_sub$method1 <- factor(conc_df_sub$method1)
 conc_df_sub$method1 <- factor(conc_df_sub$method1, levels = levels(conc_df_sub$method1), 
-                              labels = c("DESeq2",
+                              labels = c("circMeta",
+                                         "DESeq2",
+                                         "DESeq2-GamPoi",
                                          "DESeq2-ZeroInflated",
-                                         "DESeq2-apeGLM",
-                                         # "DESeq2-ZINB Wave",
+                                         "DESeq2-ZINB Wave",
                                          "edgeR",
                                          "edgeR-robust",
-                                         # "edgeR-ZINB Wave",
-                                         # "GLMM-NB", 
-                                         "GLMM-ZINB"))#,
-                                         # "voom",
+                                         "edgeR-ZINB Wave",
+                                         "GLMM",
+                                         "voom"))
                                          # "EBSeq"))
 png("/blackhole/alessia/CircModel/consinstency/ConcordancewithGLMM_top400_DM1dataset.png", res = 200, units = "cm", width = 20, height = 25)
 ggplot(conc_df_sub, aes(x = method1, y = concordance, color = method1)) +
     geom_boxplot() +
     coord_flip() +
-    scale_x_discrete(limits = unique(conc_df_sub$method1)[rev(ord)]) +
+    scale_x_discrete(limits = levels(conc_df_sub$method1)[rev(ord)]) +
     xlab("Method") + ylab("Concordance") +
   # facet_wrap(~.id)+
-    ggtitle(label = "DM1 data",
+    ggtitle(label = "IPF data",
             subtitle = "Normal vs tumor") +
     theme_minimal() +
     theme(plot.margin = unit(c(0,0,0,0), "cm"),

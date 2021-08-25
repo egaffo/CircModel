@@ -37,16 +37,22 @@ pkgs <- c("edgeR",
           "MASS",
           # "samr",
           #"EBseq",
+          "NewWave",
           "limma",
           "data.table",
           "dplyr")
 for(i in pkgs) { library(i, quietly=TRUE, verbose=FALSE, warn.conflicts=FALSE, character.only=TRUE) }
 
+library(devtools)
+install_github("egaffo/CREART", ref = "dev", force = T)
+library(CREART)
+
 # ------------------------------------------------------------------------
 ## load data and meta data from previous data formatting in GOF.Rmd step
 # ------------------------------------------------------------------------
 
-load("/blackhole/alessia/CircModel/data/DM1Data_list.RData")
+
+## DM1 data set
 randomSubsets <- read.table("/blackhole/alessia/CircModel/power/random_subsets_eval_veri.txt",strings=FALSE)
 
 meta.data <- read.csv("/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/realdata/DM1/meta_DM1.csv")
@@ -62,26 +68,65 @@ coldata$group <- factor(coldata$group)
 coldata$sample <- as.character(coldata$sample)
 coldata
 
+## IPF data set
+randomSubsets <- read.table("/blackhole/alessia/CircModel/power/IPF_random_subsets_eval_veri.txt",strings=FALSE)
+
+meta.data <- read.csv("/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/realdata/IPF/analyses/meta_IPF.csv")
+meta.data = meta.data[seq(1,nrow(meta.data), by = 2),]     # for odd rows
+
+coldata <- DataFrame(condition = meta.data$condition,
+                     group = ifelse(meta.data$condition=="normal", "normal", "IPF"),
+                     sample_id = meta.data$sample,
+                     row.names = meta.data$sample)
+coldata$condition <- factor(coldata$condition)
+coldata$group <- factor(coldata$group)
+coldata$sample_id <- as.character(coldata$sample_id)
+coldata
+
 #-----------------------------------------
 ## summarized experiment for single matrix
+## only ccp2 output is of interest
 #-----------------------------------------
 
 # se <- lapply(lapply(Data_list, function(x) x[,match(randomSubsets[1,],colnames(x))]), function(x) SummarizedExperiment(x, colData = coldata[rownames(coldata)%in%randomSubsets[1,],]))
-se <- lapply(DM1Data_list, function(x) SummarizedExperiment(x[,rownames(coldata)], 
-                                                            colData = coldata))
-eset <- lapply(se, function(x) ExpressionSet(assay(x),
-                                             AnnotatedDataFrame(as.data.frame(colData(x)))))
+# se <- lapply(DM1Data_list, function(x) SummarizedExperiment(x[,rownames(coldata)], 
+#                                                             colData = coldata))
+# eset <- lapply(se, function(x) ExpressionSet(assay(x),
+#                                              AnnotatedDataFrame(as.data.frame(colData(x)))))
+# 
+# e <- lapply(eset, function (x) {
+#   pData(x)$condition <- factor(pData(x)$group)
+#   levels(pData(x)$condition) <- c("A", "B")
+#   x.new = x[which(rowSums(exprs(x))!=0),]
+#   return(x.new)})
 
-e <- lapply(eset, function (x) {
-  pData(x)$condition <- factor(pData(x)$group)
-  levels(pData(x)$condition) <- c("A", "B")
-  x.new = x[which(rowSums(exprs(x))!=0),]
-  return(x.new)})
+ccp2 = read.table("/blackhole/alessia/CircModel/data/IPF_ccp2.csv", header = T)
+# ccp2 = RCurl::scp(host = "threesum", path = "/home/enrico/analysis/zicirc/IPF/data/IPF_ccp2.csv", keypasswd = "alessiasucks666", 
+#            user="alessia")
+# load("/blackhole/alessia/CircModel/data/IPFData_list.RData")
+
+# ccp2 = IPFData_list$ccp2
+chr <- sub(":.*", "", ccp2$circ_id)
+start <- as.numeric(gsub(".*:(.*)\\-.*", "\\1", ccp2$circ_id))
+end <- sub(".*-", "\\1", ccp2$circ_id)
+circ_id = paste0(chr, ":", start+1, "-", end)
+ccp2$circ_id = circ_id
+ccp2.df = ccp2[,-1]
+rownames(ccp2.df) = ccp2$circ_id
+se.ccp2 <- SummarizedExperiment(assays = list(counts = as.matrix(ccp2.df)),
+                                colData = coldata)
+eset.ccp2 <- ExpressionSet(assay(se.ccp2),
+                           AnnotatedDataFrame(as.data.frame(colData(se.ccp2))))
+pData(eset.ccp2)$condition <- factor(pData(eset.ccp2)$group)
+levels(pData(eset.ccp2)$condition) <- c("A", "B")
+e = eset.ccp2
 
 #-----------------------------------------
 ## summarized experiment for GLMM matrix
 #-----------------------------------------
 
+## DM1
+load("/blackhole/alessia/CircModel/data/DM1Data_list.RData")
 glmm.db <- rbindlist(lapply(DM1Data_list[1:6], function(x) data.frame(x, circ_id = rownames(x))), 
                      idcol = "method", use.names = TRUE)
 glmm.melt <- rbindlist(lapply(DM1Data_list[1:6], function(x) reshape2::melt(x)), 
@@ -98,25 +143,60 @@ colData.dt <- as.data.table(count.data.merge)[, .N, by = .(variable, method,
 
 colData <- data.frame(colData.dt, 
                       row.names = "sample.name.ext")
+
 glmm.wide = dcast(glmm.melt, method+Var2~Var1, value.var = "value", fill=0)
 colnames(glmm.wide) = c("MethodID", "SampleID", colnames(glmm.wide)[-c(1,2)])
 head(glmm.wide[,c(1:8)])
 
-nreps = 30
+## IPF
+glmm.db <- rbindlist(lapply(IPFData_list[1:6], function(x) data.frame(x, circ_id = rownames(x))), 
+                     idcol = "method", use.names = TRUE)
+glmm.melt <- rbindlist(lapply(IPFData_list[1:6], function(x) reshape2::melt(x)), 
+                       idcol = "method", use.names = TRUE)
 
 count.data.melt <- as.data.table(reshape2::melt(glmm.db, id.vars = c("method", "circ_id")))
 name.sep <- "."
 count.data.melt[, sample.name.ext := paste0(variable, name.sep, method)]
-count.data.merge <- merge(count.data.melt, coldata, by.x = "variable", by.y = "sample")
+count.data.merge <- merge(count.data.melt, coldata, by.x = "variable", by.y = "sample_id")
 
-count.matrix.glmm.dt <- dcast(data = as.data.table(count.data.merge), 
-                         formula = circ_id ~ sample.name.ext, 
-                         fill = 0, fun.aggregate = sum, 
-                         value.var = "value")
-count.matrix.filtered.glmm.dt <- as.data.table(count.matrix.glmm.dt)#[rowSums(as.data.table(count.matrix.glmm.dt)[,-"circ_id"]>=2)>1,]
-count.matrix.glmm <- as.matrix(count.matrix.filtered.glmm.dt, 
-                          rownames = "circ_id")[, rownames(colData)]
+colData.dt <- as.data.table(count.data.merge)[, .N, by = .(variable, method, 
+                                                           group,
+                                                           sample.name.ext)][, N := NULL][]
+colData <- data.frame(colData.dt, 
+                      row.names = "sample.name.ext")
 
+# glmm.wide = dcast(glmm.melt, method+Var2~Var1, value.var = "value", fill=0)
+# colnames(glmm.wide) = c("MethodID", "SampleID", colnames(glmm.wide)[-c(1,2)])
+# head(glmm.wide[,c(1:8)])
+
+nreps = 30
+
+# count.data.melt <- as.data.table(reshape2::melt(glmm.db, id.vars = c("method", "circ_id")))
+# name.sep <- "."
+# count.data.melt[, sample.name.ext := paste0(variable, name.sep, method)]
+# count.data.merge <- merge(count.data.melt, coldata, by.x = "variable", by.y = "sample")
+
+# count.matrix.glmm.dt <- dcast(data = as.data.table(count.data.merge), 
+#                          formula = circ_id ~ sample.name.ext, 
+#                          fill = 0, fun.aggregate = sum, 
+#                          value.var = "value")
+# count.matrix.filtered.glmm.dt <- as.data.table(count.matrix.glmm.dt)#[rowSums(as.data.table(count.matrix.glmm.dt)[,-"circ_id"]>=2)>1,]
+# count.matrix.glmm <- as.matrix(count.matrix.filtered.glmm.dt, 
+#                           rownames = "circ_id")[, rownames(colData)]
+
+## DM1
+count.matrix.glmm <- CREART::get_combined_matrix("/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/realdata/DM1/", 
+                                         select_methods = unique(colData$method))
+## IPF
+count.matrix.glmm <- CREART::get_combined_matrix("/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/realdata/IPF/analyses/", 
+                                                 select_methods = unique(colData$method))
+
+glmm.long = melt(count.matrix.glmm)
+glmm.long$method = sub(".*\\.","",glmm.long$X2)
+glmm.long$sample = sub("\\..*", "", glmm.long$X2)
+glmm.wide = dcast(glmm.long, method+sample~X1, value.var = "value", fill=0)
+colnames(glmm.wide) = c("MethodID", "SampleID", colnames(glmm.wide)[-c(1,2)])
+head(glmm.wide[,c(1:8)])
 se.glmm <- SummarizedExperiment(assays = list(counts = count.matrix.glmm),
                            colData = colData)
 eset.glmm <- ExpressionSet(assay(se.glmm),
@@ -161,7 +241,9 @@ algos <- list("DESeq2"= runDESeq2,
               "edgeR-robust"=runEdgeRRobust,
               "voom" = runVoom,
               "edgeR-ZINBWave"= edgeR_zinbweights,
-              "circMeta" = runPois.ztest) #"EBSeq"=runEBSeq)
+              "circMeta" = runPois.ztest
+              ) #"EBSeq"=runEBSeq)
+
 
 namesAlgos <- names(algos)
 names(namesAlgos) <- namesAlgos
@@ -258,7 +340,7 @@ save(resTes,resHeldout,lfcTest,lfcHeldout,
 ## run benchmark of NB vs GLMM models across evaluation and verification datasets (using unbalanced verification and evalutation datasets)
 # ----------------------------------------------------------------------------------------------------------------------------------------
 
-resTest<- list()
+resTest <- list()
 resHeldout <- list()
 lfcTest <- list()
 lfcHeldout <- list()
@@ -288,39 +370,64 @@ hosts <- c("grigri", "grigri", "anhal")
 param <- SnowParam(workers = hosts, type = "SOCK")
 param
 
-resMethods <- bplapply(1:nreps, function(i) {   
+## summary stats of simulated datasets
+stats_sim <- function(matrix){
+  
+  # matrix : count.matrices for one verification and evaluation
+    
+    n.circ <- nrow(matrix)
+    zero <- sum(matrix==0)/length(matrix)
+    summarydata <- data.frame(zero,
+                              n.circ)
+
+  names(summarydata) <- c("perc.zeros", "n.circular")
+
+  return(summarydata)
+}
+
+# ccp2 = as.data.frame(ccp2)
+# ccp2$circ_id = rownames(ccp2)
+
+resMethods <- bplapply(1:30, function(i) {   
     
     cat(i," ")
     # i = 1
-    x = e$ccp2
-    testSet <- as.character(randomSubsets[i,c(1:6)])
-    heldOutSet <- as.character(randomSubsets[i,-c(1:6)])
-    eTest <- x[,testSet]
-    keep = which(rowSums(exprs(eTest))==0)
-    eTest <- eTest[-keep,]
-    eTest <- eTest[which(rowSums(exprs(eTest)) > 2),]
+
+    testSet <- as.character(randomSubsets[i,c(1:7)])
+    heldOutSet <- as.character(randomSubsets[i,-c(1:7)])
     
-    eHeldout <- x[,heldOutSet]
-    keep = which(rowSums(exprs(eHeldout))==0)
-    eHeldout <- eHeldout[-keep,]
-    eHeldout <- eHeldout[which(rowSums(exprs(eHeldout)) > 2),]
+    eTest <- e[,testSet]
+    eTest_filt <- CREART::smallest_group_filter(x = as.data.table(ccp2[,c("circ_id", testSet)]), 
+                                                cond = as.data.table(coldata[coldata$sample_id%in%testSet,]),
+                                                rthr = 1)
     
-    testSetGLMM <- coldata[coldata$sample%in%as.character(randomSubsets[i,1:6]),]
-    heldOutSetGLMM <- coldata[coldata$sample%in%as.character(randomSubsets[i,-c(1:6)]),]
+    keep = eTest_filt$circ_id
+    eTest <- eTest[keep,]
+    
+    summary_stat_test <- stats_sim(matrix = as.matrix(exprs(eTest)))
+    
+    eHeldout <- e[,heldOutSet]
+    eHeldout_filt <- CREART::smallest_group_filter(x = as.data.table(ccp2[,c("circ_id", heldOutSet)]), 
+                                                   cond = as.data.table(coldata[coldata$sample_id%in%heldOutSet,]),
+                                                   rthr = 1)
+    keep = eHeldout_filt$circ_id
+    eHeldout <- eHeldout[keep,]
+    
+    summary_stat_heldout <- stats_sim(as.matrix(exprs(eHeldout)))
+    
+    testSetGLMM <- coldata[coldata$sample_id%in%as.character(randomSubsets[i,1:7]),]
+    heldOutSetGLMM <- coldata[coldata$sample_id%in%as.character(randomSubsets[i,-c(1:7)]),]
     
     ## GLMM
     ## glmm-NB
-    #test
-    glmm.wide.test = glmm.wide %>% dplyr::filter(SampleID%in%testSetGLMM$sample) %>% 
-      dplyr::mutate(condition = case_when(
-        SampleID%in%testSetGLMM$sample[testSetGLMM$group=="DM1"] ~ "Tumor",
-        SampleID%in%testSetGLMM$sample[testSetGLMM$group=="Normal"] ~ "Normal") %>%
-          as.factor() %>%
-          structure(levels = c("Tumor","Normal"))) %>% 
-      relocate(condition)
-    pheno <- glmm.wide.test[,c("MethodID", "SampleID", "condition")]
-    circularcounts <- as.matrix(t(glmm.wide.test[,-c(1:3)]))
-    circularcounts <- circularcounts[rownames(circularcounts)%in%rownames(eTest), ]
+    #test data
+    pheno <- colData %>% dplyr::filter(variable%in%testSetGLMM$sample_id) %>% 
+      dplyr::rename(SampleID = variable) %>% 
+      dplyr::rename(MethodID = method) %>% 
+      dplyr::rename(condition = group)
+
+    circularcounts <- count.matrix.glmm[rownames(count.matrix.glmm)%in%rownames(eTest), rownames(pheno)]
+    colnames(circularcounts) = sub("\\..*", "", colnames(circularcounts))
     testIDx = rownames(circularcounts)
     dge <- edgeR::DGEList(circularcounts)
     dge <- edgeR::calcNormFactors(dge, method = "TMM")
@@ -329,60 +436,66 @@ resMethods <- bplapply(1:nreps, function(i) {
     pheno$MethodID <- as.factor(pheno$MethodID)
     pheno$ln.lib.size <- offsets
     # circularcounts <- log(sweep(circularcounts,2,apply(circularcounts,2,mean),'/'))
-    circularcounts <- t(circularcounts[,pheno$SampleID])
+    circularcounts <- t(circularcounts)
     allsamples_test <- cbind(pheno,circularcounts) %>% as.data.frame()
+
+    
+    # verification data
+    pheno <- colData %>% dplyr::filter(variable%in%heldOutSetGLMM$sample_id) %>% 
+      dplyr::rename(SampleID = variable) %>% 
+      dplyr::rename(MethodID = method) %>% 
+      dplyr::rename(condition = group)
+    
+    circularcounts <- count.matrix.glmm[rownames(count.matrix.glmm)%in%rownames(eHeldout), rownames(pheno)]
+    colnames(circularcounts) = sub("\\..*", "", colnames(circularcounts))
+    heldIDx = rownames(circularcounts)
+    dge <- edgeR::DGEList(circularcounts)
+    dge <- edgeR::calcNormFactors(dge, method = "TMM")
+    offsets <- dge$samples$norm.factors # norm.factors per samples
+    pheno$condition <- as.factor(pheno$condition)
+    pheno$MethodID <- as.factor(pheno$MethodID)
+    pheno$ln.lib.size <- offsets
+    # circularcounts <- log(sweep(circularcounts,2,apply(circularcounts,2,mean),'/'))
+    circularcounts <- t(circularcounts)
+    allsamples_ver <- cbind(pheno,circularcounts) %>% as.data.frame()
+    
+    
+    resIDx = intersect(testIDx, heldIDx)
+    allsamples_test = allsamples_test[, colnames(allsamples_test)%in%c(colnames(allsamples_test)[1:4], resIDx)]
+    allsamples_ver = allsamples_ver[, colnames(allsamples_ver)%in%c(colnames(allsamples_ver)[1:4], resIDx)]
+    
+    ## test GLMM-NB
     fit_GLMM_NB_test <- lapply(5:ncol(allsamples_test),
-                     function(x){glmmTMB::glmmTMB(allsamples_test[,x] ~ condition + (1 | SampleID),
-                                                  data=allsamples_test,
-                                                  family=glmmTMB::nbinom2,
-                                                  ziformula= ~0,
-                                                  control = glmmTMB::glmmTMBControl(parallel = 2))})
+                               function(x){glmmTMB::glmmTMB(allsamples_test[,x] ~ condition + (1 | SampleID),
+                                                            data=allsamples_test,
+                                                            family=glmmTMB::nbinom2,
+                                                            ziformula= ~0)})
     summaries <- lapply(fit_GLMM_NB_test, summary)
     pvalues <- as.numeric(unlist(lapply(summaries, function(x){stats::coef(x)$cond[2,4]})))
     pvalues[is.na(pvalues)] = 1
     # signif <- ifelse(pvalues < pval, 1, 0)
     # rateTMB <- mean(signif)
-    lfc <- as.numeric(unlist(lapply(summaries, function(x){x$coefficients$cond["conditionNormal",1]})))
+    lfc <- as.numeric(unlist(lapply(summaries, function(x){x$coefficients$cond["conditionnormal",1]})))
     resTestGLMM_NB = data.frame(GLMM_NB = pvalues,
-                         row.names = colnames(allsamples)[5:ncol(allsamples_test)])
+                                row.names = colnames(allsamples_test)[5:ncol(allsamples_test)])
     lfcTestGLMM_NB <- data.frame(GLMM_NB = lfc, row.names = colnames(allsamples_test)[5:ncol(allsamples_test)])
     
-    # verification
-    glmm.wide.heldout = glmm.wide %>% dplyr::filter(SampleID%in%heldOutSetGLMM$sample) %>% 
-      dplyr::mutate(condition = case_when(
-        SampleID%in%heldOutSetGLMM$sample[heldOutSetGLMM$group=="DM1"] ~ "Tumor",
-        SampleID%in%heldOutSetGLMM$sample[heldOutSetGLMM$group=="Normal"] ~ "Normal") %>%
-          as.factor() %>%
-          structure(levels = c("Tumor","Normal"))) %>% 
-      relocate(condition)
-    pheno <- glmm.wide.heldout[,c("MethodID", "SampleID", "condition")]
-    circularcounts <- as.matrix(t(glmm.wide.heldout[,-c(1:3)]))
-    circularcounts <- circularcounts[rownames(eHeldout), ]
-    heldIDx = rownames(circularcounts)
-    dge <- edgeR::DGEList(circularcounts)
-    dge <- edgeR::calcNormFactors(dge, method = "TMM")
-    pheno$condition <- as.factor(pheno$condition)
-    pheno$MethodID <- as.factor(pheno$MethodID)
-    # circularcounts <- log(sweep(circularcounts,2,apply(circularcounts,2,mean),'/'))
-    circularcounts <- t(circularcounts[,pheno$SampleID])
-    allsamples_ver <- cbind(pheno,circularcounts) %>% as.data.frame()
+    ## verification
     fit_GLMM_NB_ver <- lapply(5:ncol(allsamples_ver),
                           function(x){glmmTMB::glmmTMB(allsamples_ver[,x] ~ condition + (1 | SampleID),
                                                        data=allsamples_ver,
                                                        family=glmmTMB::nbinom2,
-                                                       ziformula= ~0,
-                                                       control = glmmTMB::glmmTMBControl(parallel = 2))})
+                                                       ziformula= ~0)})
     summaries <- lapply(fit_GLMM_NB_ver, summary)
     pvalues <- as.numeric(unlist(lapply(summaries, function(x){stats::coef(x)$cond[2,4]})))
     pvalues[is.na(pvalues)] = 1
     # signif <- ifelse(pvalues < pval, 1, 0)
     # rateTMB <- mean(signif)
-    lfc <- as.numeric(unlist(lapply(summaries, function(x){x$coefficients$cond["conditionNormal",1]})))
+    lfc <- as.numeric(unlist(lapply(summaries, function(x){x$coefficients$cond["conditionnormal",1]})))
     resHeldoutGLMM_NB = data.frame(GLMM_NB = pvalues,
-                            row.names = colnames(allsamples)[5:ncol(allsamples)])
-    lfcHeldoutGLMM_NB <- data.frame(GLMM_NB = lfc, row.names = colnames(allsamples)[5:ncol(allsamples)])
+                            row.names = colnames(allsamples_ver)[5:ncol(allsamples_ver)])
+    lfcHeldoutGLMM_NB <- data.frame(GLMM_NB = lfc, row.names = colnames(allsamples_ver)[5:ncol(allsamples_ver)])
 
-    resIDx = intersect(testIDx, heldIDx)
     
     resHeldoutGLMM_NB = data.frame(resHeldoutGLMM_NB[resIDx, ], row.names = resIDx)
     resTestGLMM_NB = data.frame(resTestGLMM_NB[resIDx, ], row.names = resIDx)
@@ -390,83 +503,103 @@ resMethods <- bplapply(1:nreps, function(i) {
     lfcTestGLMM_NB = data.frame(lfcTestGLMM_NB[resIDx, ], row.names = resIDx)
     
     ## glmm-ZINB
-    #test
-    fit_GLMM_ZINB_test <- lapply(5:ncol(allsamples_test),
-                               function(x){glmmTMB::glmmTMB(allsamples[,x] ~ condition + (1 | SampleID),
-                                                            data=allsamples_test,
-                                                            family=glmmTMB::nbinom2,
-                                                            ziformula= ~1,
-                                                            control = glmmTMB::glmmTMBControl(parallel = 2))})
-    summaries <- lapply(fit_GLMM_ZINB_test, summary)
-    pvalues <- as.numeric(unlist(lapply(summaries, function(x){stats::coef(x)$cond[2,4]})))
-    pvalues[is.na(pvalues)] = 1
+    #test GLMM-ZINB
+    # fit_GLMM_ZINB_test <- lapply(5:ncol(allsamples_test),
+                               # function(x){glmmTMB::glmmTMB(allsamples_test[,x] ~ condition + (1 | SampleID),
+                               #                              data=allsamples_test,
+                               #                              family=glmmTMB::nbinom2,
+                               #                              control = glmmTMB::glmmTMBControl(optimizer = optim, optArgs = list(method="BFGS")),
+                               #                              ziformula= ~1)})
+    # summaries <- lapply(fit_GLMM_ZINB_test, summary)
+    # pvalues <- as.numeric(unlist(lapply(summaries, function(x){stats::coef(x)$cond[2,4]})))
+    # pvalues[is.na(pvalues)] = 1
     # signif <- ifelse(pvalues < pval, 1, 0)
     # rateTMB <- mean(signif)
-    lfc <- as.numeric(unlist(lapply(summaries, function(x){x$coefficients$cond["conditionNormal",1]})))
+    # lfc <- as.numeric(unlist(lapply(summaries, function(x){x$coefficients$cond["conditionnormal",1]})))
     
-    resTestGLMM_ZINB = data.frame(GLMM_ZINB = pvalues,
-                                row.names = colnames(allsamples)[5:ncol(allsamples_test)])
-    lfcTestGLMM_ZINB <- data.frame(GLMM_ZINB = lfc, row.names = colnames(allsamples_test)[5:ncol(allsamples_test)])
+    # resTestGLMM_ZINB = data.frame(GLMM_ZINB = pvalues,
+    #                             row.names = colnames(allsamples_test)[5:ncol(allsamples_test)])
+    # lfcTestGLMM_ZINB <- data.frame(GLMM_ZINB = lfc, row.names = colnames(allsamples_test)[5:ncol(allsamples_test)])
     
-    #verification
-    fit_GLMM_ZINB_ver <- lapply(5:ncol(allsamples_ver),
-                              function(x){glmmTMB::glmmTMB(allsamples_ver[,x] ~ condition + (1 | SampleID),
-                                                           data=allsamples_ver,
-                                                           family=glmmTMB::nbinom2,
-                                                           ziformula= ~1,
-                                                           control = glmmTMB::glmmTMBControl(parallel = 2))})
-    summaries <- lapply(fit_GLMM_ZINB_ver, summary)
-    pvalues <- as.numeric(unlist(lapply(summaries, function(x){stats::coef(x)$cond[2,4]})))
-    pvalues[is.na(pvalues)] = 1
+    #verification GLMM-ZINB
+    # fit_GLMM_ZINB_ver <- lapply(5:ncol(allsamples_ver),
+    #                           function(x){glmmTMB::glmmTMB(allsamples_ver[,x] ~ condition + (1 | SampleID),
+    #                                                        data=allsamples_ver,
+    #                                                        family=glmmTMB::nbinom2,
+    #                                                        ziformula= ~1)})
+    # summaries <- lapply(fit_GLMM_ZINB_ver, summary)
+    # pvalues <- as.numeric(unlist(lapply(summaries, function(x){stats::coef(x)$cond[2,4]})))
+    # pvalues[is.na(pvalues)] = 1
     # signif <- ifelse(pvalues < pval, 1, 0)
     # rateTMB <- mean(signif)
-    lfc <- as.numeric(unlist(lapply(summaries, function(x){x$coefficients$cond["conditionNormal",1]})))
+    # lfc <- as.numeric(unlist(lapply(summaries, function(x){x$coefficients$cond["conditionnormal",1]})))
     
-    resHeldoutGLMM_ZINB = data.frame(GLMM_ZINB = pvalues,
-                                   row.names = colnames(allsamples)[5:ncol(allsamples)])
-    lfcHeldoutGLMM_ZINB <- data.frame(GLMM_ZINB = lfc, row.names = colnames(allsamples)[5:ncol(allsamples)])
+    # resHeldoutGLMM_ZINB = data.frame(GLMM_ZINB = pvalues,
+    #                                row.names = colnames(allsamples_ver)[5:ncol(allsamples_ver)])
+    # lfcHeldoutGLMM_ZINB <- data.frame(GLMM_ZINB = lfc, row.names = colnames(allsamples_ver)[5:ncol(allsamples_ver)])
     
-    resHeldoutGLMM_ZINB = data.frame(resHeldoutGLMM_ZINB[resIDx, ], row.names = resIDx)
-    resTestGLMM_ZINB = data.frame(resTestGLMM_ZINB[resIDx, ], row.names = resIDx)
-    lfcHeldoutGLMM_ZINB = data.frame(lfcHeldoutGLMM_ZINB[resIDx, ], row.names = resIDx)
-    lfcTestGLMM_ZINB = data.frame(lfcTestGLMM_ZINB[resIDx, ], row.names = resIDx)
+    # resHeldoutGLMM_ZINB = data.frame(resHeldoutGLMM_ZINB[resIDx, ], row.names = resIDx)
+    # resTestGLMM_ZINB = data.frame(resTestGLMM_ZINB[resIDx, ], row.names = resIDx)
+    # lfcHeldoutGLMM_ZINB = data.frame(lfcHeldoutGLMM_ZINB[resIDx, ], row.names = resIDx)
+    # lfcTestGLMM_ZINB = data.frame(lfcTestGLMM_ZINB[resIDx, ], row.names = resIDx)
     
+    
+    eTest = eTest[resIDx,]
+    eHeldout = eHeldout[resIDx,]
     
     ## run other DE methods for comparison
     zinbmodelTest <- zinbFit(Y = round(exprs(eTest)),
-                             X = model.matrix(~ pData(eTest)$condition), K = 0,
-                             epsilon = 1e10, commondispersion = FALSE, verbose = T, BPPARAM=BiocParallel::SerialParam())
+                             X = model.matrix(~ pData(eTest)$condition), K = 0,  maxiter.optimize = 2,
+                             epsilon = 1000, commondispersion = FALSE, verbose = T, BPPARAM=BiocParallel::SerialParam())
+    # zinbmodelTest <- newWave(round(exprs(eTest)), 
+    #                          X = model.matrix(~ pData(eTest)$condition), 
+    #                          K = 0, epsilon = 1e10,)
+    
     weightsTest <- computeExactWeights(model = zinbmodelTest, x = exprs(eTest))
-    zinbmodelHeldout <- zinbFit(Y = round(exprs(eHeldout)),
+
+    zinbmodelHeldout <- zinbFit(Y = round(exprs(eHeldout)),  maxiter.optimize = 2,
                                 X = model.matrix(~ pData(eHeldout)$condition), K = 0,
-                                epsilon = 1e10, commondispersion = TRUE, verbose = T, BPPARAM=BiocParallel::SerialParam())
+                                epsilon = 1000, commondispersion = TRUE, verbose = T, BPPARAM=BiocParallel::SerialParam())
+    # zinbmodelHeldout <- newWave(round(exprs(eHeldout)), 
+    #                          X = model.matrix(~ pData(eTest)$condition), 
+    #                          K = 0, epsilon = 1e10,)
     weightsHeldout <- computeExactWeights(model = zinbmodelHeldout, x = exprs(eHeldout))
-    resTest0 <- lapply(namesAlgos, function(n) algos[[n]](e=eTest, w=NULL))
-    resHeldout0 <- lapply(namesAlgos, function(n) algos[[n]](e=eHeldout, w=NULL))
-    resIdx <- rownames(eHeldout)[rownames(eHeldout)%in%rownames(eTest)]
-    resTest <- as.data.frame(c(lapply(resTest0, function(z) z$padj[resIdx])))
-    resHeldout <- as.data.frame(c(lapply(resHeldout0, function(z) z$padj[resIdx])))
-    lfcTest <- as.data.frame(c(lapply(resTest0, function(z) z$beta[resIdx])))
-    lfcHeldout <- as.data.frame(c(lapply(resHeldout0, function(z) z$beta[resIdx])))
-    rownames(resTest) <- resIdx
-    rownames(resHeldout) <- resIdx
-    rownames(lfcTest) <- resIdx
-    rownames(lfcHeldout) <- resIdx
+
+    resTest0 <- lapply(namesAlgos, function(n) algos[[n]](e=eTest, w=weightsTest))
+    resTest0$circMeta = runPois.ztest(e = eTest)
+    resTest0$circMeta = runVoom(e = eTest)
+    
+    resHeldout0 <- lapply(namesAlgos, function(n) algos[[n]](e=eHeldout, w=weightsHeldout))
+    resHeldout0$circMeta = runPois.ztest(e = eHeldout)
+    resHeldout0$circMeta = runVoom(e = eHeldout)
+    
+    resTest <- as.data.frame(c(lapply(resTest0, function(z) z$padj[resIDx])))
+    resHeldout <- as.data.frame(c(lapply(resHeldout0, function(z) z$padj[resIDx])))
+    lfcTest <- as.data.frame(c(lapply(resTest0, function(z) z$beta[resIDx])))
+    lfcHeldout <- as.data.frame(c(lapply(resHeldout0, function(z) z$beta[resIDx])))
+    rownames(resTest) <- resIDx
+    rownames(resHeldout) <- resIDx
+    rownames(lfcTest) <- resIDx
+    rownames(lfcHeldout) <- resIDx
     resTest$GLMM_NB = resTestGLMM_NB$resTestGLMM_NB.resIDx...[match(rownames(resTest), rownames(resTestGLMM_NB))]
     resHeldout$GLMM_NB = resHeldoutGLMM_NB$resHeldoutGLMM_NB.resIDx...[match(rownames(resHeldout), rownames(resHeldoutGLMM_NB))]
-    lfcTest$GLMM_NB = lfcTestGLMM_NB$lfcTestGLMM_NB.resIDx...[match(rownames(lfcTest), rownames(lfcTestGLMM))]
+    lfcTest$GLMM_NB = lfcTestGLMM_NB$lfcTestGLMM_NB.resIDx...[match(rownames(lfcTest), rownames(lfcTestGLMM_NB))]
     lfcHeldout$GLMM_NB = lfcHeldoutGLMM_NB$lfcHeldoutGLMM_NB.resIDx...[match(rownames(lfcHeldout), rownames(lfcHeldoutGLMM_NB))]
     
-    resTest$GLMM_ZINB = resTestGLMM_ZINB$resTestGLMM_ZINB.resIDx...[match(rownames(resTest), rownames(resTestGLMM_ZINB))]
-    resHeldout$GLMM_ZINB = resHeldoutGLMM_ZINB$resHeldoutGLMM_ZINB.resIDx...[match(rownames(resHeldout), rownames(resHeldoutGLMM_ZINB))]
-    lfcTest$GLMM_ZINB = lfcTestGLMM_ZINB$lfcTestGLMM_ZINB.resIDx...[match(rownames(lfcTest), rownames(lfcTestGLMM))]
-    lfcHeldout$GLMM_ZINB = lfcHeldoutGLMM_ZINB$lfcHeldoutGLMM_ZINB.resIDx...[match(rownames(lfcHeldout), rownames(lfcHeldoutGLMM_ZINB))]
+    # resTest$GLMM_ZINB = resTestGLMM_ZINB$resTestGLMM_ZINB.resIDx...[match(rownames(resTest), rownames(resTestGLMM_ZINB))]
+    # resHeldout$GLMM_ZINB = resHeldoutGLMM_ZINB$resHeldoutGLMM_ZINB.resIDx...[match(rownames(resHeldout), rownames(resHeldoutGLMM_ZINB))]
+    # lfcTest$GLMM_ZINB = lfcTestGLMM_ZINB$lfcTestGLMM_ZINB.resIDx...[match(rownames(lfcTest), rownames(lfcTestGLMM))]
+    # lfcHeldout$GLMM_ZINB = lfcHeldoutGLMM_ZINB$lfcHeldoutGLMM_ZINB.resIDx...[match(rownames(lfcHeldout), rownames(lfcHeldoutGLMM_ZINB))]
     
     list(resTest=resTest,resHeldout=resHeldout,lfcTest=lfcTest,lfcHeldout=lfcHeldout,
-         resTestGLMM=resTestGLMM,resHeldoutGLMM=resHeldoutGLMM,lfcTestGLMM=lfcTestGLMM,lfcHeldoutGLMM=lfcHeldoutGLMM,
-         resTestGLMM_ZINB=resTestGLMM_ZINBNB,resHeldoutGLMM_ZINB=resHeldoutGLMM_ZINB,lfcTestGLMM_ZINB=lfcTestGLMM_ZINB,
-         lfcHeldoutGLMM_ZINB=lfcHeldoutGLMM_ZINB)
-  }, BPPARAM =  MulticoreParam(workers = 3))
+         weightTest = weightsTest, weightsHeldout = weightsHeldout,
+         resTestGLMM=resTestGLMM_NB,resHeldoutGLMM=resHeldoutGLMM_NB,
+         lfcTestGLMM=lfcTestGLMM_NB,lfcHeldoutGLMM=lfcHeldoutGLMM_NB,
+         summary_stat_heldout=summary_stat_heldout,summary_stat_test=summary_stat_test
+         # resTestGLMM_ZINB=resTestGLMM_ZINBNB,resHeldoutGLMM_ZINB=resHeldoutGLMM_ZINB,lfcTestGLMM_ZINB=lfcTestGLMM_ZINB,
+         # lfcHeldoutGLMM_ZINB=lfcHeldoutGLMM_ZINB
+         )
+  }, BPPARAM =  MulticoreParam(workers = 5))
   # return(list(res=resMethods))
   # resMethods
 # })
@@ -479,11 +612,17 @@ resTes <- lapply(resMethods, "[[", "resTest") #lapply(res, function(x) lapply(x,
 resHeldout <- lapply(resMethods, "[[", "resHeldout") #lapply(res, function(x) lapply(x, "[[", "resHeldout"))
 lfcTest <- lapply(resMethods, "[[", "lfcTest") #lapply(res, function(x) lapply(x, "[[", "lfcTest"))
 lfcHeldout<- lapply(resMethods, "[[", "lfcHeldout") #lapply(res, function(x) lapply(x, "[[", "lfcHeldout"))
+zinbweightTest <- lapply(resMethods, "[[", "weightTest")
+zinbweightHeldout <- lapply(resMethods, "[[", "weightsHeldout")
+summary_stat_test <- lapply(resMethods, "[[", "summary_stat_test")
+summary_stat_heldout <- lapply(resMethods, "[[", "summary_stat_heldout")
 
-save(resTes,resHeldout,lfcTest,lfcHeldout,
+save(resMethods, resTes, resHeldout,lfcTest,lfcHeldout,
+     zinbweightTest, zinbweightHeldout,
+     summary_stat_test, summary_stat_heldout,
      # resTesGLMMp,resHeldoutGLMMp,lfcTestGLMMp,lfcHeldoutGLMMp,
      namesAlgos,
-     file="/blackhole/alessia/CircModel/power/DM1_sensitivityPrecision_CCP2_glmglmm.RData")
+     file="/blackhole/alessia/CircModel/power/IPF_sensitivityPrecision_CCP2_glmglmm_30rep.RData")
 
 # -------------------
 ## type I error rate

@@ -9,13 +9,11 @@
 \section{Load the benchmarking results}
 
 We load the benchmarking results, which were produced by the script 
-\texttt{DM1/diffExpr\_circ.R} and \texttt{DM1/diffExprs\_GLMM.R}.
-The \texttt{SummarizedExperiment} object used for this analysis is
-contained in \texttt{/DM1/DM1Data\_summexp.RData}.
+\texttt{glm\_glmm\_paired.R}.
 
 <<loadData>>=
 basedir = "/blackhole/alessia/CircModel/"
-load(file = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/robustness_glmm/DM1/sensitivityPrecision10_CIRI.RData")
+load(file = "/blackhole/alessia/CircModel/power/IPF_sensitivityPrecision_CCP2_glmglmm_30rep.RData")
 
 @ 
 
@@ -34,7 +32,7 @@ library("data.table")
 library("dplyr")
 alpha=.1
 getCalls <- function(m, alpha=NULL) {
-  t(sapply(1:nreps, function(i) sapply(namesAlgosALL, function(algo) {
+  t(sapply(1:nreps, function(i) sapply(namesAlgos, function(algo) {
     sum(m[[i]][[algo]][!is.na(m[[i]][[algo]])]<0.1)
     # sum((m[[i]][[algo]] < alpha))
   })))
@@ -81,10 +79,8 @@ renameAtoB <- function(f,a,b) {
 @ 
 
 <<namesAlgos>>=
-namesAlgos <- make.names(namesAlgos)
+namesAlgos <- make.names(names(resTes[[1]]))
 names(namesAlgos) <- namesAlgos
-namesAlgosALL = c(namesAlgos, "GLMM")
-names(namesAlgosALL) <- namesAlgosALL
 @ 
 
 <<colorAlgorithm>>=
@@ -93,23 +89,27 @@ library(RColorBrewer)
 
 cols <- c(
   # DEseq
-  brewer.pal(n = 9, "YlOrRd")[c(4,5,6)],
+  brewer.pal(n = 9, "YlOrRd")[c(3,4,5,6)],
   # Edger
-  brewer.pal(n = 9, "GnBu")[c(6,7)],
+  brewer.pal(n = 9, name = "GnBu")[c(5,6,7)],
   # limma
-  brewer.pal(n = 9, "RdPu")[c(5)]
+  brewer.pal(n = 9, "RdPu")[c(5)],
+  # circMeta
+  brewer.pal(n = 9, "OrRd")[c(8)],
+  # GLMM
+  brewer.pal(n = 9, "BuPu")[c(5)]
+
 )
 
 methods2 <- c("DESeq2",
              "DESeq2-ZeroInflated",
-             "DESeq2-apeGLM",
-             # "DESeq2-ZINB Wave",
+             "DESeq2-GamPoi",
+             "DESeq2-ZINB Wave",
              "edgeR",
              "edgeR-robust",
-             # "edgeR-ZINB Wave",
-             # "voom",
-             # "EBSeq", 
-             # "GLMM-NB", 
+             "edgeR-ZINB Wave",
+             "voom",
+             "circMeta",
              "GLMM")
 
 names(cols) <- methods2
@@ -133,14 +133,16 @@ testMat <- getCalls(m = resTes, alpha = .1)
 
 d <- data.frame(heldoutCalls=reshape2::melt(heldMat)$value,
                 testCalls=reshape2::melt(testMat)$value,
-                algorithm=factor(rep(namesAlgosALL,each=nrow(heldMat)),
-                levels=namesAlgosALL))
+                algorithm=factor(rep(namesAlgos,each=nrow(heldMat)),
+                levels=namesAlgos))
                 #detection.method=rep(factor(rep(names(resHeldout), each=nrow(heldMat))), nalgo))
 d$algorithm <- renameAtoB(d$algorithm, "edgeR.robust", "edgeR-robust")
-# d$algorithm <- renameAtoB(d$algorithm, "edgeR.ZINBWave", "edgeR-ZINB Wave")
-# d$algorithm <- renameAtoB(d$algorithm, "DESeq2.ZINBWave", "DESeq2-ZINB Wave")
-d$algorithm <- renameAtoB(d$algorithm, "DESeq2.apeglm", "DESeq2-apeGLM")
+d$algorithm <- renameAtoB(d$algorithm, "edgeR.ZINBWave", "edgeR-ZINB Wave")
+d$algorithm <- renameAtoB(d$algorithm, "DESeq2.ZINBWave", "DESeq2-ZINB Wave")
 d$algorithm <- renameAtoB(d$algorithm, "DESeq2.ZI", "DESeq2-ZeroInflated")
+d$algorithm <- renameAtoB(d$algorithm, "DESEq2.glmGamPoi", "DESeq2-GamPoi")
+d$algorithm <- renameAtoB(d$algorithm, "GLMM_NB", "GLMM")
+
 d$algorithm <- as.character(d$algorithm)
 
 d <- d %>%
@@ -188,8 +190,8 @@ precision estimates for every algorithm in the
 evaluation set and the verification set.
 
 <<constructGrid>>=
-nreps = 10
-gold = "GLMM"
+nreps = 30
+gold = "GLMM_NB"
 alpha = .1 
 alphaOut = .1
 resHeldout = lapply(resHeldout, function(x){z=x[complete.cases(x),]
@@ -197,7 +199,7 @@ return(z)})
 resTes = lapply(resTes, function(x){z=x[complete.cases(x),]
 return(z)})
 
-res = t(sapply(1:nreps, function(i) sapply(namesAlgosALL, function(algo) {
+res = t(sapply(1:nreps, function(i) sapply(namesAlgos, function(algo) {
     sigHeldout <- resHeldout[[i]][[gold]] < alphaOut
     mean((resTes[[i]][[algo]] < alpha)[sigHeldout])
   })))
@@ -207,7 +209,7 @@ sensMat  = data.frame(res, heldout=rep("GLMM",nrow(res)))
 sensMelt <- suppressWarnings(melt(sensMat, id=c("heldout")))
 names(sensMelt) <- c("verification", "evaluation","sensitivity")
 
-res = t(sapply(1:nreps, function(i) sapply(namesAlgosALL, function(algo) {
+res = t(sapply(1:nreps, function(i) sapply(namesAlgos, function(algo) {
     sigTest <- resTes[[i]][[algo]] < alpha
     if (sum(sigTest) == 0) return(0)
     mean((resHeldout[[i]][[gold]] < alphaOut)[sigTest])
@@ -225,14 +227,16 @@ d$verification <- factor(d$verification)
 <<renameSensResults>>=
 d$evaluation <- renameAtoB(d$evaluation, "edgeR.robust", "edgeR-robust")
 d$verification <- renameAtoB(d$verification, "edgeR.robust", "edgeR-robust")
-# d$verification <- renameAtoB(d$verification, "edgeR.ZINBWave", "edgeR-ZINB Wave")
-# d$evaluation <- renameAtoB(d$evaluation, "edgeR.ZINBWave", "edgeR-ZINB Wave")
-# d$evaluation <- renameAtoB(d$evaluation, "DESeq2.ZINBWave", "DESeq2-ZINB Wave")
-# d$verification <- renameAtoB(d$verification, "DESeq2.ZINBWave", "DESeq2-ZINB Wave")
-d$evaluation <- renameAtoB(d$evaluation, "DESeq2.apeglm", "DESeq2-apeGLM")
-d$verification <- renameAtoB(d$verification, "DESeq2.apeglm", "DESeq2-apeGLM")
+d$verification <- renameAtoB(d$verification, "edgeR.ZINBWave", "edgeR-ZINB Wave")
+d$evaluation <- renameAtoB(d$evaluation, "edgeR.ZINBWave", "edgeR-ZINB Wave")
+d$evaluation <- renameAtoB(d$evaluation, "DESeq2.ZINBWave", "DESeq2-ZINB Wave")
+d$verification <- renameAtoB(d$verification, "DESeq2.ZINBWave", "DESeq2-ZINB Wave")
+d$evaluation <- renameAtoB(d$evaluation, "DESEq2.glmGamPoi", "DESeq2-GamPoi")
+d$verification <- renameAtoB(d$verification, "DESEq2.glmGamPoi", "DESeq2-GamPoi")
 d$evaluation <- renameAtoB(d$evaluation, "DESeq2.ZI", "DESeq2-ZeroInflated")
 d$verification <- renameAtoB(d$verification, "DESeq2.ZI", "DESeq2-ZeroInflated")
+d$evaluation <- renameAtoB(d$evaluation, "GLMM_NB", "GLMM")
+d$verification <- renameAtoB(d$verification, "GLMM_NB", "GLMM")
 d <- d %>%
   mutate_if(sapply(d, is.character), as.factor)
 # d$verification <- renameAtoB(d$verification, "GLMM", "GLMM-ZINB")
@@ -270,6 +274,47 @@ p + geom_boxplot(outlier.colour=rgb(0,0,0,0)) + theme_bw() +
 @
 
 \clearpage
+
+\section{Precision Recall curve}
+
+<<Recallcurve>>=
+i=2
+gold
+recall = list()
+precision = list()
+aupr = list()
+label_tp <- as.numeric(resHeldout[[i]][[gold]] < alphaOut) #TP
+auc = pROC::roc(as.numeric(resHeldout[[i]][[gold]] < alphaOut),
+                resTes[[i]]$DESeq2)
+
+precall = function(algo) {
+    recall = pr.curve(resTes[[i]][[algo]][sigHeldout],
+             resTes[[i]][[algo]][!sigHeldout], curve = TRUE)$curve[, 1]
+    precision= pr.curve(resTes[[i]][[algo]][sigHeldout],
+             resTes[[i]][[algo]][!sigHeldout], curve = TRUE)$curve[, 2]
+    auc = pROC::roc(as.numeric(resHeldout[[i]][[gold]] < alphaOut),
+                resTes[[i]][[algo]])
+    aupr = data_frame(recall = recall,
+               precision = precision,
+               AUC = auc$auc,
+               model = algo)
+    return(aupr)
+      }
+results_list = lapply(namesAlgos, precall)
+results_df <- bind_rows(results_list)
+cols2 = cols
+names(cols2) = namesAlgos
+ggplot(aes(x = recall, y = precision, group = model), data = results_df) +
+  geom_line(aes(color = model), size = 1) +
+  scale_color_manual(values = cols2) +
+  # geom_abline(intercept = sum(imbal_test$Class == "Class2")/nrow(imbal_test),
+  #             slope = 0, color = "gray", size = 1) +
+  theme_bw()
+@
+
+<<>>=
+summaries
+@
 
 \section{Clustering of calls}
 

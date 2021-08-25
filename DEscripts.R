@@ -173,21 +173,33 @@ runVoom <- function(e,w=NULL) {
   fit <- eBayes(fit)
   tt <- topTable(fit,coef=ncol(design),n=nrow(dgel),sort.by="none")
   beta = tt$logFC
-  names(beta) <- rownames(exprs(e))
-  names(beta) <- rownames(beta)
+  # names(beta) <- rownames(beta)
   pvals <- tt$P.Value 
   pvals[rowSums(exprs(e)) == 0] <- NA
   padj <- p.adjust(pvals,method="BH")
   names(pvals) <- rownames(exprs(e))
   padj[is.na(padj)] <- 1
   names(padj) <- rownames(exprs(e))
-  list(pvals=pvals, padj=padj, beta=beta)
+  names(beta) <- rownames(exprs(e))
+  
+  return(list(pvals=pvals, padj=padj, beta=beta))
   cat("Limma + Voom tests: DONE\n")
 }# END: limma+voom
 
 
-runPois.ztest<-function(dat){
+runPois.ztest<-function(e,w=NULL){
+  counts=exprs(e)
+  m=rowMeans(exprs(e))
+  # id=m>dat$cutoff
+  # dat$counts=dat$counts[id,]
+  # dat$gcirc=dat$gcirc[id]
+  # counts=counts[id,]
+  # if(dat$circ.method=='CIRI'){
+  #   dat$nonjuncread=dat$nonjuncread[id,]
+  #   dat$CLR=dat$CLR[id,]
+  # }
   sfs=colSums(exprs(e));sfs=sfs/min(sfs)
+  #if(dat$sf) dat$counts=sweep(dat$counts,2,sfs,FUN='/')
   n0=sum(pData(e)$condition=="A")
   n1=sum(pData(e)$condition=="B")
   m0=rowMeans(exprs(e)[,pData(e)$condition=="A"])
@@ -198,15 +210,12 @@ runPois.ztest<-function(dat){
     z=(m1[i]-m0[i])/sqrt(m1[i]/n1+m0[i]/n0)
     pval[i]=2*pnorm(-abs(z))
   }
-  pvals
-  names(pvals) <- rownames(exprs(e))
-  list(pvals=pvals, padj=pvals)
-  cat("two-stage circMETA tests: DONE\n")
+  fdr=p.adjust(pval,method='fdr')
+  lfc=log((m1+1)/(m0+1),2)
+  names(pval) <- rownames(exprs(e))
+  names(fdr) <- rownames(exprs(e))
+  return(list(pvals=pval, padj=fdr, beta=lfc))
 }
-
-
-
-
 
 
 runSAMseq <- function(e,w) {
