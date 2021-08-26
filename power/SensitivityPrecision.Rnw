@@ -286,7 +286,7 @@ precall = function(algo, rep, gold = "GLMM_NB") {
   # precision = pr.curve(resTes[[rep]][[algo]][resHeldout[[rep]][[gold]] < alphaOut],
   #                      resTes[[rep]][[algo]][!resHeldout[[rep]][[gold]] < alphaOut], curve = TRUE)$curve[, 2]
   auc = pROC::roc(as.numeric(resHeldout[[rep]][[gold]] < alphaOut),
-                  1-resTes[[rep]][[algo]])
+                  as.numeric(resTes[[rep]][[algo]] < alphaOut))
   aupr = data_frame(#recall = recall,
                     #precision = precision,
                     AUPRC = auc$auc,
