@@ -103,7 +103,7 @@ coldata
 ccp2 = read.table("/blackhole/alessia/CircModel/data/IPF_ccp2.csv", header = T)
 # ccp2 = RCurl::scp(host = "threesum", path = "/home/enrico/analysis/zicirc/IPF/data/IPF_ccp2.csv", keypasswd = "alessiasucks666", 
 #            user="alessia")
-# load("/blackhole/alessia/CircModel/data/IPFData_list.RData")
+load("/blackhole/alessia/CircModel/data/IPFData_list.RData")
 
 # ccp2 = IPFData_list$ccp2
 chr <- sub(":.*", "", ccp2$circ_id)
@@ -234,14 +234,14 @@ computeExactWeights <- function (model, x)
 
 algos <- list("DESeq2"= runDESeq2,
               "DESeq2-ZI"=runDESeq2.ZI,
-              "DESEq2-glmGamPoi"= runDESeq2_gampoi,
+              "DESeq2-glmGamPoi"= runDESeq2_gampoi,
               # "DESeq2-apeglm"=runDESeq2.apeglm, 
               "DESeq2-ZINBWave"= DESeq_zinbweights,
               "edgeR"=runEdgeR,
               "edgeR-robust"=runEdgeRRobust,
-              "voom" = runVoom,
+              #"voom" = runVoom,
               "edgeR-ZINBWave"= edgeR_zinbweights,
-              "circMeta" = runPois.ztest
+              #"circMeta" = runPois.ztest
               ) #"EBSeq"=runEBSeq)
 
 
@@ -567,11 +567,11 @@ resMethods <- bplapply(1:30, function(i) {
 
     resTest0 <- lapply(namesAlgos, function(n) algos[[n]](e=eTest, w=weightsTest))
     resTest0$circMeta = runPois.ztest(e = eTest)
-    resTest0$circMeta = runVoom(e = eTest)
+    resTest0$voom = runVoom(e = eTest)
     
     resHeldout0 <- lapply(namesAlgos, function(n) algos[[n]](e=eHeldout, w=weightsHeldout))
     resHeldout0$circMeta = runPois.ztest(e = eHeldout)
-    resHeldout0$circMeta = runVoom(e = eHeldout)
+    resHeldout0$voom = runVoom(e = eHeldout)
     
     resTest <- as.data.frame(c(lapply(resTest0, function(z) z$padj[resIDx])))
     resHeldout <- as.data.frame(c(lapply(resHeldout0, function(z) z$padj[resIDx])))
@@ -623,6 +623,9 @@ save(resMethods, resTes, resHeldout,lfcTest,lfcHeldout,
      # resTesGLMMp,resHeldoutGLMMp,lfcTestGLMMp,lfcHeldoutGLMMp,
      namesAlgos,
      file="/blackhole/alessia/CircModel/power/IPF_sensitivityPrecision_CCP2_glmglmm_30rep.RData")
+
+resTest0 <- lapply(namesAlgos, function(n) algos[[n]](e=eTest, w=zinbweightTest[[1]]))
+resTest <- as.data.frame(c(lapply(resTest0, function(z) z$padj)))
 
 # -------------------
 ## type I error rate

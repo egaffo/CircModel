@@ -74,7 +74,16 @@ methods2 <- c("DESeq2",
              "voom",
              "circMeta",
              "GLMM")
-
+methods1 <- c("DESeq2",
+             "DESeq2.ZI",
+             "DESEq2.glmGamPoi",
+             "DESeq2.ZINBWave",
+             "edgeR",
+             "edgeR.robust",
+             "edgeR.ZINBWave",
+             "voom",
+             "circMeta",
+             "GLMM")
 names(cols) <- methods2
 
 renameAtoB <- function(f,a,b) {
@@ -107,7 +116,7 @@ conc.witbet <- compute_concordance_withbetw(ps_fitted_list = ps_fitted, maxrank 
 conc.betglmm <- compute_concordance_withGLMM(ps_fitted_list = ps_fitted, maxrank = maxrank)
 
 
-concordance_df_summary <- suppressWarnings(ddply(conc.witbet, ~ rank + method1 + method2, function(x) colMeans(x[,c("concordance", "nfeatures")])))
+concordance_df_summary <- suppressWarnings(ddply(conc.betglmm, ~ rank + method1 + method2, function(x) colMeans(x[,c("concordance", "nfeatures")])))
 
 AUC_AOC_between_methods <- suppressWarnings(ddply(concordance_df_summary, ~ method1 + method2, function(x) AucAocFun(cVals = x$concordance[x$rank <= maxrank], nfeatures = mean(x$nfeatures[x$rank <= maxrank]), threshold = maxrank)))
 

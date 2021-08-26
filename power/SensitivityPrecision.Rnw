@@ -278,42 +278,48 @@ p + geom_boxplot(outlier.colour=rgb(0,0,0,0)) + theme_bw() +
 \section{Precision Recall curve}
 
 <<Recallcurve>>=
-i=2
-gold
-recall = list()
-precision = list()
-aupr = list()
-label_tp <- as.numeric(resHeldout[[i]][[gold]] < alphaOut) #TP
-auc = pROC::roc(as.numeric(resHeldout[[i]][[gold]] < alphaOut),
-                resTes[[i]]$DESeq2)
 
-precall = function(algo) {
-    recall = pr.curve(resTes[[i]][[algo]][sigHeldout],
-             resTes[[i]][[algo]][!sigHeldout], curve = TRUE)$curve[, 1]
-    precision= pr.curve(resTes[[i]][[algo]][sigHeldout],
-             resTes[[i]][[algo]][!sigHeldout], curve = TRUE)$curve[, 2]
-    auc = pROC::roc(as.numeric(resHeldout[[i]][[gold]] < alphaOut),
-                resTes[[i]][[algo]])
-    aupr = data_frame(recall = recall,
-               precision = precision,
-               AUC = auc$auc,
-               model = algo)
-    return(aupr)
-      }
-results_list = lapply(namesAlgos, precall)
-results_df <- bind_rows(results_list)
-cols2 = cols
-names(cols2) = namesAlgos
-ggplot(aes(x = recall, y = precision, group = model), data = results_df) +
-  geom_line(aes(color = model), size = 1) +
-  scale_color_manual(values = cols2) +
-  # geom_abline(intercept = sum(imbal_test$Class == "Class2")/nrow(imbal_test),
-  #             slope = 0, color = "gray", size = 1) +
-  theme_bw()
-@
+precall = function(algo, rep, gold = "GLMM_NB") {
+  # rep = 1
+  # recall = pr.curve(resTes[[rep]][[algo]][resHeldout[[rep]][[gold]] < alphaOut],
+  #                   resTes[[rep]][[algo]][!resHeldout[[rep]][[gold]] < alphaOut], curve = TRUE)$curve[, 1]
+  # precision = pr.curve(resTes[[rep]][[algo]][resHeldout[[rep]][[gold]] < alphaOut],
+  #                      resTes[[rep]][[algo]][!resHeldout[[rep]][[gold]] < alphaOut], curve = TRUE)$curve[, 2]
+  auc = pROC::roc(as.numeric(resHeldout[[rep]][[gold]] < alphaOut),
+                  1-resTes[[rep]][[algo]])
+  aupr = data_frame(#recall = recall,
+                    #precision = precision,
+                    AUPRC = auc$auc,
+                    B = rep,
+                    model = algo)
+  return(aupr)
+  }
 
-<<>>=
-summaries
+res_auprc = list()
+for(algo in names(resTes[[1]])){
+  res = rbindlist(lapply(1:nreps, function(x) precall(algo = algo, rep = x, gold = "GLMM_NB")))
+  res_auprc[[algo]] = res
+}
+AUPRC = rbindlist(res_auprc, use.names = T)
+AUPRC$model = factor(AUPRC$model)
+AUPRC$model <- renameAtoB(AUPRC$model, "edgeR.robust", "edgeR-robust")
+AUPRC$model <- renameAtoB(AUPRC$model, "edgeR.ZINBWave", "edgeR-ZINB Wave")
+AUPRC$model<- renameAtoB(AUPRC$model, "DESeq2.ZINBWave", "DESeq2-ZINB Wave")
+AUPRC$model <- renameAtoB(AUPRC$model, "DESEq2.glmGamPoi", "DESeq2-GamPoi")
+AUPRC$model<- renameAtoB(AUPRC$model, "DESeq2.ZI", "DESeq2-ZeroInflated")
+AUPRC$model = renameAtoB(AUPRC$model, "GLMM_NB", "GLMM")
+p <- ggplot(AUPRC, aes(x = reorder(model, AUPRC), y = AUPRC, color = model))
+p + geom_boxplot(outlier.colour=rgb(0,0,0,0)) + theme_bw() + 
+  # facet_wrap(~ detection.method) + 
+  scale_color_manual(values = cols) + 
+  geom_point(position = position_jitter(w = 0.1, h = 0), color="grey50", size=1) +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, size = 15),
+        axis.text.y = element_text(size = 15),
+        axis.title=element_text(size=14,face="bold"),
+          # axis.text.y.left = element_text(size = 11),
+          strip.text.x = element_text(size = 13)) + 
+  xlab("")
+
 @
 
 \section{Clustering of calls}
