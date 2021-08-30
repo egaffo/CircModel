@@ -1251,6 +1251,225 @@ dt %>%
   kable_styling(bootstrap_options = "striped", full_width = T, position = "center")
 ```
 
+
+
+## ALZ and normal counterpart Data
+
+Keep circRNAs with more than 2 counts in more than 1 samples.
+A dataset is composed by samples from 7 normal and 8 tumor samples.
+
+```{r include=FALSE}
+## import data
+if(!file.exists("/blackhole/alessia/CircModel/data/ALZData_list.RData")){
+  
+  colClasses <- c("factor", "factor", "character", "integer", "integer", 
+                "integer", "factor", "character", "character")
+  V9pattern <- '.*gene_id "([^"]*)".*transcript_id "([^"]*)".*'
+  V9newCols <- c("gene_id", "transcript_id")
+  ## load circRNA data
+  circrnas.gtf <- fread("/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/realdata/ALZ/analysis/circular_expression/circrna_collection/circrnas.gtf", colClasses = colClasses)
+    # unique(rbindlist(lapply(gtf.file.list, fread, data.table = T, 
+    #                                       colClasses = colClasses))) 
+  count.data <- circrnas.gtf[, `:=`(circRNA_ID = paste0(V1, ":", V4, "-", V5),
+                                    sampleID = gsub("-", "_", sub('.*sample_id "([^"]+)".*', "\\1",
+                                                                                V9)))]
+  
+  get.method.count.matrix <- function(method, x){
+    as.matrix(dcast(data = x[V2 == method],
+                    formula = circRNA_ID ~ sampleID,
+                    value.var = "V6", fill = 0,
+                    fun.aggregate = sum),
+              rownames = "circRNA_ID")
+  }
+
+  # list of count matrices foreach methdos
+  ALZData_list <- list()
+  for(i in 1:(length(methods))){
+    cat("method:",methods[i],"\n")
+    # Keep bodysite
+    m = dcast(data = count.data[V2 == methods[i]],
+                  formula = circRNA_ID ~ sampleID,
+                  value.var = "V6", 
+                  fill = 0, fun.aggregate = sum)
+    ps <- as.matrix(m[,-1])
+    rownames(ps) <- m$circRNA_ID
+    # Keep one sample for each Random Subject IDentifier
+    ps <- ps[rowSums(ps>=2)>=1,]
+    ALZData_list[[i]] <- ps
+    names(ALZData_list)[i] <- methods[i]
+  }
+  
+  count.data.file <- "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/realdata/ALZ/analysis/circular_expression/circrna_analyze/reliable_circexp.csv"
+  count.data <- fread(count.data.file)
+  ps.ccp2 = as.matrix(count.data[,-1])
+  rownames(ps.ccp2) = count.data$circ_id
+  # Keep one sample for each Random Subject IDentifier
+  ps.ccp2 <- ps.ccp2[rowSums(ps.ccp2>=2)>=1,]
+  colnames(ps.ccp2) <- gsub("-", "_", colnames(ps.ccp2))
+  ALZData_list[["ccp2"]] <- ceiling(ps.ccp2)
+  save(ALZData_list, file = "/blackhole/alessia/CircModel/data/ALZData_list.RData")
+} else load("/blackhole/alessia/CircModel/data/IPFData_list.RData")
+
+```
+
+```{r, include=FALSE}
+fix.name <- function(x){
+  gsub(pattern = " ", replacement = "", 
+       sub("^([0-9].*)", "X\\1",
+           sub("C$", "",
+                gsub("^X", "",
+                    gsub(pattern = "-|/", replacement = "_", 
+                        gsub("\\+", "p", x))))))
+}
+
+```
+
+
+```{r IPF_meta, echo=FALSE, include=FALSE}
+basedir.ipf <-"/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/realdata/IPF/analyses"
+meta_file_ipf <- file.path(basedir.ipf, "meta_IPF.csv")
+# create meta file with sample.ID, condition, from meta_tall.csv
+if(meta_file_ipf != ""){
+  meta_ipf <- unique(fread(meta_file_ipf)[, .(sample_id = sample, 
+                                                condition = ifelse(condition=="normal", "normal", "IPF"),
+                                                demo = demographic_group,
+                                                Sex = gender)])
+}
+
+```
+
+
+```{r}
+
+makeplot.IPF <- lapply(methods.ccp, FUN = function(d) {
+  print(d)
+  makefiltexprplot(
+  matrix = as.data.frame(IPFData_list[[d]]),
+  method = d,
+  meta = meta_ipf, filter = c(0,5,10))
+})
+makeplotIPF.r <- lapply(seq(1:7), function(x) rbind(makeplot.IPF[[x]][[1]]))
+
+makeplotIPF.r <- do.call(rbind, makeplotIPF.r)
+makeplotIPF.rplot = makeplotIPF.r %>% dplyr::group_by(method) %>% 
+  summarise(Label1=paste0("Method:", unique(method)),
+            Label2=paste0("#CircRNAs: ", unique(as.factor(n.circ))))
+
+makeplotIPF.r$perc.sample_filter <- factor(makeplotIPF.r$perc.sample_filter)
+
+# head(makeplot)
+
+dat_text.IPF <- data.frame(
+  label = unique(makeplotIPF.rplot$Label2),
+  method   = unique(makeplotIPF.r$method)
+)
+
+```
+
+
+```{r, echo=FALSE,message=FALSE,warning=FALSE}
+source("/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/GOF/add_functions.R")
+colData <- data.frame(meta_ipf, 
+                      row.names = "sample_id")
+IPFmat.filt.1 <- lapply(seq(1:7), function(x) rbind(makeplot.IPF[[x]][[2]][[1]]))
+names(IPFmat.filt.1) <- methods.ccp
+IPFmat.filt.2 <- lapply(seq(1:7), function(x) rbind(makeplot.IPF[[x]][[2]][[2]]))
+names(IPFmat.filt.2) <- methods.ccp
+IPFmat.filt.3 <- lapply(seq(1:7), function(x) rbind(makeplot.IPF[[x]][[2]][[3]]))
+names(IPFmat.filt.3) <- methods.ccp
+
+# IPFData_models_1f <- lapply(IPFmat.filt.1,function(ps) fitModels(counts = ps[,meta_ipf$sample_id], scale = "median",
+#                                                                   design = model.matrix( ~ 1, data = colData)))
+# IPFData_models_2f <- lapply(IPFmat.filt.2,function(ps) fitModels(counts = ps[,meta_ipf$sample_id], scale = "median",
+#                                                                  design = model.matrix( ~ 1, data = colData)))
+
+# IPFData_df11 <- model_to_data.frame(IPFData_models_1f)
+# write.csv(IPFData_df1, file = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/data/IPF/IPFData_df11.csv")
+IPFData_df11 = read.csv(file = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/data/IPF/IPFData_df11.csv")
+
+# IPFData_df22 <- model_to_data.frame(IPFData_models_2f)
+# write.csv(IPFData_df22, file = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/data/IPF/IPFData_df22.csv")
+IPFData_df22 = read.csv(file = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/data/IPF/IPFData_df22.csv")
+
+# IPFData_df33 <- model_to_data.frame(IPFData_models_3f)
+# write.csv(IPFData_df3, file = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/data/IPF/IPFData_df33.csv")
+# IPFData_df33 = read.csv(file = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/data/IPF/IPFData_df33.csv")
+```
+
+
+```{r}
+IPFData_df11 %>% filter(Model=="NB") %>% summary()
+IPFData_df11 %>% filter(Model=="ZINB") %>% summary()
+
+model_colors <- brewer.pal(3,"Dark2")[1:2]
+names(model_colors) <- c("ZINB","NB")
+png(file = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/robustness_glmm/IPF/MDplot_F1.png",
+     width = 10, height = 6, units = "in", res = 300)
+MDPlot(data = IPFData_df11, difference = "MD", split = TRUE, method_cols = model_colors)
+dev.off()
+
+png(file = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/robustness_glmm/IPF/ZPDplot_F1.png",
+     width = 10, height = 6, units = "in", res = 300)
+MDPlot(data = IPFData_df11, difference = "ZPD", split = TRUE, method_cols = model_colors)
+dev.off()
+
+```
+
+```{r}
+model_colors <- brewer.pal(3,"Dark2")[1:2]
+names(model_colors) <- c("aicZINB","aicNB")
+
+aic.dat = IPFData_df11 %>% dplyr::group_by(Method, Model) %>% reshape2::dcast(circ_id+Method~Model, value.var="AIC") %>% mutate(deltaAIC=NB-ZINB) %>% mutate(filter="low filtered data")
+png(file = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/robustness_glmm/AICdelta_IPFF2.png", width = 6, height = 8, units = "in", res = 300)
+aic.dat %>% ggplot(aes(x = Method, y = deltaAIC, color = Method)) +
+  geom_violin(draw_quantiles = c(0.25, 0.5, 0.75)) + #geom_jitter(width = 0.1, alpha = 0.2) +
+  scale_color_manual(values = method_cols) +
+  theme_minimal() +
+  ylab(expression(Delta~AIC)) +
+  xlab("CircRNA detection methods") +
+  labs(title = expression(Delta~AIC ~ "=" ~ AIC[NB] ~ "-" ~ AIC[ZINB]), 
+       subtitle = unique(aic.dat$filter)) +
+  theme(legend.position = "bottom",
+        #strip.text = element_blank(),
+        axis.text.x = element_text(hjust = 1,angle = 45),
+        plot.title = element_text(size = 14, face = "bold", color = "darkgrey"),
+        plot.margin = unit(c(0.1,0.1,0.1,0.1), "cm"))
+dev.off()
+
+aic.dat$BestAIC = "ZINB"
+aic.dat$BestAIC[which(aic.dat$deltaAIC<0)] = "NB"
+HeatmapAIC = as.data.frame(table(aic.dat$BestAIC, aic.dat$Method))
+colnames(HeatmapAIC) <- c("Model", "Method", "n.circ")
+Pm.p <- dplyr::group_by(HeatmapAIC, Method) %>% dplyr::mutate(perc.circ = n.circ/sum(n.circ))
+library(viridis)
+png(file = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/robustness_glmm/IPF/AICheat_IPFF1.png", 
+     width = 8, height = 8, units = "in", res = 300)
+ggplot(Pm.p, 
+       aes(x=reorder(Model, perc.circ, median, order = T), 
+           y=reorder(Method, perc.circ, median, order = T), fill=perc.circ)) + geom_tile() +
+  scale_fill_viridis() +
+  geom_text(aes(label=round(Pm.p$perc.circ, 3)), colour=ifelse(Pm.p$perc.circ<0.7, "white", "black"), size = 5) + 
+  theme_minimal() + 
+   labs(title = "Best AIC", x = "Model", y = "Method", subtitle = unique(aic.dat$filter))+
+  theme(strip.background=element_rect(color = NA),
+                strip.text=element_text(size=12),
+                axis.text.x = element_text(size = 12, angle = 90), axis.title.x = element_text(size = 12),
+                axis.text.y = element_text(size = 12), axis.title.y = element_text(size = 12),
+                plot.title = element_text(size = 14, face = "bold", color = "darkgrey"))
+dev.off()
+```
+
+```{r }
+dt = rbind(t(sapply(TALLData_list, nrow)), t(sapply(DM1Data_list, nrow)), t(sapply(sepsisData_list, nrow)), 
+           t(sapply(IDCData_list,nrow)), t(sapply(IPFData_list, nrow)))
+colnames(dt) <- names(TALLData_list)
+rownames(dt) <- c("T-ALL","DM1","SEPSIS","IDC","IPF")
+dt %>%
+  kable(caption = "Number of circRNA in each matrix before filtering data") %>%
+  kable_styling(bootstrap_options = "striped", full_width = T, position = "center")
+```
+
+
 # Global properties of the datasets
 
 ```{r include=FALSE}

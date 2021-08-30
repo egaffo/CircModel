@@ -153,7 +153,7 @@ d$testCalls <- as.numeric(d$testCalls)
 
 <<testCalls, dev="pdf", fig.align="center", fig.width=8, fig.height=6, fig.cap="Evaluation set calls (adjusted $p$-value $< .1$)">>=
 p <- ggplot(d, aes(x=reorder(algorithm,testCalls,median),y=testCalls,color=algorithm))
-png("/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/robustness_glmm/DM1/DEcalls_evaluation.png", res = 200, units = "cm", width = 25, height = 15)
+png("/blackhole/alessia/CircModel/power/Figure/DEcalls_evaluation_IPF.png", res = 200, units = "cm", width = 25, height = 15)
 p + geom_boxplot(outlier.colour=rgb(0,0,0,0)) + theme_bw() +
     geom_point(position = position_jitter(w = 0.1, h = 0), color="grey50", size=1) +
     # facet_grid(.~detection.method) +
@@ -168,7 +168,7 @@ dev.off()
 
 <<heldoutCalls, dev="pdf", fig.align="center", fig.width=8, fig.height=6, fig.cap="Verification set calls (adjusted $p$-value $< .1$)">>=
 p <- ggplot(d, aes(x=reorder(algorithm,heldoutCalls,median),y=heldoutCalls,color=algorithm))
-png("/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/robustness_glmm/DM1/DEcalls_verification.png", res = 200, units = "cm", width = 25, height = 15)
+png("/blackhole/alessia/CircModel/power/Figure/DEcalls_verification_IPF.png", res = 200, units = "cm", width = 25, height = 15)
 p + geom_boxplot(outlier.colour=rgb(0,0,0,0)) + theme_bw() +
     geom_point(position = position_jitter(w = 0.1, h = 0), color="grey50", size=1) +
     # facet_grid(.~detection.method) +
@@ -246,6 +246,7 @@ d <- d %>%
 
 <<sensitivityGrid, dev="pdf", fig.width=8, fig.height=6, fig.cap="Sensitivity, where each algorithm's calls (adjusted $p$-value $< .1$) in the evaluation set (color boxes) is compared against itselfs (adjusted $p$-value $< .1$) in the verification set (grey labels).">>=
 # d.glmm <- d.glmm[complete.cases(d.glmm),]
+png("/blackhole/alessia/CircModel/power/Figure/Power_sensitivity_IPF.png", res = 200, units = "cm", width = 25, height = 15)
 p <- ggplot(d, aes(x=evaluation,y=sensitivity,color=evaluation))
 p + geom_boxplot(outlier.colour=rgb(0,0,0,0)) + theme_bw() + 
   # facet_wrap(~ detection.method) + 
@@ -256,10 +257,13 @@ p + geom_boxplot(outlier.colour=rgb(0,0,0,0)) + theme_bw() +
         axis.title=element_text(size=15,face="bold"),
           # axis.text.y.left = element_text(size = 11),
           strip.text.x = element_text(size = 13)) + 
+  ggtitle("IPF - Dataset") +
   xlab("")
+dev.off()
 @
 
 <<precisionGrid, dev="pdf", fig.width=8, fig.height=6, fig.cap="Precision, where each algorithm's calls (adjusted $p$-value $< .1$) in the evaluation set (color boxes) is compared against itselfs (adjusted $p$-value $< .1$) in the verification set (grey labels).">>=
+png("/blackhole/alessia/CircModel/power/Figure/Power_precision_IPF.png", res = 200, units = "cm", width = 25, height = 15)
 p <- ggplot(d, aes(x=evaluation,y=precision,color=evaluation))
 p + geom_boxplot(outlier.colour=rgb(0,0,0,0)) + theme_bw() + 
   # facet_wrap(~ detection.method) + 
@@ -270,12 +274,14 @@ p + geom_boxplot(outlier.colour=rgb(0,0,0,0)) + theme_bw() +
         axis.title=element_text(size=14,face="bold"),
           # axis.text.y.left = element_text(size = 11),
           strip.text.x = element_text(size = 13)) + 
+  ggtitle("IPF - Dataset") +
   xlab("")
+dev.off()
 @
 
 \clearpage
 
-\section{Precision Recall curve}
+\section{Area Under Precision Recall Curve (AUPRC)}
 
 <<Recallcurve>>=
 
@@ -287,20 +293,27 @@ precall = function(algo, rep, gold = "GLMM_NB") {
   #                      resTes[[rep]][[algo]][!resHeldout[[rep]][[gold]] < alphaOut], curve = TRUE)$curve[, 2]
   auc = pROC::roc(as.numeric(resHeldout[[rep]][[gold]] < alphaOut),
                   as.numeric(resTes[[rep]][[algo]] < alphaOut))
-  aupr = data_frame(#recall = recall,
-                    #precision = precision,
-                    AUPRC = auc$auc,
+  # auc = AUC::roc(1-resTes[[rep]][[algo]],
+  #                as.numeric(resHeldout[[rep]][[gold]] < alphaOut))
+  fg <- 1-resTes[[rep]][[algo]][resHeldout[[rep]][[gold]] <= alphaOut]
+  bg <- 1-resTes[[rep]][[algo]][resHeldout[[rep]][[gold]] > alphaOut]
+  pr <- try(pr.curve(scores.class0 = fg, scores.class1 = bg, curve = T))
+  # plot(pr)
+  aupr = data_frame(#recall = pr$curve[,1],
+                    #precision = pr$curve[,2],
+                    AUC = auc$auc,
+                    AUPRC = ifelse(class(pr)[1] == "try-error", NA, pr$auc.integral),
                     B = rep,
                     model = algo)
   return(aupr)
   }
 
-res_auprc = list()
+res_accuracy = list()
 for(algo in names(resTes[[1]])){
   res = rbindlist(lapply(1:nreps, function(x) precall(algo = algo, rep = x, gold = "GLMM_NB")))
-  res_auprc[[algo]] = res
+  res_accuracy[[algo]] = res
 }
-AUPRC = rbindlist(res_auprc, use.names = T)
+AUPRC = rbindlist(res_accuracy, use.names = T)
 AUPRC$model = factor(AUPRC$model)
 AUPRC$model <- renameAtoB(AUPRC$model, "edgeR.robust", "edgeR-robust")
 AUPRC$model <- renameAtoB(AUPRC$model, "edgeR.ZINBWave", "edgeR-ZINB Wave")

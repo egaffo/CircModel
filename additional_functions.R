@@ -372,13 +372,13 @@ gheat <- function(AUC_AOC_between_methods,concordance_df_summary){
     forlegend <- AUC_AOC_between_methods.F
     forlegend$method1 <- factor(forlegend$method1,levels = c("DESeq2",
                                                              "DESeq2.ZI",
-                                                             "DESeq2.apeglm",
+                                                             "DESEq2.glmGamPoi",
                                                              "DESeq2.ZINBWave",
                                                              "edgeR",
                                                              "edgeR.robust",
                                                              "edgeR.ZINBWave",
                                                              "voom",
-                                                             "EBSeq"), ordered = TRUE)
+                                                             "circMeta"), ordered = TRUE)
     
     g_legend_dendrogram <- get_legend(ggplot() + 
                                         geom_point(data=forlegend, aes(x = method1, y = 1, color = method1),size = 5) +

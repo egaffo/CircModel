@@ -83,29 +83,46 @@ coldata$group <- factor(coldata$group)
 coldata$sample_id <- as.character(coldata$sample_id)
 coldata
 
-#-----------------------------------------
-## summarized experiment for single matrix
-## only ccp2 output is of interest
-#-----------------------------------------
-
-# se <- lapply(lapply(Data_list, function(x) x[,match(randomSubsets[1,],colnames(x))]), function(x) SummarizedExperiment(x, colData = coldata[rownames(coldata)%in%randomSubsets[1,],]))
-# se <- lapply(DM1Data_list, function(x) SummarizedExperiment(x[,rownames(coldata)], 
-#                                                             colData = coldata))
-# eset <- lapply(se, function(x) ExpressionSet(assay(x),
-#                                              AnnotatedDataFrame(as.data.frame(colData(x)))))
-# 
-# e <- lapply(eset, function (x) {
-#   pData(x)$condition <- factor(pData(x)$group)
-#   levels(pData(x)$condition) <- c("A", "B")
-#   x.new = x[which(rowSums(exprs(x))!=0),]
-#   return(x.new)})
-
 ccp2 = read.table("/blackhole/alessia/CircModel/data/IPF_ccp2.csv", header = T)
 # ccp2 = RCurl::scp(host = "threesum", path = "/home/enrico/analysis/zicirc/IPF/data/IPF_ccp2.csv", keypasswd = "alessiasucks666", 
 #            user="alessia")
 load("/blackhole/alessia/CircModel/data/IPFData_list.RData")
 
 # ccp2 = IPFData_list$ccp2
+chr <- sub(":.*", "", ccp2$circ_id)
+start <- as.numeric(gsub(".*:(.*)\\-.*", "\\1", ccp2$circ_id))
+end <- sub(".*-", "\\1", ccp2$circ_id)
+circ_id = paste0(chr, ":", start+1, "-", end)
+ccp2$circ_id = circ_id
+ccp2.df = ccp2[,-1]
+rownames(ccp2.df) = ccp2$circ_id
+se.ccp2 <- SummarizedExperiment(assays = list(counts = as.matrix(ccp2.df)),
+                                colData = coldata)
+eset.ccp2 <- ExpressionSet(assay(se.ccp2),
+                           AnnotatedDataFrame(as.data.frame(colData(se.ccp2))))
+pData(eset.ccp2)$condition <- factor(pData(eset.ccp2)$group)
+levels(pData(eset.ccp2)$condition) <- c("A", "B")
+e = eset.ccp2
+
+
+## ALZ data set
+randomSubsets <- read.table("/blackhole/alessia/CircModel/power/ALZ_random_subsets_eval_veri.txt",strings=FALSE)
+
+meta.data <- read.csv("/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/realdata/ALZ/analysis/meta_alz.csv")
+meta.data = meta.data[1:17,]     # for odd rows
+
+coldata <- DataFrame(condition = meta.data$condition,
+                     group = ifelse(meta.data$condition=="control_brain", "normal", "ALZ"),
+                     sample = meta.data$sample,
+                     row.names = meta.data$sample)
+coldata$condition <- factor(coldata$condition)
+coldata$group <- factor(coldata$group)
+coldata$sample <- as.character(coldata$sample)
+coldata
+
+ccp2 = read.table("/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/realdata/ALZ/analysis/circular_expression/circrna_analyze/reliable_circexp.csv", 
+                  header = T)
+
 chr <- sub(":.*", "", ccp2$circ_id)
 start <- as.numeric(gsub(".*:(.*)\\-.*", "\\1", ccp2$circ_id))
 end <- sub(".*-", "\\1", ccp2$circ_id)
@@ -169,6 +186,27 @@ colData <- data.frame(colData.dt,
 # colnames(glmm.wide) = c("MethodID", "SampleID", colnames(glmm.wide)[-c(1,2)])
 # head(glmm.wide[,c(1:8)])
 
+## ALZ
+glmm.db <- rbindlist(lapply(ALZData_list[1:6], function(x) data.frame(x, circ_id = rownames(x))), 
+                     idcol = "method", use.names = TRUE)
+glmm.melt <- rbindlist(lapply(ALZData_list[1:6], function(x) reshape2::melt(x)), 
+                       idcol = "method", use.names = TRUE)
+
+count.data.melt <- as.data.table(reshape2::melt(glmm.db, id.vars = c("method", "circ_id")))
+name.sep <- "."
+count.data.melt[, sample.name.ext := paste0(variable, name.sep, method)]
+count.data.merge <- merge(count.data.melt, coldata, by.x = "variable", by.y = "sample")
+
+colData.dt <- as.data.table(count.data.merge)[, .N, by = .(variable, method, 
+                                                           group,
+                                                           sample.name.ext)][, N := NULL][]
+colData <- data.frame(colData.dt, 
+                      row.names = "sample.name.ext")
+
+# glmm.wide = dcast(glmm.melt, method+Var2~Var1, value.var = "value", fill=0)
+# colnames(glmm.wide) = c("MethodID", "SampleID", colnames(glmm.wide)[-c(1,2)])
+# head(glmm.wide[,c(1:8)])
+
 nreps = 30
 
 # count.data.melt <- as.data.table(reshape2::melt(glmm.db, id.vars = c("method", "circ_id")))
@@ -190,11 +228,14 @@ count.matrix.glmm <- CREART::get_combined_matrix("/blackhole/alessia/circzi/chec
 ## IPF
 count.matrix.glmm <- CREART::get_combined_matrix("/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/realdata/IPF/analyses/", 
                                                  select_methods = unique(colData$method))
+## ALZ
+count.matrix.glmm <- CREART::get_combined_matrix("/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/realdata/ALZ/analysis/", 
+                                                 select_methods = unique(colData$method))
 
 glmm.long = melt(count.matrix.glmm)
-glmm.long$method = sub(".*\\.","",glmm.long$X2)
-glmm.long$sample = sub("\\..*", "", glmm.long$X2)
-glmm.wide = dcast(glmm.long, method+sample~X1, value.var = "value", fill=0)
+glmm.long$method = sub(".*\\.","",glmm.long$Var2)
+glmm.long$sample = sub("\\..*", "", glmm.long$Var2)
+glmm.wide = dcast(glmm.long, method+sample~Var1, value.var = "value", fill=0)
 colnames(glmm.wide) = c("MethodID", "SampleID", colnames(glmm.wide)[-c(1,2)])
 head(glmm.wide[,c(1:8)])
 se.glmm <- SummarizedExperiment(assays = list(counts = count.matrix.glmm),
@@ -240,7 +281,7 @@ algos <- list("DESeq2"= runDESeq2,
               "edgeR"=runEdgeR,
               "edgeR-robust"=runEdgeRRobust,
               #"voom" = runVoom,
-              "edgeR-ZINBWave"= edgeR_zinbweights,
+              "edgeR-ZINBWave"= edgeR_zinbweights
               #"circMeta" = runPois.ztest
               ) #"EBSeq"=runEBSeq)
 
@@ -393,12 +434,12 @@ resMethods <- bplapply(1:30, function(i) {
     cat(i," ")
     # i = 1
 
-    testSet <- as.character(randomSubsets[i,c(1:7)])
-    heldOutSet <- as.character(randomSubsets[i,-c(1:7)])
+    testSet <- as.character(randomSubsets[i,c(1:6)])
+    heldOutSet <- as.character(randomSubsets[i,-c(1:6)])
     
     eTest <- e[,testSet]
     eTest_filt <- CREART::smallest_group_filter(x = as.data.table(ccp2[,c("circ_id", testSet)]), 
-                                                cond = as.data.table(coldata[coldata$sample_id%in%testSet,]),
+                                                cond = as.data.table(coldata[coldata$sample%in%testSet,]),
                                                 rthr = 1)
     
     keep = eTest_filt$circ_id
@@ -408,20 +449,20 @@ resMethods <- bplapply(1:30, function(i) {
     
     eHeldout <- e[,heldOutSet]
     eHeldout_filt <- CREART::smallest_group_filter(x = as.data.table(ccp2[,c("circ_id", heldOutSet)]), 
-                                                   cond = as.data.table(coldata[coldata$sample_id%in%heldOutSet,]),
+                                                   cond = as.data.table(coldata[coldata$sample%in%heldOutSet,]),
                                                    rthr = 1)
     keep = eHeldout_filt$circ_id
     eHeldout <- eHeldout[keep,]
     
     summary_stat_heldout <- stats_sim(as.matrix(exprs(eHeldout)))
     
-    testSetGLMM <- coldata[coldata$sample_id%in%as.character(randomSubsets[i,1:7]),]
-    heldOutSetGLMM <- coldata[coldata$sample_id%in%as.character(randomSubsets[i,-c(1:7)]),]
+    testSetGLMM <- coldata[coldata$sample%in%as.character(randomSubsets[i,1:6]),]
+    heldOutSetGLMM <- coldata[coldata$sample%in%as.character(randomSubsets[i,-c(1:6)]),]
     
     ## GLMM
     ## glmm-NB
     #test data
-    pheno <- colData %>% dplyr::filter(variable%in%testSetGLMM$sample_id) %>% 
+    pheno <- colData %>% dplyr::filter(variable%in%testSetGLMM$sample) %>% 
       dplyr::rename(SampleID = variable) %>% 
       dplyr::rename(MethodID = method) %>% 
       dplyr::rename(condition = group)
@@ -441,7 +482,7 @@ resMethods <- bplapply(1:30, function(i) {
 
     
     # verification data
-    pheno <- colData %>% dplyr::filter(variable%in%heldOutSetGLMM$sample_id) %>% 
+    pheno <- colData %>% dplyr::filter(variable%in%heldOutSetGLMM$sample) %>% 
       dplyr::rename(SampleID = variable) %>% 
       dplyr::rename(MethodID = method) %>% 
       dplyr::rename(condition = group)
@@ -614,18 +655,15 @@ lfcTest <- lapply(resMethods, "[[", "lfcTest") #lapply(res, function(x) lapply(x
 lfcHeldout<- lapply(resMethods, "[[", "lfcHeldout") #lapply(res, function(x) lapply(x, "[[", "lfcHeldout"))
 zinbweightTest <- lapply(resMethods, "[[", "weightTest")
 zinbweightHeldout <- lapply(resMethods, "[[", "weightsHeldout")
-summary_stat_test <- lapply(resMethods, "[[", "summary_stat_test")
-summary_stat_heldout <- lapply(resMethods, "[[", "summary_stat_heldout")
+summary_stat_test <- bind_rows(lapply(resMethods, "[[", "summary_stat_test"))
+summary_stat_heldout <- bind_rows(lapply(resMethods, "[[", "summary_stat_heldout"))
 
 save(resMethods, resTes, resHeldout,lfcTest,lfcHeldout,
      zinbweightTest, zinbweightHeldout,
      summary_stat_test, summary_stat_heldout,
      # resTesGLMMp,resHeldoutGLMMp,lfcTestGLMMp,lfcHeldoutGLMMp,
      namesAlgos,
-     file="/blackhole/alessia/CircModel/power/IPF_sensitivityPrecision_CCP2_glmglmm_30rep.RData")
-
-resTest0 <- lapply(namesAlgos, function(n) algos[[n]](e=eTest, w=zinbweightTest[[1]]))
-resTest <- as.data.frame(c(lapply(resTest0, function(z) z$padj)))
+     file="/blackhole/alessia/CircModel/power/ALZ_sensitivityPrecision_CCP2_glmglmm_30rep.RData")
 
 # -------------------
 ## type I error rate

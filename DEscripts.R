@@ -5,7 +5,7 @@ runDESeq2 <- function(e, retDDS=FALSE,w=NULL) {
   dds <- DESeqDataSetFromMatrix(countData = ceiling(exprs(e)[,rownames(col.dat)]),
                                           colData = col.dat,
                                           design = ~ condition)
-  dds <- DESeq(dds, quiet=TRUE) 
+  dds <- DESeq(dds, quiet=TRUE, test = "LRT", reduced = ~1) 
   res <- results(dds, independentFiltering = F)
   beta <- res$log2FoldChange
   names(beta) <- rownames(exprs(e))
@@ -25,7 +25,7 @@ runDESeq2.ZI <- function(e, retDDS=FALSE,w=NULL) {
   library(DESeq2)
   dds <- DESeqDataSetFromMatrix(exprs(e), DataFrame(pData(e)), ~ condition)
   dds <- DESeq(dds,quiet=TRUE, sfType = "poscounts", useT = TRUE, 
-               minmu = 1e-6, minReplicatesForReplace = Inf)
+               minmu = 1e-6, minReplicatesForReplace = Inf, test = "LRT", reduced = ~1)
   res <- results(dds)
   beta <- res$log2FoldChange
   names(beta) <- rownames(exprs(e))
@@ -46,7 +46,7 @@ DESeq_zinbweights <- function(e, w){
   dds <- DESeq(dds,quiet=TRUE)
   w[w < 0.00001] = 0.00001
   assays(dds, withDimnames = F)[["weights"]] = w
-  dds <- DESeq(dds, sfType="poscounts", minmu=1e-6, minRep=Inf)
+  dds <- DESeq(dds, sfType="poscounts", minmu=1e-6, minRep=Inf, test = "LRT", reduced = ~1)
   res <- results(dds)
   beta <- res$log2FoldChange
   names(beta) <- rownames(exprs(e))
@@ -65,7 +65,7 @@ runDESeq2_gampoi <- function(e, w){
   library(DESeq2)
   library(glmGamPoi)
   dds <- DESeqDataSetFromMatrix(exprs(e), DataFrame(pData(e)), ~ condition)
-  deg <- DESeq(dds, fitType="glmGamPoi")
+  deg <- DESeq(dds, fitType="glmGamPoi", test = "LRT", reduced = ~1)
   res <- results(deg)
   beta <- res$log2FoldChange
   names(beta) <- rownames(exprs(e))
