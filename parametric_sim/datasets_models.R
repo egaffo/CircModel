@@ -1,20 +1,29 @@
 library(edgeR)
 library(DESeq2)
 
-### Zheng
-# meta data dataframe
-meta.data <-  unique(fread("/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/realdata/Zheng_2016/analysis/analysis_ccp2/meta.csv"))
-meta.data <- meta.data[!duplicated(meta.data$sample),]
+#------------------------------------------------------------------------------------------------
+###### IPF data set 
+
+meta.data <- read.csv("/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/realdata/IPF/analyses/meta_IPF.csv")
+meta.data = meta.data[seq(1,nrow(meta.data), by = 2),]     # for odd rows
+
 coldata <- DataFrame(condition = meta.data$condition,
+                     group = ifelse(meta.data$condition=="normal", "normal", "IPF"),
                      sample = meta.data$sample,
                      row.names = meta.data$sample)
 coldata$condition <- factor(coldata$condition)
+coldata$group <- factor(coldata$group)
+coldata$sample <- as.character(coldata$sample)
+coldata
+
 by.group=coldata$condition
 refdesign= model.matrix(~condition, coldata)
-load("/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/data/ZhengData_list.RData")
 
-ZhengData_models <- lapply(ZhengData_list, function(count.matrix){
-  count.matrix = ZhengData_list$findcirc
+## load data previously filtered
+load("/blackhole/alessia/CircModel/data/IPFData_list.RData")
+
+IPFData_models <- lapply(IPFData_list, function(count.matrix){
+  # count.matrix = IPFData_list$ccp2
   by.sample <- DGEList(count.matrix)
   dds <- DESeqDataSetFromMatrix(countData = ceiling(count.matrix[,rownames(coldata)]),
                                 colData = coldata,
@@ -24,7 +33,6 @@ ZhengData_models <- lapply(ZhengData_list, function(count.matrix){
   # Estimate the NB dispersion using deseq2 method
   dds <- estimateDispersions(dds, fitType = "local",
                              minmu = 1e-6)
-  
   # Estimate coefficient 
   dds <- nbinomWaldTest(dds)
   # Estimate the log-overall mean
@@ -33,7 +41,6 @@ ZhengData_models <- lapply(ZhengData_list, function(count.matrix){
   logmeans <- mglmOneGroup(by.sample$counts, offset = centered.off, dispersion = dispersions(dds))
   dispersion = dispersions(dds)
   # Estimate of dispersion with ZINB model
-  
   zinb.prop <- rep(-Inf, nrow(count.matrix))
   zinb.disp <- dispersions(dds)
   zinb.mean <- exp(logmeans)
@@ -63,6 +70,6 @@ ZhengData_models <- lapply(ZhengData_list, function(count.matrix){
               zi.mu = zinb.mean, zi.disp = zinb.disp, zi.prop = zinb.prop, 
               relative.size = by.sample$samples$lib.size))
 })
-save(ZhengData_models,file = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/data/ZhengZinbFit_detmet_models.RData")
+save(IPFData_models,file = "/blackhole/alessia/CircModel/data/IPFZinb_nb_Fit_detmet_models.RData")
 
 

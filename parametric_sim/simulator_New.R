@@ -10,21 +10,14 @@ source("/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/referenc
 
 ## Load only one of these:
 
-### Li
-load(file = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/data/LiData_list.RData") 
-load(file = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/data/LiZinbFit_models.RData") #create in datasets_and_models.R
-data_list = LiData_list
-models = LiData_models
-
-### Zheng
-load(file = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/data/ZhengData_list.RData") 
-load(file = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/data/ZhengZinbFit_detmet_models.RData") #create in datasets_models.R
-load(file = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/data/ZhengZinbFit_models.RData") #create in datasets_and_models.R
-data_list = ZhengData_list
-models = ZhengData_models
+### IPF
+load(file = "/blackhole/alessia/CircModel/data/IPFData_list.RData") 
+load(file = "/blackhole/alessia/CircModel/data/IPFZinb_nb_Fit_detmet_models.RData") #create in datasets_and_models.R
+data_list = IPFData_list
+models = IPFData_models
 
 # # Trim by prevalence and total circRNA reads
-simpleTrimGen <- function(circTab, minReads = 2, minPrev = 1) {
+simpleTrimCirc <- function(circTab, minReads = 2, minPrev = 1) {
   # `prevalence` is the fraction of samples in which a circ is observed at
   # least `minReads` times.
   # prevalence <- rowMeans(circTab > minReads)
@@ -63,14 +56,12 @@ simulation_flow <- data.frame(expand.grid(simulation = simulation,
 rownames(simulation_flow) <- 1:nrow(simulation_flow)
 # Unique seed for each mix of variables
 for(i in 1:nrow(simulation_flow)){
-  simulation_flow$seed[i] <- strtoi(paste0("0x",substr(digest::digest(simulation_flow[i,1:ncol(simulation_flow)],algo = "sha256"),start = 1,stop = 7)))
+  simulation_flow$seed[i] <- strtoi(paste0("0x",substr(digest::digest(simulation_flow[i,1:ncol(simulation_flow)],algo = "sha256"),
+                                                       start = 1, stop = 7)))
 }
 
-### Li
-save(simulation_flow,file = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/data/Li_dcc_simulation_flow.RData")
-
-### Zheng
-save(simulation_flow,file = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/data/Zheng_detmet_simulationflow.RData")
+### IPf
+save(simulation_flow,file = "/blackhole/alessia/CircModel/data/IPF_simulation_flow.RData")
 
 simulation_flow.glmm <- data.frame(expand.grid(simulation = simulation,
                                           distribution = distribution,
@@ -84,9 +75,11 @@ simulation_flow.glmm <- data.frame(expand.grid(simulation = simulation,
 rownames(simulation_flow.glmm) <- 1:nrow(simulation_flow.glmm)
 # Unique seed for each mix of variables
 for(i in 1:nrow(simulation_flow.glmm)){
-  simulation_flow.glmm$seed[i] <- strtoi(paste0("0x",substr(digest::digest(simulation_flow.glmm[i,1:ncol(simulation_flow.glmm)],algo = "sha256"),start = 1,stop = 7)))
+  simulation_flow.glmm$seed[i] <- strtoi(paste0("0x",substr(digest::digest(simulation_flow.glmm[i,1:ncol(simulation_flow.glmm)],
+                                                                           algo = "sha256"),
+                                                            start = 1,stop = 7)))
 }
-save(simulation_flow.glmm,file = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/data/Zheng_glmm_simulation_flow.RData")
+save(simulation_flow.glmm,file = "/blackhole/alessia/CircModel/data/IPF_glmm_simulation_flow.RData")
 
 sims <- apply(simulation_flow, 1, function(sim){
   
@@ -131,13 +124,13 @@ for(i in 1:length(sims)){ sims[[i]]$number <- i }
 names(sims) <- lapply(sims,function(sim) sim$name)
 
 ## Depending on which dataset you chose at the beginning
-### Zheng
-save(sims, file = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/data/ZhengData_detmet_simulationsZINB.RData")
-
+### IPF
+save(sims, file = "/blackhole/alessia/CircModel/parametric_sim/IPFData_detmet_parametricsimulations.RData")
 
 ## simulate data for glmm model
 # Generating simulations
-simulation_flow = simulation_flow[order(simulation_flow$simulation, simulation_flow$sampleSize, simulation_flow$TPR, simulation_flow$foldEffect), ]
+simulation_flow = simulation_flow[order(simulation_flow$simulation, simulation_flow$sampleSize, simulation_flow$TPR, 
+                                        simulation_flow$foldEffect), ]
 simulation_flow$sims.glmm <- rep(rep(seq(1,8,1), each = 8),30)
 simulation_flow <- simulation_flow[order(simulation_flow$sims.glmm),]
 
@@ -203,12 +196,13 @@ for (k in seq(1,nrow(simulation_flow)-1, by = 8)) {
                     simName = simName)
   return(obj.sim)})
 }
+
 sims.glmm2 = sims.glmm[-which(sapply(sims.glmm, is.null))]
 
 names(sims.glmm2) <- apply(simulation_flow.glmm, 1, function(sim) paste(colnames(simulation_flow.glmm),sim[1:ncol(simulation_flow.glmm)],
       sep = ":",
       collapse = "_"))
 ## Depending on which dataset you chose at the beginning
-### Zheng
-save(sims.glmm2, file = "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/data/ZhengData_glmm_simulationsZINB.RData")
+### IPF
+save(sims.glmm2, file = "/blackhole/alessia/CircModel/parametric_sim/IPFData_glmm_parametricsimulations.RData")
 length(sims.glmm2)

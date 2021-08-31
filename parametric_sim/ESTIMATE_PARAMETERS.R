@@ -89,29 +89,29 @@ zinb.prop <- exp(zinb.prop)/(1+exp(zinb.prop))
 ##################################
 ## sampling function          ####
 ##################################
-#' circRNA Count Data Simulation from Zero Inflated Negative-Binomial Distribution
+#' circRNA Count Data Simulation from Zero Inflated Negative-Binomial or Negative Binomial Distribution
 #' 
 #' This function simulates count data from Zero Inflated Negative-Binomial distribution
+#' or Negative Binomial Distribution
 #' for two-sample RNA-seq experiments with given mean, dispersion 
 #' and fold change. 
 #' A count data matrix is generated.
 #' 
 #' 
-#' @param nGenes total number of genes, the default value is \code{1000}.
-#' @param pi0 proportion of non-differentially expressed genes, 
-#'            the default value is \code{0.8}.
-#' @param m sample size per treatment group.
-#' @param mu a vector (or scalar) of mean counts in control group 
-#'           from which to simulate.
-#' @param disp a vector (or scalar) of dispersion parameter 
-#'             from which to simulate.
-#' @param fc a vector (or scalar, or a function that takes an integer n 
-#'                     and generates a vector of length n)
-#'           of fold change for differentially expressed (DE) genes.  
-#' @param up proportion of up-regulated genes among all DE genes, 
-#'           the default value is \code{0.5}.
-#' @param replace sample with or without replacement from given parameters. 
-#'                See Details for more information.
+#' @param ncircular total number of genes, the default value is \code{10000}.
+#' @param pzero     SparcityEffect
+#' @param pi0       proportion of non-differentially expressed genes
+#' @param m         sample size per treatment group.
+#' @param mu        a vector (or scalar) of mean counts in control group 
+#'                  from which to simulate.
+#' @param disp      a vector (or scalar) of dispersion parameter 
+#'                  from which to simulate.
+#' @param fc        a vector (or scalar, or a function that takes an integer n 
+#'                  and generates a vector of length n)
+#'                  of fold change for differentially expressed (DE) genes.  
+#' @param up        proportion of up-regulated genes among all DE genes
+#' @param replace   sample with or without replacement from given parameters. 
+#'                  See Details for more information.
 #'                
 #' @return \item{counts}{circRNA count data matrix}
 #' @return \item{group}{treatment group vector}
@@ -124,16 +124,14 @@ zinb.prop <- exp(zinb.prop)/(1+exp(zinb.prop))
 #' @return \item{delta}{log2 fold change for each circRNA between 
 #'                      treatment group and control group}
 #'                      
-#'                      
-
-#' @details If the total number of genes \code{ngenes} is larger 
+#' @details If the total number of circRNA \code{ncircular} is larger 
 #'          than length of \code{sample.mu} or \code{sample.disp}, 
 #'          \code{replace} always equals \code{TRUE}.
 #'          
 
 COUNT_FUN_CIRC <- function(sample.mu = logmeans, sample.disp = dispersion, #estimated param.s for NB
-                          zi.mu = zinb.mean, zi.disp = zinb.disp, zi.prop = zinb.prop, #estimated param.s for ZINB
-                          relative.size){
+                           zi.mu = zinb.mean, zi.disp = zinb.disp, zi.prop = zinb.prop, #estimated param.s for ZINB
+                           relative.size){
     # ngenes <- number of genese to be simulated
     # fc <- fold change 
     # m <- sample size per treatment group
@@ -196,7 +194,6 @@ COUNT_FUN_CIRC <- function(sample.mu = logmeans, sample.disp = dispersion, #esti
       # lambda[chosen.de[!is.up],ingroup] <- lambda[chosen.de[!is.up],ingroup]/fc
       # lambda[chosen.de[!is.up],-ingroup] <- lambda[chosen.de[!is.up],-ingroup]*fc
       
-      
       ## expected false positives
       FP <- round(ncircular * (1-nde/ncircular))
       TP <- ncircular - FP 
@@ -225,11 +222,11 @@ COUNT_FUN_CIRC <- function(sample.mu = logmeans, sample.disp = dispersion, #esti
         matrix(rep(1, 2 * m), nrow = 1) * #intercept
         cbind(matrix(rep(1, ncircular * m), ncol = m),
               matrix(rep(exp(delta), m), ncol = m))
+      
       ## mean of counts
-      
       phi <- matrix(rep(true_disps, 2 * m), ncol = 2 * m)
-      ## dispersion of counts
       
+      ## dispersion of counts
       delta <- delta / log(2)
       
     } else {
@@ -296,18 +293,19 @@ COUNT_FUN_CIRC <- function(sample.mu = logmeans, sample.disp = dispersion, #esti
     sample_names <- c(paste("Sample_",1:as.numeric(m),"_grp1",sep=""),paste("Sample_",(as.numeric(m)+1):(2*as.numeric(m)),"_grp2",sep=""))
     colnames(counts) <- sample_names
     rownames(counts) <- CIRC_names
-    # Trim too rare OTUs
-    counts_filtered <- simpleTrimGen(counts)
+    # Trim too rare circRNAs
+    counts_filtered <- simpleTrimCirc(counts)
     counts_filtered_NA <- counts_filtered[!is.na(rownames(counts_filtered)),]
-    zinb_mu_rel_fc <- data.frame(apply(lambda, 1, mean))
-    rownames(zinb_mu_rel_fc) <- CIRC_names
+    
+    mu_rel_fc <- data.frame(apply(lambda, 1, mean))
+    rownames(mu_rel_fc) <- CIRC_names
     
     obj <- list(ps = phyloseq(otu_table(counts_filtered_NA,taxa_are_rows = TRUE),
                               sample_data(data.frame(grp = rep(c("grp1","grp2"),
                                                                each = as.numeric(m)),
                                                      row.names = sample_names))),
                 name = simName,
-                beta = log(zinb_mu_rel_fc[rownames(counts_filtered_NA),]))
+                beta = log(mu_rel_fc[rownames(counts_filtered_NA),]))
     return(obj)
     }
 
@@ -317,9 +315,9 @@ COUNT_CIRC <- COUNT_FUN_CIRC(sample.mu = logmeans, sample.disp = dispersion,
                             zi.mu = zinb.mean, zi.disp = zinb.disp, zi.prop = zinb.prop, 
                             relative.size = by.sample$samples$lib.size
                             )
-indir <- "/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/results_EstParRealdata"
+indir <- "/blackhole/alessia/CircModel/parametric_sim/results_EstParRealData"
 
-saveRDS(COUNT_CIRC, file = file.path(indir, "function_ZhengEst.rds"))
+saveRDS(COUNT_CIRC, file = file.path(indir, "function_IPFEst.rds"))
 
                             
 
