@@ -1,9 +1,11 @@
 library(plyr)
 library(AUC)
 
-methods = c("DESeq2_scRNAseq","DESeq2",
+methods = c("DESeq2_scRNAseq",
+            "DESeq2",
             "DESeq2_poscounts_zinbwave", 
             "DESeq2_poscounts_apeglm")
+
 evalPVals <- function(resi, alpha = 0.05, pvalsType = "adjP", rawPvalsType = "rawP") {
   # Rarely a fit has failed, then we return 0 for sens, 1 for specificity and
   # NA for FDR, AUC and the lib/cons areas

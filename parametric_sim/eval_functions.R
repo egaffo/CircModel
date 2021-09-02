@@ -22,7 +22,7 @@ pkgs <- c("edgeR",
           "plyr", 
           "reshape2",
           "ROCR",
-          "samr",
+          # "samr",
           "apeglm",
           "ZIM",
           "zinbwave",
@@ -30,8 +30,8 @@ pkgs <- c("edgeR",
           "AUC",
           "genefilter",
           "MAST",
-          "scde", # It is important to use flexmix v2.3-13 and scde 1.99.1
-          "Seurat",
+          #"scde", # It is important to use flexmix v2.3-13 and scde 1.99.1
+          # "Seurat",
           "crayon",
           "MAST",
           "aod",
@@ -39,10 +39,10 @@ pkgs <- c("edgeR",
           "fdrtool",
           "lars",
           "emdist",
-          "baySeq",
+          # "baySeq",
           "snow",
-          "ShrinkBayes",
-          "DEsingle",
+          # "ShrinkBayes",
+          # "DEsingle",
           "VGAM",
           "Matrix",
           "maxLik",
@@ -325,7 +325,8 @@ limma_voom_zinbweights <- function(physeq, design = as.formula("~ grp"), normFac
 }# END: limma voom - ZINBWaVE weights
 
 ### performs negative binomial two-sample test of *DESeq2* to detect Diff. Abund.
-negBinTestDESeq2 <- function(physeq, design = as.formula("~ grp"), IndepFilter = NULL,
+negBinTestDESeq2 <- function(physeq, design = as.formula("~ grp"), 
+                             IndepFilter = NULL,
                              scRNAseq = FALSE,
                              normFacts = c("TMM", "RLE", "poscounts","ratio", "CSS", "UQ", "none", "TSS"), returnDispEsts = FALSE)
 {
@@ -380,6 +381,58 @@ negBinTestDESeq2 <- function(physeq, design = as.formula("~ grp"), IndepFilter =
   statInfo <- cbind("logFC" = ddsRes$log2FoldChange, "LRT" = ddsRes$stat)
   list("pValMat" = pValMat, "dispEsts" = dispEsts, "statInfo" = statInfo)
 }# END - function: negBinTestDESeq2
+
+### performs negative binomial two-sample test of *DESeq2* with Gamma-Poisson distribution
+negBinTestDESeq2_GamPoi <- function(physeq, design = as.formula("~ grp"), 
+                             IndepFilter = NULL,
+                             scRNAseq = FALSE,
+                             normFacts = c("TMM", "RLE", "poscounts","ratio", "CSS", "UQ", "none", "TSS"), returnDispEsts = FALSE)
+{
+  # require(DESeq2)
+  ### force orientation OTUs x samples
+  if (!taxa_are_rows(physeq))
+  {
+    physeq <- t(physeq)
+  } else {}
+  
+  ### add 1 to zero counts
+  if (any(otu_table(physeq) == 0))
+  {
+    otu_table(physeq) <- otu_table(physeq) + 1L
+  } else {}
+  dds <- phyloseq_to_deseq2(physeq, design = design)
+  normFacts <- paste("NF", normFacts, sep = ".")
+  NFs = get_variable(physeq, normFacts)
+  if(normFacts == "NF.TMM"){
+    NFs = NFs * sample_sums(physeq)
+  }
+  if(normFacts %in% c("NF.TMM","NF.TSS")){
+    NFs = NFs/exp(mean(log(NFs)))
+  }
+  sizeFactors(dds) <- NFs/exp(mean(log(NFs))) #This has no impact on the results but facilitates fitting
+  # sizeFactors(dds) <- scran::computeSumFactors(assay(dds))
+  ddsRes <- DESeq(object = dds, fitType="glmGamPoi", 
+                  test = "LRT", reduced = ~1, parallel = FALSE, 
+                  useT=TRUE, minmu=1e-6, minReplicatesForReplace=Inf)
+  dispEsts <- dispersions(ddsRes)
+  ddsRes <- results(ddsRes, alpha = 0.05)#, cooksCutoff = FALSE)
+  
+  ### Independent Filtering, should be before everything
+  if(!is.null(IndepFilter))
+  {
+    toKeep <- ddsRes$baseMean >= IndepFilter & !is.na(ddsRes$pvalue)
+    ddsResFilt <- ddsRes[toKeep, ]
+    ddsResFilt$padj <- p.adjust(ddsResFilt$pvalue, method = "BH")
+    ddsRes <- as(ddsResFilt, "data.frame")
+    ddsRes[order(ddsRes$padj), ]
+  } else {}
+  
+  #  ddsRes$id <- rownames(ddsRes)
+  pValMat <- as.matrix(ddsRes[, c("pvalue", "padj")])
+  colnames(pValMat) <- c("rawP", "adjP")
+  statInfo <- cbind("logFC" = ddsRes$log2FoldChange, "LRT" = ddsRes$stat)
+  list("pValMat" = pValMat, "dispEsts" = dispEsts, "statInfo" = statInfo)
+}# END - function: negBinTestDESeq2_GamPoi
 
 ### performs negative binomial two-sample test of *DESeq2* to detect Diff. Abund. accounting for zero inflation through zinb weights
 negBinTestDESeq2_zinbweights <- function(physeq, design = as.formula("~ grp"), IndepFilter = NULL,
@@ -490,6 +543,7 @@ negBinTestDESeq2apeglm <- function(physeq, design = as.formula("~ grp"), IndepFi
   statInfo <- cbind("logFC" = ape.nb$log2FoldChange)
   list("pValMat" = pValMat, "dispEsts" = dispEsts, "statInfo" = statInfo)
 }# END - function: negBinTestDESeq2 using ape.glm
+
 
 ### performs negative binomial two-sample test of *DESeq2-ape.glm-zinb* to detect Diff. Abund.
 negBinTestDESeq2apeglmZINB <- function(physeq, design = as.formula("~ grp"), IndepFilter = NULL,
@@ -804,6 +858,40 @@ scdemodel <- function(physeq,design = as.formula("~ grp"))
   list("pValMat" = pValMat, "statInfo" = statInfo)
 }# END - function: Single-Cell Differential Expression Analysis scde
 
+
+runPois.ztest<-function(physeq){
+  
+  groupVar <- get_variable(physeq, "grp")
+  counts <- as(otu_table(physeq), "matrix")
+  names(groupVar) <- colnames(counts)
+  counts <- apply(counts,2,function(x) {storage.mode(x) <- 'integer'; x})
+  m=rowMeans(counts)
+
+  sfs=colSums(counts)
+  sfs=sfs/min(sfs)
+  #if(dat$sf) dat$counts=sweep(dat$counts,2,sfs,FUN='/')
+  n0=sum(pData(e)$condition=="A")
+  n1=sum(pData(e)$condition=="B")
+  m0=rowMeans(exprs(e)[,pData(e)$condition=="A"])
+  m1=rowMeans(exprs(e)[,pData(e)$condition=="B"])
+  n=nrow(counts)
+  pval=rep(1,n)
+  for(i in 1:n){
+    z=(m1[i]-m0[i])/sqrt(m1[i]/n1+m0[i]/n0)
+    pval[i]=2*pnorm(-abs(z))
+  }
+  fdr=p.adjust(pval,method='fdr')
+  lfc=log((m1+1)/(m0+1),2)
+  names(pval) <- rownames(exprs(e))
+  names(fdr) <- rownames(exprs(e))
+  
+  pValMat <- as.matrix(cbind(rawP = pval,adjP = fdr))
+  rownames(pValMat) <- rownames(counts)
+  
+  statInfo <- cbind("logFC" = lfc)
+  list("pValMat" = pValMat, "statInfo" = statInfo)
+}
+
 runGFOLD <- function(physeq) {
   e <- ExpressionSet(physeq@otu_table@.Data, AnnotatedDataFrame(physeq@sam_data))
   
@@ -925,22 +1013,26 @@ oneSimRunGSOwn <- function(physeq, beta, true_weights = NULL, epsilon = 1e10) {
     ## NB test from DESeq2 with ape.glm
     DESeq2_poscounts_apeglm <- negBinTestDESeq2apeglm(physeq, normFacts = "poscounts")
     cat("NB DESeq2 with ape.glm tests: DONE\n")
-    ## NB test from DESeq2 with ape.glm
-    # DESeq2_poscounts_apeglmzinb <- negBinTestDESeq2apeglmZINB(physeq, normFacts = "poscounts")
-    # cat("NB DESeq2 with ape.glm-ZINB tests: DONE\n")
+    ## NB test from DESeq2 with gam.poi distr
+    DESeq2_poscounts_gampoi <- negBinTestDESeq2_GamPoi(physeq, normFacts = "poscounts")
+    cat("NB DESeq2 with gam.pois tests: DONE\n")
+    
+    # circMeta
+    circMeta <- runPois.ztest(physeq)
+    cat("circMeta tests: DONE\n")
     
     # EMD
-    SigEMD_TMM <- SigEMD(physeq, normFacts = "TMM")
-    cat("EMD with TMM normalization tests: DONE\n")
-    SigEMD_RLE <- SigEMD(physeq, normFacts = "poscounts")
-    cat("EMD with RLE normalization tests: DONE\n")
+    # SigEMD_TMM <- SigEMD(physeq, normFacts = "TMM")
+    # cat("EMD with TMM normalization tests: DONE\n")
+    # SigEMD_RLE <- SigEMD(physeq, normFacts = "poscounts")
+    # cat("EMD with RLE normalization tests: DONE\n")
     
     # Seurat
-    seurat_wilcoxon <- Seuratmodel(physeq)
-    cat("Seurat Wilcoxon tests: DONE\n")
+    # seurat_wilcoxon <- Seuratmodel(physeq)
+    # cat("Seurat Wilcoxon tests: DONE\n")
     # NODES
-    nodes <- NODESmodel(physeq)
-    cat("NODES Wilcoxon tests: DONE\n")
+    # nodes <- NODESmodel(physeq)
+    # cat("NODES Wilcoxon tests: DONE\n")
     
     ## baySeq
     # baySeq_TMM <-  BaySeq(physeq, normFacts = "TMM")
@@ -949,10 +1041,10 @@ oneSimRunGSOwn <- function(physeq, beta, true_weights = NULL, epsilon = 1e10) {
     # cat("BaySeq with RLE normalization tests: DONE\n")
     
     # DEsingle
-    DeSingle_TMM <- DeSingle(physeq, normFacts = "TMM")
-    cat("DeSingle with TMM normalization tests: DONE\n")
-    DeSingle_RLE <- DeSingle(physeq, normFacts = "poscounts")
-    cat("DeSingle with RLE normalization tests: DONE\n")
+    # DeSingle_TMM <- DeSingle(physeq, normFacts = "TMM")
+    # cat("DeSingle with TMM normalization tests: DONE\n")
+    # DeSingle_RLE <- DeSingle(physeq, normFacts = "poscounts")
+    # cat("DeSingle with RLE normalization tests: DONE\n")
     
     ## ShrinkBayes
     # ShrinkBayes_TMM <-  ShrinkBayes(physeq, normFacts = "TMM")
@@ -961,8 +1053,8 @@ oneSimRunGSOwn <- function(physeq, beta, true_weights = NULL, epsilon = 1e10) {
     # cat("ShrinkBayes with RLE normalization tests: DONE\n")
     
     # scde single cell differential expression
-    scde <- scdemodel(physeq)
-    cat("scde single cell differential expression tests: DONE\n")
+    # scde <- scdemodel(physeq)
+    # cat("scde single cell differential expression tests: DONE\n")
   
   })
   return(returnList)
