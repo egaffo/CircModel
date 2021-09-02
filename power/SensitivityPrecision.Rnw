@@ -14,6 +14,7 @@ We load the benchmarking results, which were produced by the script
 <<loadData>>=
 basedir = "/blackhole/alessia/CircModel/"
 load(file = "/blackhole/alessia/CircModel/power/IPF_sensitivityPrecision_CCP2_glmglmm_30rep.RData")
+load(file = "/blackhole/alessia/CircModel/power/ALZ_sensitivityPrecision_CCP2_glmglmm_30rep.RData")
 
 @ 
 
@@ -140,7 +141,7 @@ d$algorithm <- renameAtoB(d$algorithm, "edgeR.robust", "edgeR-robust")
 d$algorithm <- renameAtoB(d$algorithm, "edgeR.ZINBWave", "edgeR-ZINB Wave")
 d$algorithm <- renameAtoB(d$algorithm, "DESeq2.ZINBWave", "DESeq2-ZINB Wave")
 d$algorithm <- renameAtoB(d$algorithm, "DESeq2.ZI", "DESeq2-ZeroInflated")
-d$algorithm <- renameAtoB(d$algorithm, "DESEq2.glmGamPoi", "DESeq2-GamPoi")
+d$algorithm <- renameAtoB(d$algorithm, "DESeq2.glmGamPoi", "DESeq2-GamPoi")
 d$algorithm <- renameAtoB(d$algorithm, "GLMM_NB", "GLMM")
 
 d$algorithm <- as.character(d$algorithm)
@@ -153,7 +154,7 @@ d$testCalls <- as.numeric(d$testCalls)
 
 <<testCalls, dev="pdf", fig.align="center", fig.width=8, fig.height=6, fig.cap="Evaluation set calls (adjusted $p$-value $< .1$)">>=
 p <- ggplot(d, aes(x=reorder(algorithm,testCalls,median),y=testCalls,color=algorithm))
-png("/blackhole/alessia/CircModel/power/Figure/DEcalls_evaluation_IPF.png", res = 200, units = "cm", width = 25, height = 15)
+png("/blackhole/alessia/CircModel/power/Figure/DEcalls_evaluation_ALZ.png", res = 200, units = "cm", width = 25, height = 15)
 p + geom_boxplot(outlier.colour=rgb(0,0,0,0)) + theme_bw() +
     geom_point(position = position_jitter(w = 0.1, h = 0), color="grey50", size=1) +
     # facet_grid(.~detection.method) +
@@ -168,7 +169,7 @@ dev.off()
 
 <<heldoutCalls, dev="pdf", fig.align="center", fig.width=8, fig.height=6, fig.cap="Verification set calls (adjusted $p$-value $< .1$)">>=
 p <- ggplot(d, aes(x=reorder(algorithm,heldoutCalls,median),y=heldoutCalls,color=algorithm))
-png("/blackhole/alessia/CircModel/power/Figure/DEcalls_verification_IPF.png", res = 200, units = "cm", width = 25, height = 15)
+png("/blackhole/alessia/CircModel/power/Figure/DEcalls_verification_ALZ.png", res = 200, units = "cm", width = 25, height = 15)
 p + geom_boxplot(outlier.colour=rgb(0,0,0,0)) + theme_bw() +
     geom_point(position = position_jitter(w = 0.1, h = 0), color="grey50", size=1) +
     # facet_grid(.~detection.method) +
@@ -231,8 +232,8 @@ d$verification <- renameAtoB(d$verification, "edgeR.ZINBWave", "edgeR-ZINB Wave"
 d$evaluation <- renameAtoB(d$evaluation, "edgeR.ZINBWave", "edgeR-ZINB Wave")
 d$evaluation <- renameAtoB(d$evaluation, "DESeq2.ZINBWave", "DESeq2-ZINB Wave")
 d$verification <- renameAtoB(d$verification, "DESeq2.ZINBWave", "DESeq2-ZINB Wave")
-d$evaluation <- renameAtoB(d$evaluation, "DESEq2.glmGamPoi", "DESeq2-GamPoi")
-d$verification <- renameAtoB(d$verification, "DESEq2.glmGamPoi", "DESeq2-GamPoi")
+d$evaluation <- renameAtoB(d$evaluation, "DESeq2.glmGamPoi", "DESeq2-GamPoi")
+d$verification <- renameAtoB(d$verification, "DESeq2.glmGamPoi", "DESeq2-GamPoi")
 d$evaluation <- renameAtoB(d$evaluation, "DESeq2.ZI", "DESeq2-ZeroInflated")
 d$verification <- renameAtoB(d$verification, "DESeq2.ZI", "DESeq2-ZeroInflated")
 d$evaluation <- renameAtoB(d$evaluation, "GLMM_NB", "GLMM")
@@ -246,7 +247,7 @@ d <- d %>%
 
 <<sensitivityGrid, dev="pdf", fig.width=8, fig.height=6, fig.cap="Sensitivity, where each algorithm's calls (adjusted $p$-value $< .1$) in the evaluation set (color boxes) is compared against itselfs (adjusted $p$-value $< .1$) in the verification set (grey labels).">>=
 # d.glmm <- d.glmm[complete.cases(d.glmm),]
-png("/blackhole/alessia/CircModel/power/Figure/Power_sensitivity_IPF.png", res = 200, units = "cm", width = 25, height = 15)
+png("/blackhole/alessia/CircModel/power/Figure/Power_sensitivity_ALZ.png", res = 200, units = "cm", width = 25, height = 15)
 p <- ggplot(d, aes(x=evaluation,y=sensitivity,color=evaluation))
 p + geom_boxplot(outlier.colour=rgb(0,0,0,0)) + theme_bw() + 
   # facet_wrap(~ detection.method) + 
@@ -263,7 +264,7 @@ dev.off()
 @
 
 <<precisionGrid, dev="pdf", fig.width=8, fig.height=6, fig.cap="Precision, where each algorithm's calls (adjusted $p$-value $< .1$) in the evaluation set (color boxes) is compared against itselfs (adjusted $p$-value $< .1$) in the verification set (grey labels).">>=
-png("/blackhole/alessia/CircModel/power/Figure/Power_precision_IPF.png", res = 200, units = "cm", width = 25, height = 15)
+png("/blackhole/alessia/CircModel/power/Figure/Power_precision_ALZ.png", res = 200, units = "cm", width = 25, height = 15)
 p <- ggplot(d, aes(x=evaluation,y=precision,color=evaluation))
 p + geom_boxplot(outlier.colour=rgb(0,0,0,0)) + theme_bw() + 
   # facet_wrap(~ detection.method) + 
@@ -318,7 +319,7 @@ AUPRC$model = factor(AUPRC$model)
 AUPRC$model <- renameAtoB(AUPRC$model, "edgeR.robust", "edgeR-robust")
 AUPRC$model <- renameAtoB(AUPRC$model, "edgeR.ZINBWave", "edgeR-ZINB Wave")
 AUPRC$model<- renameAtoB(AUPRC$model, "DESeq2.ZINBWave", "DESeq2-ZINB Wave")
-AUPRC$model <- renameAtoB(AUPRC$model, "DESEq2.glmGamPoi", "DESeq2-GamPoi")
+AUPRC$model <- renameAtoB(AUPRC$model, "DESeq2.glmGamPoi", "DESeq2-GamPoi")
 AUPRC$model<- renameAtoB(AUPRC$model, "DESeq2.ZI", "DESeq2-ZeroInflated")
 AUPRC$model = renameAtoB(AUPRC$model, "GLMM_NB", "GLMM")
 p <- ggplot(AUPRC, aes(x = reorder(model, AUPRC), y = AUPRC, color = model))
