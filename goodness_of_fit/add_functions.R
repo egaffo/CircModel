@@ -1,8 +1,9 @@
-library(zinbwave)
-# library(EDASeq)
-library(edgeR)
-# library(MGLM)
-library(plyr)
+# library(zinbwave)
+suppressPackageStartupMessages(library(edgeR))
+suppressPackageStartupMessages(library(plyr))
+suppressPackageStartupMessages(library(DESeq2))
+suppressPackageStartupMessages(library(pscl))
+suppressPackageStartupMessages(library(MASS)) ## for the glm.nb
 
 ### Extraction of ZINB coefs
 computeExp <- function(zinbModel){
@@ -14,6 +15,7 @@ computeVar <- function(zinbModel){
   phi = exp(-getZeta(zinbModel))
   (1 - pi) * mu * (1 + mu*(phi + pi))
 }
+
 computeP0 <- function(zinbModel){
   mu = t(getMu(zinbModel))
   pi = t(getPi(zinbModel))
@@ -31,62 +33,7 @@ zinb.loglik.matrix <- function(model, x) {
   log(lik)
 }
 
-fitZINB <- function(counts)
-{
-  cat("Model: Zero-Inflated Negative Binomial \n")
-  fit <- zinbwave::zinbFit(Y = counts[c(1:20),],
-                           epsilon = 1e10, # Regularization parameter fixed
-                           commondispersion = TRUE,
-                           verbose = TRUE,
-                           BPPARAM = BiocParallel::SerialParam())
-  mu = t(zinbwave::getMu(fit))
-  pi = t(zinbwave::getPi(fit))
-  phi = zinbwave::getPhi(fit)
-
-  Y = log1p(rowMeans((1 - pi) * mu))
-  Y0 = rowMeans(pi + (1 - pi) * (1 + phi * mu) ^ (-1/phi))
-
-  
-  theta = getTheta(fit)
-  logipi = getLogitPi(fit)
-  zinbllik = c()
-
-  llik <- lapply(1:nrow(counts), function(i){
-    y = counts[i,]
-    mu.t = t(mu)[,i]
-    zinbllik = zinb.loglik(Y = y, mu = mu.t, theta = theta[i], logitPi = logipi[,i])
-    return(zinbllik)
-    })
-  
-  zinbwave.llik = unlist(llik)
-  
-  return(data.frame("Y" = Y, "Y0" = Y0, "zinbloglik" = zinbwave.llik, row.names = names(Y)))
-}
-
-# Negative Binomial fitting
-fitNB <- function(counts){
-  cat("Model: Negative Binomial \n")
-  # Default normalization
-  normFacts <- edgeR::calcNormFactors(counts)
-  # DGEList object creation
-  dge <- edgeR::DGEList(counts = counts, norm.factors = normFacts)
-  # Dispersion estimate
-  disp <- edgeR::estimateDisp(y = dge, tagwise = TRUE)
-  # GLM
-  fit <- edgeR::glmFit(dge$counts,
-                       dispersion = disp$tagwise.dispersion)
-  nbloglik <- rowSums(dnbinom(x = counts,
-                              size=1/disp$tagwise.dispersion,
-                              mu=rowMeans(fit$fitted.values),
-                              log = TRUE))
-  # Fitted values extraction
-  # Return the log(average fitted values + 1) to
-  Y = log1p(rowMeans(fit$fitted.values))
-  Y0 = rowMeans((1 + fit$fitted.values * disp$tagwise.dispersion)^(-1/disp$tagwise.dispersion))
-  return(data.frame("Y" = Y, "Y0" = Y0, "nbloglik" = nbloglik, row.names = names(Y)))
-}
-
-# Negative Binomial fitting
+# Negative Binomial fitting with TMM norm factors
 fitNB_TMM <- function(counts, design){
   normFacts <- edgeR::calcNormFactors(counts, method = "TMM")
   dge <- DGEList(counts = counts)
@@ -96,17 +43,34 @@ fitNB_TMM <- function(counts, design){
   list(fitted = fit$fitted.values, disp = disp$tagwise.dispersion)
 }
 
+#' Scale counts and compute mean number of zero counts per row
+#'
+#' @param counts 
+#' @param scale _NULL_ (default) no scaling; _median_ median scaling; 
+#' _default_ is CPM
+#'
+#' @return
+#' @export
+#'
+#' @examples
 prepareObserved <- function(counts,
                             scale = NULL){
   if(!is.null(scale)){
+    
     if(scale == "median"){
+      
       counts <- counts * stats::median(colSums(counts)) / colSums(counts)
+      
     } else if(scale == "default"){
+      
       counts <- counts * 1e6 / colSums(counts)
+      
     } else stop("When specified, 'scale' must be 'median' or 'default'")
   }
+  
   Y <- log1p(rowMeans(counts))
   Y0 <- rowMeans(counts == 0)
+  
   return(data.frame("Y" = Y, "Y0" = Y0))
 }
 
@@ -123,114 +87,236 @@ RMSE <- function(differences){
   sqrt(mean(differences^2,na.rm = TRUE))
 }
 
-fitModels <- function(counts,
-                      models = c("NB","ZINB"), 
-                      scale = NULL, design=NULL){
+# Negative Binomial fitting
+fitNB <- function(dge){
   
-  keep = raster::rowSums(x = counts) >= 2
-  counts = counts[keep, ]
-  nCovariates = 0
-  if (!is.null(design)) {
-    covariates = as.matrix(design)
-    p = dim(design)[2]
-    if(p==1 && length(unique(design)) == 1){
-      # only intercept
-      nCovariates = 1
+  message("Fitting NB ...")
+
+  fit <- edgeR::glmFit(dge$counts,
+                       dispersion = dge$tagwise.dispersion)
+  nbloglik <- rowSums(dnbinom(x = dge$counts,
+                              size = 1 / dge$tagwise.dispersion,
+                              mu = rowMeans(fit$fitted.values),
+                              log = TRUE))
+  # Fitted values extraction
+  # Return the log(average fitted values + 1) to
+  
+  Y <- log1p(rowMeans(fit$fitted.values))
+  
+  Y0 <- rowMeans((1 + fit$fitted.values * dge$tagwise.dispersion)^(-1 / dge$tagwise.dispersion))
+  
+  return(data.frame("Y" = Y, 
+                    "Y0" = Y0, 
+                    "nbloglik" = nbloglik, 
+                    row.names = names(Y)))
+}
+
+fit_zeroinfl <- 
+  function(ithrow, coefs, disps, sf, logmean){
+    
+    zinb.mean <- exp(logmean)
+    zinb.prop <- -Inf
+    zinb.disp <- disps
+    zinb.loglik <- NA
+    
+    if(any(ithrow == 0)){
+      ## if at least a count is zero, fit a ZINB
+      try({
+        zfit <- zeroinfl(formula = ithrow ~ 1 | 1,
+                         dist = "negbin",
+                         offset = log(sf),
+                         EM = F,
+                         start = list(count = coefs,
+                                      zero = -3,
+                                      theta = 1 / disps))
+        
+        zinb.mean <- mean(exp(zfit$coefficients$count))
+        zinb.prop <- zfit$coefficients$zero
+        zinb.disp <- 1 / zfit$theta
+        zinb.loglik <- zfit$loglik
+      })
     } else {
-      nCovariates = p + 1
+      ## fit a NB if no zero counts
+      zfit <- MASS::glm.nb(formula = c(ithrow) ~ 1)
+      
+      zinb.mean <- mean(exp(zfit$coefficients))
+      zinb.prop <- -Inf
+      zinb.disp <- 1 / zfit$theta
+      zinb.loglik <- zfit$twologlik / 2
     }
+    
+    list("zinb.mean" = zinb.mean, 
+         "zinb.prop" = zinb.prop,
+         "zinb.disp" = zinb.disp,
+         "zinb.loglik" = zinb.loglik)
   }
+
+fitZINB <- function(dge) {
+  
+  message("Fitting ZINB ...")
+  
+  sf <- dge$samples[, "norm.factors"]
+  coefs <- coef(glmFit(dge$counts,
+                       dispersion = dge$tagwise.dispersion))
+  
+  centered.off <- getOffset(dge)
+  centered.off <- centered.off - mean(centered.off)
+  logmeans <- mglmOneGroup(dge$counts, 
+                           offset = centered.off, 
+                           dispersion = dge$tagwise.dispersion)
+  
+  library(BiocParallel)
+  fitted <- 
+    rbindlist(bpmapply(FUN = fit_zeroinfl, 
+                       ithrow = asplit(dge$counts, 1), 
+                       coefs = coefs, 
+                       disps = dge$tagwise.dispersion, 
+                       MoreArgs = list(sf = sf),
+                       logmean = logmeans, 
+                       SIMPLIFY = F),
+              idcol = "circ_id")
+  
+  zinb.prop <- exp(fitted$zinb.prop) / (1 + exp(fitted$zinb.prop))
+  
+  EY <- log1p((1 - zinb.prop) * fitted$zinb.mean)
+  
+  EY0 = zinb.prop + (1 - zinb.prop) * (1 + fitted$zinb.disp * fitted$zinb.mean) ^ (-1 / fitted$zinb.disp)
+  
+  return(data.frame("Y" = EY, 
+                    "Y0" = EY0, 
+                    "zinb.loglik" = fitted$zinb.loglik, 
+                    row.names = fitted$circ_id))
+}
+
+#' Fit NB and/or ZINB models
+#'
+#' @param counts The count matrix: genes in rows, samples as columns
+#' @param models A character specifying which models to fit ("NB" or "ZINB") or
+#' the vector c("NB", "ZINB") if both models has to be fitted 
+#' @param coldata As default, a design matrix with only an intercept is used to 
+#' compute the dispersion. Set this parameter with a data.frame reporting one 
+#' _condition_ column to consider experimental design.
+#' @param ... additional parameters for internal functions. 
+#' F.i. set scale = "median" 
+#'
+#' @return
+#' @export
+#'
+#' @examples
+fitModels <- function(counts,
+                      models = c("NB", "ZINB"), 
+                      coldata = NULL,
+                      ...) {
+  
+  nCovariates <- 0
+  
+  if(is.null(coldata)){
+    
+    message("NULL coldata. A model with only the intercept will be used")
+    ## generate a single-condition model
+    coldata <- 
+      data.frame(condition = rep("A", dim(counts)[2]))
+    rownames(coldata) <- colnames(counts)
+    
+    design <- model.matrix( ~ 1, data = coldata)
+    
+  }else{
+    
+    design <- model.matrix( ~ condition, data = coldata)
+    
+  }
+  
+  if (!is.null(design)) {
+    
+    covariates <- as.matrix(design)
+    
+    p <- dim(design)[2]
+    
+    if(p == 1 && length(unique(design)) == 1){
+      
+      # only intercept
+      message("Only the intercept in design")
+      nCovariates <- 1
+      
+    } else {
+      
+      message(paste(p, "covariates in design"))
+      nCovariates <- p + 1
+    }
+    
+    message(paste("Number of covariates:", nCovariates))
+  }
+  
+  observed <- prepareObserved(counts, ...)
+  
+  dge <- DGEList(counts = counts, 
+                 group = coldata[colnames(counts), "condition"])
+  dge <- calcNormFactors(dge)
+  dge <- estimateDisp(dge, tagwise = T, design = design)
+  
+  nObs <- ncol(dge$counts)
   
   fittedModels <- list()
-  observed <- prepareObserved(counts, scale = scale)
+  
   if("NB" %in% models){
-    fitted <- fitNB(counts)
+    
+    fitted <- fitNB(dge)
+    
     MD <- meanDifferences(estimated = fitted,
                           observed = observed)
-    aicNB = -2 * fitted$nbloglik + 2 * (nCovariates + 1)
-    fittedModels$NB <- data.frame(observed,MD,EY=fitted$Y,EY0=fitted$Y0,loglik=fitted$nbloglik, aic = aicNB)
+    
+    aicNB <- -2 * fitted$nbloglik + 2 * (nCovariates + 1)
+    
+    bicNB <- -2 * fitted$nbloglik + (log(nObs) * (nCovariates + 1))
+    
+    fittedModels$NB <- data.frame(observed, ## 'observed' is a named list
+                                  MD, ## 'MD' is a named list
+                                  EY = fitted$Y,
+                                  EY0 = fitted$Y0,
+                                  loglik = fitted$nbloglik, 
+                                  aic = aicNB,
+                                  bic = bicNB,
+                                  circ_id = rownames(fitted))
   }
+  
   if("ZINB" %in% models){
-    # fitted <- fitZINB(counts)
-
-    by.sample <- DGEList(counts)
-    # Normalizing using deseq2 method
-    library(DESeq2)
-    dds <- DESeqDataSetFromMatrix(countData = ceiling(counts[,rownames(colData)]),
-                                  colData = colData,
-                                  design = design)
-    dds <- estimateSizeFactors(dds, type = "poscounts")
-    sf <- sizeFactors(dds)
-    # Estimate the NB dispersion using deseq2 method
-    dds <- estimateDispersions(dds, fitType = "local",
-                               minmu = 1e-6)
-    dds = DESeq(dds)
-    # Estimate the log-overall mean
-    centered.off <- getOffset(by.sample)
-    centered.off <- centered.off - mean(centered.off)
-    logmeans <- mglmOneGroup(by.sample$counts, offset = centered.off, dispersion = dispersions(dds))
-    dispersion = dispersions(dds)
-    # Estimate of dispersion with ZINB model
-    zinb.prop <- rep(-Inf, nrow(counts))
-    zinb.disp <- dispersions(dds)
-    zinb.mean <- exp(logmeans)
-    zinb.loglik <- rep(NA, nrow(counts))
     
-    library(pscl)
-    for (i in 1:nrow(counts)){
-      # i=1
-      if(sum(by.sample$counts[i,]==0)>0){
-        try({
-          # i = 1
-          zfit <- zeroinfl(by.sample$counts[i,] ~ 1 | 1, 
-                           dist = "negbin", 
-                           offset = log(sf),
-                           EM = F,
-                           start = list(count = coef(dds)[i,1],
-                                        zero = -3,
-                                        theta = 1/dispersions(dds)[i]))
-          
-          zinb.mean[i] <- mean(exp(zfit$coefficients$count))
-          # zinb.mean[i] <- mean(zfit$fitted.values)
-          zinb.prop[i] <- zfit$coefficients$zero
-          zinb.disp[i] <- 1/zfit$theta
-          zinb.loglik[i] <- zfit$loglik
-        })  
-      } else {
-        zfit <- glm.nb(by.sample$counts[i,] ~ 1)
-        
-        zinb.mean[i] <- mean(exp(zfit$coefficients))
-        # zinb.mean[i] <- mean(zfit$fitted.values)
-        zinb.prop[i] <- -Inf
-        zinb.disp[i] <- 1/zfit$theta
-        zinb.loglik[i] <- zfit$twologlik/2
-      }
-      
-    }
-    zinb.prop <- exp(zinb.prop)/(1+exp(zinb.prop))
-
-    EY <- log1p((1 - zinb.prop) * zinb.mean)
+    fitted <- fitZINB(dge)
     
-    EY0 = zinb.prop + (1 - zinb.prop) * (1 + zinb.disp * zinb.mean) ^ (-1/zinb.disp)
-    
-    
-    aicZINB = -2 * zinb.loglik + 2 * (nCovariates + 1)
-    fitted.zinb = data.frame("Y" = EY, "Y0" = EY0)
-    MD <- meanDifferences(estimated = fitted.zinb,
+    MD <- meanDifferences(estimated = fitted,
                           observed = observed)
-    fittedModels$ZINB <- data.frame(observed,MD,EY=EY,EY0=zinb.prop,loglik=zinb.loglik, aic = aicZINB)
+    
+    aicZINB <- -2 * fitted$zinb.loglik + 2 * (nCovariates + 1)
+    
+    bicNB <- -2 * fitted$zinb.loglik + (log(nObs) * (nCovariates + 1))
+    
+    fittedModels$ZINB <- data.frame(observed, ## 'observed' is a named list
+                                    MD, ## 'MD' is a named list
+                                    EY = fitted$Y,
+                                    EY0 = fitted$Y0,#fitted$zinb.prop,
+                                    loglik = fitted$zinb.loglik, 
+                                    aic = aicZINB,
+                                    bic = bicNB,
+                                    circ_id = rownames(fitted))
   }
+  
   return(fittedModels)
 }
 
-extract_values <- function(site,distributions = c("ZINB","NB"), varnames = c("EY","EY0")){
-  cbind(ldply(lapply(site[distributions],function(dist){
-    as.data.frame(dist[varnames])
-  }),.id = "Models"),
-  ldply(lapply(site["OBSERVED"],function(dist){
-    observed_df <- as.data.frame(dist)
-    return(observed_df)
-  })))
+extract_values <- function(site, 
+                           distributions = c("ZINB", "NB"), 
+                           varnames = c("EY", "EY0")){
+  
+  cbind(ldply(lapply(site[distributions], 
+                     function(dist){
+                       as.data.frame(dist[varnames])
+                     }),
+              .id = "Models"),
+        ldply(lapply(site["OBSERVED"], 
+                     function(dist){
+                       observed_df <- as.data.frame(dist)
+                       return(observed_df)
+                     })))
 }
 
 # From model list to data.frame
@@ -239,11 +325,13 @@ model_to_data.frame <- function(model_list){
   # df <- ldply(df_list)
   df_list = lapply(model_list, function(x) {
     temp = rbindlist(x, idcol = "Models")
-    temp$circ_id = c(rownames(x$NB),rownames(x$ZINB))
+    temp$circ_id = c(rownames(x$NB), rownames(x$ZINB))
     temp
   })
   df = ldply(df_list)
-  colnames(df) <- c("Method", "Model","Y","Y0","MD", "ZPD", "EY","EY0", "loglik", "AIC", "circ_id")
+  colnames(df) <- c("Method", "Model",
+                    "Y", "Y0", "MD", "ZPD", "EY", "EY0", 
+                    "loglik", "AIC", "circ_id")
   return(df)
 }
 
@@ -275,11 +363,12 @@ compute_MAE <- function(df){
 }
 
 RMSE.func <- function(differences){
-  sqrt(mean(differences^2,na.rm = TRUE))
+  sqrt(mean(differences^2, na.rm = TRUE))
 }
 
 
 MDPlot <- function(data, difference = NULL, split = TRUE, method_cols){
+  
   if(difference == "MD"){
     if("Model" %in% colnames(data) & 
        "Method" %in% colnames(data) &
@@ -291,7 +380,7 @@ MDPlot <- function(data, difference = NULL, split = TRUE, method_cols){
                              .fun = function(m) cbind("RMSE" = RMSE.func(m$MD)))
       
       gobj <- ggplot(data = data, aes(x = Y, y = MD, color = Model)) +
-        scale_color_manual(values = method_cols) +
+        # scale_color_manual(values = method_cols) +
         ggtitle(label = "Mean Differences plot",
                 subtitle = paste0("Observed = log(mean(counts*)+1)",
                                   "\n",
@@ -300,25 +389,30 @@ MDPlot <- function(data, difference = NULL, split = TRUE, method_cols){
       if(split){
         gobj <- gobj +
           geom_text(data = RMSE_MD, color = "black",
-                    aes(x = mean(data$Y)+2,
+                    aes(x = mean(data$Y) + 2,
                         y = max(data$MD,na.rm = TRUE),
-                        label = paste0("RMSE:",round(RMSE,3))), size = 3)
+                        label = paste0("RMSE:", round(RMSE, 3))), size = 3)
       }
       
-    } else {stop("data should contains 'Model', 'Y', and 'MD' columns for model
-              name, observed values and mean difference values respectively.")}
+    } else {
+      stop(paste0("'data' should contains 'Method', Model', 'Y', and 'MD' ", 
+                  "columns for the method that generated the counts, ", 
+                  "the model name, observed values, and mean difference ", 
+                  "values, respectively."))}
+    
   } else if(difference == "ZPD"){
+    
     if("Model" %in% colnames(data) &
        "Method" %in% colnames(data) &
        "Y0" %in% colnames(data) &
        "ZPD" %in% colnames(data)){
       
       RMSE_ZPD <- ddply(.data = data,
-                              .variables = ~ Method + Model,
-                              .fun = function(m) cbind("RMSE" = RMSE.func(m$ZPD)))
+                        .variables = ~ Method + Model,
+                        .fun = function(m) cbind("RMSE" = RMSE.func(m$ZPD)))
       
       gobj <- ggplot(data = data, aes(x = Y0,  y = ZPD,  color = Model)) +
-        scale_color_manual(values = method_cols) +
+        # scale_color_manual(values = method_cols) +
         ggtitle(label = "Zero Probability Differences plot", subtitle =
                   "Observed = mean(counts=0)\nEstimated = mean(P(Y=0))")
       
@@ -327,12 +421,15 @@ MDPlot <- function(data, difference = NULL, split = TRUE, method_cols){
           geom_text(data = RMSE_ZPD, color = "black",
                     aes(x = 0.25,
                         y = max(data$ZPD,na.rm = TRUE),
-                        label = paste0("RMSE:",round(RMSE,2))), size = 3)
+                        label = paste0("RMSE:", round(RMSE, 2))), size = 3)
       }
       
-    } else {stop("df should contains 'Model', 'Y0', and 'ZPD' columns for model
-              name, zero rate observed values and zero probability difference
-              values respectively.")}
+    } else {
+      stop(paste0("'data' should contains 'Method', Model', 'Y0', and 'ZPD' ", 
+                  "columns for the method that generated the counts, ", 
+                  "the model name, zero rate observed values, and zero probability ", 
+                  "values, respectively."))
+    }
   } else stop("Difference must be 'MD' or 'ZPD'")
   
   gobj <- gobj +
@@ -344,18 +441,12 @@ MDPlot <- function(data, difference = NULL, split = TRUE, method_cols){
   if(length(unique(data$Model))>1){
     if(split){
       gobj <- gobj +
-        facet_grid(Model ~ Method, labeller = label_wrap_gen(width=10)) +
-        geom_point(pch = 21) +
-        geom_smooth(color = "black") +
+        facet_grid(Model ~ Method, labeller = label_wrap_gen(width = 10)) +
+        geom_point(alpha = .3) +
+        geom_smooth(color = "black", method = "lm") +
         theme_classic() +
         theme(legend.position = "bottom",
-              strip.text.x = element_text(face = "bold.italic", size = 7.5),
-              strip.text.y = element_text(face = "bold.italic", size = 10),
-              strip.background = element_rect(colour = "grey", size = 1),
-              axis.text.x = element_text(hjust = 1, angle = 45, size = 14),
-              axis.text.y = element_text(size = 14),
-              text = element_text(size=14),
-              plot.margin = unit(c(0,0,0,0), "cm"))
+              plot.margin = unit(c(0, 0, 0, 0), "cm"))
     } else {
       gobj <- gobj +
         geom_smooth()
