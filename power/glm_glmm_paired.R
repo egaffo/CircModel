@@ -669,108 +669,112 @@ save(resMethods, resTes, resHeldout,lfcTest,lfcHeldout,
 ## type I error rate
 # -------------------
 
-randomSubsets <- read.table("/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/robustness_glmm/DM1/random_shuffle50.txt",strings=FALSE)
+randomSubsets <- read.table("/blackhole/alessia/CircModel/type_I_error_control/random_shuffle_ALZ.txt",strings=FALSE)
 resTest<- list()
 resHeldout <- list()
 lfcTest <- list()
 lfcHeldout <- list()
 ratemodel <- list()
-nreps <- 50
+nreps <- 30
 set.seed(12388)
 library("future.apply")
 
-plan(multisession, workers = 2)
-res <- future_lapply(X = e, future.seed = T, FUN =  function(x) { 
-  for(i in pkgs) { library(i, quietly=TRUE, verbose=FALSE, warn.conflicts=FALSE, character.only=TRUE) }
-  library(dplyr)
-  library(data.table)
-  library(plyr)
-  resMethods <- bplapply(1:nreps, function(i) {   
-    
-    cat(i," ")
-     i = 1
-     x = e$ccp2
-    NormSet <- as.character(randomSubsets[i,c(1:10)])
-    TumorSet <- as.character(randomSubsets[i,-c(1:10)])
-    data <- x[,c(NormSet, TumorSet)]
-    keep = which(rowSums(exprs(data))==0)
-    data <- data[-keep,]
-    data <- data[which(rowSums(exprs(data)) >= 2),]
-    resIdx = rownames(data)
-    
-    pData(data)$condition = ifelse(pData(data)$sample%in%NormSet, "B", "A")
-    
-    # zinbmodelTest <- zinbFit(Y = round(exprs(data)), 
-    #                          X = model.matrix(~ pData(data)$condition), K = 0,
-    #                          epsilon = 1e10, commondispersion = FALSE, verbose = FALSE)
-    # weightsTest <- computeExactWeights(model = zinbmodelTest, x = exprs(data))
-    
-    resTest0 <- lapply(namesAlgos, function(n) algos[[n]](e=data, w=NULL))
-    
-    resTest <- as.data.frame(c(lapply(resTest0, function(z) z$padj)))
-    lfcTest <- as.data.frame(c(lapply(resTest0, function(z) z$beta)))
-    rownames(resTest) <- resIdx
-    rownames(lfcTest) <- resIdx
-    signif <- lapply(resTest0, function(x) ifelse(x$padj <= 0.1, 1, 0))
-    ratemodel <- as.data.frame(c(lapply(signif, function(x) mean(x))))
-    
-    cat(i," ")
-    glmm.wide = glmm.wide %>% dplyr::filter(SampleID%in%randomSubsets[i,]) %>% 
-      mutate(condition = case_when(
-        SampleID%in%randomSubsets[i, 1:10] ~ "Tumor",
-        SampleID%in%randomSubsets[i, -c(1:10)] ~ "Normal") %>%
-          as.factor() %>%
-          structure(levels = c("Tumor","Normal")))
-    pheno <- glmm.wide[,c("MethodID", "SampleID", "condition")]
-    circularcounts <- as.matrix(t(glmm.wide[,-c("MethodID", "SampleID", "condition")]))
-    circularcounts <- circularcounts[rownames(data), ]
-    
-    # circularcounts <- circularcounts[which(rowSums(circularcounts >= 4) >= 5), ]
-    
-    dge <- edgeR::DGEList(circularcounts)
-    dge <- calcNormFactors(dge, method = "TMM")
-    offsets <- dge$samples$norm.factors # norm.factors per samples
-    pheno$condition <- as.factor(pheno$condition)
-    pheno$MethodID <- as.factor(pheno$MethodID)
-    pheno$ln.lib.size <- offsets
-    # circularcounts <- log(sweep(circularcounts,2,apply(circularcounts,2,mean),'/'))
-    circularcounts <- t(circularcounts[,pheno$SampleID])
-    allsamples <- cbind(pheno,circularcounts) %>% as.data.frame()
-    
-    ## glmmTMB
-    fitTMB <- lapply(5:ncol(allsamples),
-                     function(x){glmmTMB::glmmTMB(allsamples[,x] ~ condition + (1 | SampleID),
-                                                  data=allsamples,
-                                                  family=nbinom2,
-                                                  ziformula= ~0)})
-    summaries <- lapply(fitTMB, summary)
-    pvalues <- as.numeric(unlist(lapply(summaries, function(x){stats::coef(x)$cond[2,4]})))
-    pvalues[is.na(pvalues)] = 1
-    padj = p.adjust(pvalues, method = "BH")
-    
-    rateTMB = list()
-    rateTMB.adj = list()
-    
-    for (p in 1:length(pval)){
-      # p=1
-      signif.adj <- ifelse(padj <= pval[p], 1, 0)
-      signif <- ifelse(pvalues <= pval[p], 1, 0)
-      rateTMB[[p]] = mean(signif)
-      rateTMB.adj[[p]] = mean(signif.adj)
-      
-    }
-    rateGLMM = merge(rbindlist(lapply(rateTMB, function(x) data.frame(rateGLMM = x)), idcol = "pvalue"),
-                 rbindlist(lapply(rateTMB.adj, function(x) data.frame(rateGLMM.adj = x)), idcol = "pvalue"), 
-                 by = "pvalue")
-    rateGLMM$pvalue = pval
-    resTestGLMM <- as.data.frame(pvalues)
-    rownames(resTestGLMM) = colnames(allsamples[,5:ncol(allsamples)])
-    
-    list(rate=ratemodel,resTest=resTest, resGLMM = resTestGLMM, rateGLMM = rateGLMM)
-  })
-  # return(list(res=resMethods))
-  resMethods
-})
+# plan(multisession, workers = 2)
+## define BIOCPARALLEL parameters
+hosts <- c("grigri", "grigri", "anhal")
+param <- SnowParam(workers = hosts, type = "SOCK")
+param
+
+resMethods <- bplapply(1:30, function(i) {   
+  
+  cat(i," ")
+  # i = 1
+  
+  NormSet <- as.character(randomSubsets[i,c(1:10)])
+  TumorSet <- as.character(randomSubsets[i,-c(1:10)])
+  eTest <- e[,c(NormSet, TumorSet)]
+  eTest_filt <- CREART::smallest_group_filter(x = as.data.table(ccp2[,c("circ_id", testSet)]), 
+                                              cond = as.data.table(coldata[coldata$sample%in%testSet,]),
+                                              rthr = 1)
+  
+  keep = eTest_filt$circ_id
+  eTest <- eTest[keep,]
+  ## run other DE methods for comparison
+  zinbmodelTest <- zinbFit(Y = round(exprs(eTest)),
+                           X = model.matrix(~ pData(eTest)$condition), K = 0,  maxiter.optimize = 2,
+                           epsilon = 1000, commondispersion = FALSE, verbose = T, BPPARAM=BiocParallel::SerialParam())
+  
+  
+  weightsTest <- computeExactWeights(model = zinbmodelTest, x = exprs(eTest))
+  
+  resTest0 <- lapply(namesAlgos, function(n) algos[[n]](e=eTest, w=weightsTest))
+  resTest0$circMeta = runPois.ztest(e = eTest)
+  resTest0$voom = runVoom(e = eTest)
+
+  resTest <- as.data.frame(c(lapply(resTest0, function(z) z$padj)))
+  lfcTest <- as.data.frame(c(lapply(resTest0, function(z) z$beta)))
+  rownames(resTest) <- keep
+  rownames(lfcTest) <- keep
+  signif <- lapply(resTest0, function(x) ifelse(x$padj <= 0.1, 1, 0))
+  ratemodel <- as.data.frame(c(lapply(signif, function(x) mean(x))))
+
+  testSetGLMM <- coldata[coldata$sample%in%c(NormSet, TumorSet),]
+
+  ## GLMM
+  ## glmm-NB
+  pheno <- colData %>% dplyr::filter(variable%in%testSetGLMM$sample) %>% 
+    dplyr::rename(SampleID = variable) %>% 
+    dplyr::rename(MethodID = method) %>% 
+    dplyr::rename(condition = group)
+  
+  circularcounts <- count.matrix.glmm[rownames(count.matrix.glmm)%in%rownames(eTest), rownames(pheno)]
+  colnames(circularcounts) = sub("\\..*", "", colnames(circularcounts))
+  testIDx = rownames(circularcounts)
+  dge <- edgeR::DGEList(circularcounts)
+  dge <- edgeR::calcNormFactors(dge, method = "TMM")
+  offsets <- dge$samples$norm.factors # norm.factors per samples
+  pheno$condition <- as.factor(pheno$condition)
+  pheno$MethodID <- as.factor(pheno$MethodID)
+  pheno$ln.lib.size <- offsets
+  # circularcounts <- log(sweep(circularcounts,2,apply(circularcounts,2,mean),'/'))
+  circularcounts <- t(circularcounts)
+  allsamples_test <- cbind(pheno,circularcounts) %>% as.data.frame()
+  
+
+  allsamples_test = allsamples_test[, colnames(allsamples_test)%in%c(colnames(allsamples_test)[1:4], keep)]
+
+  ## test GLMM-NB
+  fit_GLMM_NB_test <- lapply(5:ncol(allsamples_test),
+                             function(x){glmmTMB::glmmTMB(allsamples_test[,x] ~ condition + (1 | SampleID),
+                                                          data=allsamples_test,
+                                                          family=glmmTMB::nbinom2,
+                                                          ziformula= ~0)})
+  summaries <- lapply(fit_GLMM_NB_test, summary)
+  pvalues <- as.numeric(unlist(lapply(summaries, function(x){stats::coef(x)$cond[2,4]})))
+  pvalues[is.na(pvalues)] = 1
+  padj = p.adjust(pvalues, method = "BH")
+  
+  rateTMB = list()
+  rateTMB.adj = list()
+  
+  for (p in 1:length(pval)){
+    # p=1
+    signif.adj <- ifelse(padj <= pval[p], 1, 0)
+    signif <- ifelse(pvalues <= pval[p], 1, 0)
+    rateTMB[[p]] = mean(signif)
+    rateTMB.adj[[p]] = mean(signif.adj)
+  }
+  
+  rateGLMM = merge(rbindlist(lapply(rateTMB, function(x) data.frame(rateGLMM = x)), idcol = "pvalue"),
+                   rbindlist(lapply(rateTMB.adj, function(x) data.frame(rateGLMM.adj = x)), idcol = "pvalue"), 
+                   by = "pvalue")
+  rateGLMM$pvalue = pval
+  resTestGLMM <- as.data.frame(pvalues)
+  rownames(resTestGLMM) = colnames(allsamples[,5:ncol(allsamples)])
+  
+  list(rate = ratemodel, resTest = resTest, resGLMM = resTestGLMM, rateGLMM = rateGLMM)
+
+}, BPPARAM = param)
 
 resRate <- lapply(res, function(x) lapply(x, "[[", "rate"))
 resTest <- lapply(res, function(x) lapply(x, "[[", "resTest"))
@@ -778,5 +782,4 @@ resRateGLMM <- lapply(res, function(x) lapply(x, "[[", "rateGLMM"))
 resTestGLMM <- lapply(res, function(x) lapply(x, "[[", "resTestGLMM"))
 
 save(resRate,resTest,namesAlgos,resRateGLMM,resTestGLMM,
-     file="/blackhole/alessia/CircModel/data/DM1_typeIerrorGLM_GLMM_10rep.RData")
-
+     file="/blackhole/alessia/CircModel/type_I_error_control/ALZ_typeIerrorGLM_GLMM_30rep.RData")
