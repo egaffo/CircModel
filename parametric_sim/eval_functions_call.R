@@ -167,7 +167,7 @@ evals_all_glmm = list()
 for(k in 1:2){
     if(k==1){
       # k=1
-      for(i in 1:30){
+      for(i in c(1:30, 61:90)){
         evals_all_glmm[[i]] = append(evals_all[[i]], list(evals.glmm[[k]][[i]]))  
         names(evals_all_glmm[[i]]) = c(names(evals_all[[i]])[-15], "DESeq2-ZI", "GLMM")
       }      
@@ -178,12 +178,12 @@ for(k in 1:2){
         names(evals_all_glmm[[i]]) = c(names(evals_all[[i]])[-15], "DESeq2-ZI", "GLMM")
       }
     }
-    if(k==3){
-        for(i in 61:90){
-          evals_all_glmm[[i]] = append(evals_all[[i]], list(evals.glmm[[k]][[i-60]]))  
-          names(evals_all_glmm[[i]]) = c(names(evals_all[[i]])[-15], "DESeq2-ZI", "GLMM")
-        }
-    }
+    # if(k==3){
+    #     for(i in 61:90){
+    #       evals_all_glmm[[i]] = append(evals_all[[i]], list(evals.glmm[[k]][[i-60]]))
+    #       names(evals_all_glmm[[i]]) = c(names(evals_all[[i]])[-15], "DESeq2-ZI", "GLMM")
+    #     }
+    # }
 }
 names(evals_all_glmm) = names(sims.glmm2)[1:90]
 saveRDS(evals_all_glmm, file = "/blackhole/alessia/CircModel/parametric_sim/ALZ_detmet_evals_allGLMM_parametricsimulations_S123_power.RDS")

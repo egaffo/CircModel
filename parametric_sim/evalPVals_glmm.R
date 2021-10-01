@@ -48,46 +48,19 @@ evalPVals <- function(resi, alpha = 0.05, pvalsType = "adjP", rawPvalsType = "ra
            AUC = ifelse(class(rocObj)[1] == "try-error", NA, AUC::auc(rocObj))))
 }  # END - function: evalPVals
 
-
-methods_Sel = c("circMeta","DESeq2_poscounts_gampoi","DESeq2_poscounts_zinbwave","DESeq2_poscounts",
-                "limma_voom_TMM_zinbwave","limma_voom_TMM",
-                "edgeR_TMM_zinbwave","edgeR_TMM_standard","edgeR_TMM_robustDisp", "DESeq2-ZI", "GLMM")                         
-library(purrr)
-evals_file="/blackhole/alessia/CircModel/parametric_sim/ALZ_detmet_evals_allGLMM_parametricsimulations_S12_power.RDS" #from eval_function_call.R
-sim_flow_file="/blackhole/alessia/CircModel/parametric_sim/ALZ_glmm_simulation_flow.RData"
 df_creator <- function(evals_file, sim_flow_file, out_dir){
   cat("Reading evals","\n")
   evals <- readRDS(file = evals_file)
-  evals_noTM <- lapply(evals, function(methods){methods %>% purrr::list_modify("truemodel" = NULL)})
-  evals_noTM <- lapply(evals_noTM, function(methods){methods %>% purrr::list_modify("Y" = NULL)})
-  evals_noTM = purrr::map(evals_noTM, function(x) keep(x, .p = names(x)%in%methods_Sel))
+  
   load(file = sim_flow_file)
   cat("Creating data.frame from evals","\n")
-  
-  # evals.glmm_df = foreach(i=1:3, .combine = rbind) %dopar% {
-  #   # i=2
-  #   eval.glmm <- evals.glmm[[i]]
-  #   eval.glmm_noTM <- lapply(eval.glmm, function(methods){methods %>% purrr::list_modify("truemodel" = NULL)})
-  #   eval.glmm_noTM <- lapply(eval.glmm_noTM, function(methods){methods %>% purrr::list_modify("Y" = NULL)})
-  #   eval_stats.glmm <- ldply(.data = eval.glmm_noTM,.fun = function(m){
-  #     evalPVals(resi = as.matrix(m$pValMat), alpha = 0.05, pvalsType = "rawP", rawPvalsType = "rawP")
-  #     })
-  #   eval_stats.glmm$method = "GLMM"
-  #   if(i==1){evals_stats.glmm_df = data.frame(eval_stats.glmm[,-1], simulation_flow[i:length(eval.glmm_noTM),])}
-  #   if(i==2){evals_stats.glmm_df = data.frame(eval_stats.glmm[,-1], simulation_flow[31:60,])}
-  #   if(i==3){evals_stats.glmm_df = data.frame(eval_stats.glmm[,-1], simulation_flow[61:90,])}
-  #                                
-  #   evals_stats.glmm_df
-  # }
-
-  eval_stats <- ldply(.data = evals_noTM,.fun = function(methods){
-    #e=evals_noTM$`simulation: 1_sampleSize: 3_TPR:0.1_foldEffect:1.5_seed:210192957`
-    ldply(.data = methods,.fun = function(m){
-      #m=e$GLMM
-      evalPVals(resi = as.matrix(m$pValMat), alpha = 0.05, pvalsType = "rawP", rawPvalsType = "rawP")
+  eval_stats <- ldply(.data = evals, .fun = function(simulation){
+    simulation=evals$`simulation: 1_dataset:ccp2_distribution:ZINB_sampleSize: 3_TPR:0.1_foldEffect:1.5_seed:210192957`
+    ldply(.data = simulation,.fun = function(m){
+      
+      evalPVals(resi = m$pValMat, alpha = 0.05, pvalsType = "adjP", rawPvalsType = "rawP")
     })
   })
-  
   colnames(eval_stats) <- c("method",colnames(eval_stats)[-1])
   nmethods <- length(unique(eval_stats$method))
   simulation_flow_df <- apply(simulation_flow[1:length(evals_noTM),], 2, 
@@ -96,44 +69,22 @@ df_creator <- function(evals_file, sim_flow_file, out_dir){
 
   evals_stats_df$method <- factor(evals_stats_df$method)
   evals_stats_df$method <- factor(evals_stats_df$method, levels = levels(evals_stats_df$method), 
-                                labels = c("circMeta",
-                                           "DESeq2",
-                                           "DESeq2-GamPoi",
-                                           "DESeq2-ZINB Wave",
-                                           "DESeq2-ZI",
-                                           "edgeR-robust",
-                                           "edgeR",
-                                           "edgeR-ZINB Wave",
-                                           "GLMM",
-                                           "voom",
-                                           "voom-ZINB Wave"))
+                                labels = c("GLMM"))
   cat("Computing ROC from pVals","\n")
-  
-  eval_ROC <- ldply(.data = evals_noTM,.fun = function(methods){
+  eval_ROC <- ldply(.data = evals,.fun = function(methods){
     ldply(.data = methods,.fun = function(m){
-      ROC <- AUC::roc(predictions = 1-as.matrix(m$pValMat)[,"rawP"], labels = as.factor(grepl(pattern = "TP", x = rownames(as.matrix(m$pValMat)))))
-      AUC = pROC::roc(as.factor(grepl(pattern = "TP", x = rownames(as.matrix(m$pValMat)))), 1-as.matrix(m$pValMat)[,"rawP"])$auc
+      ROC <- AUC::roc(predictions = 1-m$pValMat[,"adjP"], labels = as.factor(grepl(pattern = "TP", x = rownames(m$pValMat))))
+      AUC = pROC::roc(as.factor(grepl(pattern = "TP", x = rownames(m$pValMat))), 1-m$pValMat[,"adjP"])$auc
       cbind(fpr = ROC$fpr, tpr = ROC$tpr, auc = AUC)
     })
   })
-  
   colnames(eval_ROC) <- c("method",colnames(eval_ROC)[-1])
   eval_ROC$method <- factor(eval_ROC$method)
   eval_ROC$method <- factor(eval_ROC$method, levels = levels(eval_ROC$method), 
-                                labels = c("circMeta",
-                                           "DESeq2",
-                                           "DESeq2-GamPoi",
-                                           "DESeq2-ZINB Wave",
-                                           "DESeq2-ZI",
-                                           "edgeR-robust",
-                                           "edgeR",
-                                           "edgeR-ZINB Wave",
-                                           "GLMM",
-                                           "voom",
-                                           "voom-ZINB Wave"))
+                                labels = c("GLMM"))
   lengths_ROC <- ldply(.data = evals_noTM,.fun = function(methods){
     sum(ldply(.data = methods,.fun = function(m){
-      ROC <- AUC::roc(predictions = 1-as.matrix(m$pValMat)[,"rawP"], labels = as.factor(grepl(pattern = "TP",x = rownames(as.matrix(m$pValMat)))))
+      ROC <- AUC::roc(predictions = 1-m$pValMat[,"adjP"], labels = as.factor(grepl(pattern = "TP",x = rownames(m$pValMat))))
       return(length(ROC$tpr))
     })$V1)
   })
@@ -141,7 +92,6 @@ df_creator <- function(evals_file, sim_flow_file, out_dir){
                                   function(col) unlist(mapply(col,lengths_ROC$V1,FUN = function(cell,times) rep(x = cell,times)),
                                                        use.names = FALSE))
   evals_ROC_df <- cbind(eval_ROC, simulation_flow_ROC_df)
-  
   cat("Summarizing ROC values","\n")
   evals_ROC_summary_df <- ddply(.data = evals_ROC_df[,-ncol(evals_ROC_df)],.variables = ~ 
                                   method + 
@@ -184,10 +134,10 @@ df_creator <- function(evals_file, sim_flow_file, out_dir){
                                          return(data.frame(tpr = tpr, se = se))
                                        })
   cat("Saving data","\n")
-  write.csv(evals_stats_df,file = paste0(out_dir,"evals_stats_ALZ_df.csv"))
-  write.csv(evals_ROC_df,file = paste0(out_dir,"evals_ROC_ALZ_df.csv"))
-  write.csv(evals_ROC_summary_df,file = paste0(out_dir,"evals_ROCF_ALZ_summary_df.csv"))
-  write.csv(evals_ROC_summary_mean_df,file = paste0(out_dir,"evals_ROC_ALZ_summary_mean_df.csv"))
+  write.csv(evals_stats_df,file = paste0(out_dir,"evals_stats_glmm_ALZ_df.csv"))
+  write.csv(evals_ROC_df,file = paste0(out_dir,"evals_ROC_glmm_ALZ_df.csv"))
+  write.csv(evals_ROC_summary_df,file = paste0(out_dir,"evals_ROC_glmm_ALZ_summary_df.csv"))
+  write.csv(evals_ROC_summary_mean_df,file = paste0(out_dir,"evals_ROC_glmm_ALZ_summary_mean_df.csv"))
 }
 
 ### Example code to generate power data.frames 
@@ -197,18 +147,20 @@ df_creator(evals_file="/blackhole/alessia/CircModel/parametric_sim/ALZ_detmet_ev
            sim_flow_file="/blackhole/alessia/CircModel/parametric_sim/ALZ_glmm_simulation_flow.RData", #form simulator
            out_dir="/blackhole/alessia/CircModel/parametric_sim/")
 
-evals_ROC_df <- read.csv("/blackhole/alessia/CircModel/parametric_sim/evals_ROC_ALZ_df.csv")
+evals_ROC_glmm_df <- read.csv("/blackhole/alessia/CircModel/parametric_sim/evals_ROC_glmm_ALZ_df.csv")
+evals_ROC_met_df <- read.csv("/blackhole/alessia/CircModel/parametric_sim/evals_ROC_ALZ_df.csv")
+evals_ROC_df = rbind(evals_ROC_glmm_df, evals_ROC_df)
 evals_ROC_df$method <- factor(evals_ROC_df$method)
 evals_ROC_df$method <- factor(evals_ROC_df$method, 
-                              levels = c("circMeta",
+                              levels = c("GLMM",
+                                         "circMeta",
                                          "DESeq2",
+                                         "DESeq2-ZI",
                                          "DESeq2-GamPoi",
                                          "DESeq2-ZINB Wave",
-                                         "DESeq2-ZI",
-                                         "edgeR-robust",
                                          "edgeR",
+                                         "edgeR-robust",
                                          "edgeR-ZINB Wave",
-                                         "GLMM",
                                          "voom",
                                          "voom-ZINB Wave"),
                               ordered = T)
@@ -219,34 +171,34 @@ names(detection.labels) <- levels(evals_ROC_df$dataset)
 
 library(RColorBrewer)
 cols <- c(
+  # GLMM
+  brewer.pal(n = 9, "BuPu")[c(5)],
   # circMeta
   brewer.pal(n = 9, "OrRd")[c(8)],
   # DEseq
   brewer.pal(n = 9, "YlOrRd")[c(3,4,5,6)],
   # Edger
   brewer.pal(n = 9, name = "GnBu")[c(5,6,7)],
-  # GLMM
-  brewer.pal(n = 9, "BuPu")[c(5)],
   # limma
   brewer.pal(n = 9, "RdPu")[c(5,7)]
 )
 
-methods2 <- c("circMeta",
+methods2 <- c("GLMM",
+              "circMeta",
               "DESeq2",
+              "DESeq2-ZI",
               "DESeq2-GamPoi",
               "DESeq2-ZINB Wave",
-              "DESeq2-ZI",
-              "edgeR-robust",
               "edgeR",
+              "edgeR-robust",
               "edgeR-ZINB Wave",
-              "GLMM",
               "voom",
               "voom-ZINB Wave")
 names(cols) <- methods2
 
-png(file = "/blackhole/alessia/CircModel/parametric_sim/AUC_ALZSim.png",
+png(file = "/blackhole/alessia/CircModel/parametric_sim/AUC_ALZSim_glmm.png",
      width = 12, height = 10, units = "in", res = 300)
-ggplot(evals_ROC_df, aes(x=reorder(method, -auc), y = auc, color = method)) + 
+ggplot(evals_ROC_df, aes(x=method, y = auc, color = method)) + 
   geom_boxplot() + 
   ylab("AUC") +
   xlab("") +
@@ -264,19 +216,20 @@ ggplot(evals_ROC_df, aes(x=reorder(method, -auc), y = auc, color = method)) +
   ggtitle("AUC across sample size - Dataset ALZ\n(n.sim,30; ZINB distr.; FC,1.5; TPR,0.1)")
 dev.off()
 
-evals_stats_df <- readRDS("/blackhole/alessia/CircModel/parametric_sim/evals_stats_ALZ_df.RDS")
-
+evals_stats_met_df <- readRDS("/blackhole/alessia/CircModel/parametric_sim/evals_stats_ALZ_df.RDS")
+evals_stats_glmm_df <- readRDS("/blackhole/alessia/CircModel/parametric_sim/evals_stats_glmm_ALZ_df.RDS")
+evals_stats_df = rbind(evals_stats_glmm_df, evals_stats_met_df)
 evals_stats_df$method <- factor(evals_stats_df$method)
 evals_stats_df$method <- factor(evals_stats_df$method, 
-                               levels = c("circMeta",
+                               levels = c("GLMM",
+                                          "circMeta",
                                           "DESeq2",
+                                          "DESeq2-ZI",
                                           "DESeq2-GamPoi",
                                           "DESeq2-ZINB Wave",
-                                          "DESeq2-ZI",
-                                          "edgeR-robust",
                                           "edgeR",
+                                          "edgeR-robust",
                                           "edgeR-ZINB Wave",
-                                          "GLMM",
                                           "voom",
                                           "voom-ZINB Wave"),
                                ordered = T)
@@ -286,7 +239,7 @@ p <- evals_stats_df %>%
             spec.mean  = mean(Specificity)) %>% 
   ggplot(aes(y=sens.mean, x=1-spec.mean, color=method))
 
-png(file = "/blackhole/alessia/CircModel/parametric_sim/sens_spec_ALZ.png",
+png(file = "/blackhole/alessia/CircModel/parametric_sim/sens_spec_ALZ_glmm.png",
      width = 10, height = 10, units = "in", res = 300)
 p + geom_point(size = 3) + 
   theme_bw() + 

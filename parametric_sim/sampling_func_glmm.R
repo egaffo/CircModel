@@ -55,17 +55,16 @@ COUNT_FUN_CIRC <- function(sample.mu = logmeans, sample.disp = dispersion, #esti
                      length(zi.mu), length(zi.disp), length(zi.prop)))) != 1){
     stop("vector lengths must be the same")}
   
-  function(ncircular = 10000, #n.circRNAs fixed 10.000
-           pzero = sim[[8]], #SparcityEffect c(0.15,0.30)
+  function(ncircular = 5000, #n.circRNAs fixed 10.000
+           #pzero = sim[[8]], #SparcityEffect c(0.15,0.30)
            nde = NULL, #n.DECs 
-           pi0 = 1-sim[[5]], #1-TPR c(0.9, 0.5) scenario 3
-           m = sim[[4]], #n.samples.per.group c(3, 5)
-           fc = sim[[6]], #FC c(2, 5) scenario 2
-           zinb = sim[[3]], #distribution c("NB","ZINB")
+           pi0 = 1-sim[[4]], #1-TPR c(0.9, 0.5) scenario 3
+           m = sim[[3]], #n.samples.per.group c(3, 5)
+           fc = sim[[5]], #FC c(2, 5) scenario 2
+           zinb = "ZINB", #distribution c("NB","ZINB")
            mod.lib = 1, mod.shape = 1, 
            up = 0.5, #symmetry
-           replace = TRUE, 
-           ingroup=which(sample.of.origin=="A"),
+           replace = TRUE,
            simName = NULL){
     
     if(!is.null(pi0)){
@@ -74,8 +73,8 @@ COUNT_FUN_CIRC <- function(sample.mu = logmeans, sample.disp = dispersion, #esti
     
     counts <- matrix(0, nrow = ncircular, ncol = 2 * m)
     
-    chosen <- true_means <- true_disps <- rep(0, ncircular)
-    chosen <- sample(length(sample.mu), ncircular, replace = replace)
+    true_means <- true_disps <- rep(0, ncircular)
+    #chosen <- sample(length(sample.mu), ncircular, replace = replace)
     
     if(zinb!="ZINB"){
       true_means <- exp(sample.mu[chosen])

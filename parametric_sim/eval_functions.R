@@ -870,10 +870,10 @@ runPois.ztest<-function(physeq){
   sfs=colSums(counts)
   sfs=sfs/min(sfs)
   #if(dat$sf) dat$counts=sweep(dat$counts,2,sfs,FUN='/')
-  n0=sum(pData(e)$condition=="A")
-  n1=sum(pData(e)$condition=="B")
-  m0=rowMeans(exprs(e)[,pData(e)$condition=="A"])
-  m1=rowMeans(exprs(e)[,pData(e)$condition=="B"])
+  n0=sum(sample_data(physeq)$grp=="grp1")
+  n1=sum(sample_data(physeq)$grp=="grp2")
+  m0=rowMeans(counts[,sample_data(physeq)$grp=="grp1"])
+  m1=rowMeans(counts[,sample_data(physeq)$grp=="grp2"])
   n=nrow(counts)
   pval=rep(1,n)
   for(i in 1:n){
@@ -882,8 +882,8 @@ runPois.ztest<-function(physeq){
   }
   fdr=p.adjust(pval,method='fdr')
   lfc=log((m1+1)/(m0+1),2)
-  names(pval) <- rownames(exprs(e))
-  names(fdr) <- rownames(exprs(e))
+  names(pval) <- rownames(counts)
+  names(fdr) <- rownames(counts)
   
   pValMat <- as.matrix(cbind(rawP = pval,adjP = fdr))
   rownames(pValMat) <- rownames(counts)
@@ -980,8 +980,8 @@ oneSimRunGSOwn <- function(physeq, beta, true_weights = NULL, epsilon = 1e10) {
     #   edgeR_TMM_trueweights <- edgeR_zinbweights(physeq, normFacts = "TMM", weights = true_weights)
     #   cat("EdgeR with true weights tests: DONE\n")
     # }
-    edgeR_poscounts_standard <- edgeR_standard(physeq, normFacts = "poscounts")
-    cat("EdgeR with RLE normalisation tests: DONE\n")
+    # edgeR_poscounts_standard <- edgeR_standard(physeq, normFacts = "poscounts")
+    # cat("EdgeR with RLE normalisation tests: DONE\n")
     
     ## limma-voom
     limma_voom_TMM <- limma_voom(physeq, normFacts = "TMM")
@@ -1008,17 +1008,17 @@ oneSimRunGSOwn <- function(physeq, beta, true_weights = NULL, epsilon = 1e10) {
     #                                                                weights = true_weights)
     #   cat("NB DESeq2 with true weights tests: DONE\n")
     # }
-    DESeq2_TMM <- negBinTestDESeq2(physeq, normFacts = "TMM")
-    cat("NB DESeq2 with TMM normalisation tests: DONE\n")
+    # DESeq2_TMM <- negBinTestDESeq2(physeq, normFacts = "TMM")
+    # cat("NB DESeq2 with TMM normalisation tests: DONE\n")
     ## NB test from DESeq2 with ape.glm
-    DESeq2_poscounts_apeglm <- negBinTestDESeq2apeglm(physeq, normFacts = "poscounts")
-    cat("NB DESeq2 with ape.glm tests: DONE\n")
+    DESeq2_ZI <- negBinTestDESeq2(physeq, scRNAseq = TRUE, normFacts = "poscounts")
+    cat("NB DESeq2 with ZI opts. tests: DONE\n")
     ## NB test from DESeq2 with gam.poi distr
     DESeq2_poscounts_gampoi <- negBinTestDESeq2_GamPoi(physeq, normFacts = "poscounts")
     cat("NB DESeq2 with gam.pois tests: DONE\n")
     
     # circMeta
-    circMeta <- runPois.ztest(physeq)
+    circMeta <- runPois.ztest(physeq = physeq)
     cat("circMeta tests: DONE\n")
     
     # EMD
@@ -1061,16 +1061,28 @@ oneSimRunGSOwn <- function(physeq, beta, true_weights = NULL, epsilon = 1e10) {
 }
 
 
-oneSimRunscde <- function(physeq) { 
+oneSimRunDeseq2ZI <- function(physeq, beta, true_weights = NULL) { 
   # Prevent NA when converting to integer due to some outlier generation during simulation
   physeq@otu_table@.Data[which(physeq@otu_table@.Data>.Machine$integer.max)] <- .Machine$integer.max
+  ## all normalisations
+  physeq <- normEdgeR(physeq = physeq, method = "TMM")
+  physeq <- normDESeq2(physeq = physeq, method = 'RLE') 
+  # physeq <- normEdgeR(physeq = physeq, method = 'upperquartile')
+  physeq <- normDESeq2(physeq = physeq, method = "poscounts")  # poscounts, similar to RLE
+  # physeq <- normCSS(physeq = physeq)
+  # physeq <- normTSS(physeq = physeq)
+  cat("Normalisations: DONE\n")
   
   returnList = list()
   #returnList$physeq = physeq
   returnList = within(returnList, {
-    ## SCDE model
-    scde <- scdemodel(physeq)
-    cat("scde test: DONE\n")
+    Y <- physeq@otu_table
+    ##true lfc
+    truemodel <- list("pValMat" = NULL, "statInfo" = cbind("logFC" = beta))
+    
+    ## NB test from DESeq2 with ape.glm
+    DESeq2_ZI <- negBinTestDESeq2(physeq, scRNAseq = TRUE, normFacts = "poscounts")
+    cat("NB DESeq2 with ZI opts. tests: DONE\n")
   })
   return(returnList)
 }
