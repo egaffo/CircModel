@@ -1,6 +1,4 @@
-# ------------------------
-## load libraries
-# ------------------------
+# load libraries -----
 
 library("GenomicRanges")
 library("Biobase")
@@ -47,9 +45,7 @@ library(devtools)
 install_github("egaffo/CREART", ref = "dev", force = T)
 library(CREART)
 
-# ------------------------------------------------------------------------
-## load data and meta data from previous data formatting in GOF.Rmd step
-# ------------------------------------------------------------------------
+# load data and meta data from previous data formatting in GOF.Rmd step -------
 
 
 ## DM1 data set
@@ -108,7 +104,7 @@ e = eset.ccp2
 ## ALZ data set
 randomSubsets <- read.table("/blackhole/alessia/CircModel/power/ALZ_random_subsets_eval_veri.txt",strings=FALSE)
 
-meta.data <- read.csv("/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/realdata/ALZ/analysis/meta_alz.csv")
+meta.data <- read.csv("/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/realdata/ALZ/meta_alz.csv")
 meta.data = meta.data[1:17,]     # for odd rows
 
 coldata <- DataFrame(condition = meta.data$condition,
@@ -120,7 +116,7 @@ coldata$group <- factor(coldata$group)
 coldata$sample <- as.character(coldata$sample)
 coldata
 
-ccp2 = read.table("/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/realdata/ALZ/analysis/circular_expression/circrna_analyze/reliable_circexp.csv", 
+ccp2 = read.table("/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/realdata/ALZ/circular_expression/circrna_analyze/reliable_circexp.csv", 
                   header = T)
 
 chr <- sub(":.*", "", ccp2$circ_id)
@@ -138,9 +134,7 @@ pData(eset.ccp2)$condition <- factor(pData(eset.ccp2)$group)
 levels(pData(eset.ccp2)$condition) <- c("A", "B")
 e = eset.ccp2
 
-#-----------------------------------------
-## summarized experiment for GLMM matrix
-#-----------------------------------------
+# summarized experiment for GLMM matrix -----
 
 ## DM1
 load("/blackhole/alessia/CircModel/data/DM1Data_list.RData")
@@ -187,6 +181,7 @@ colData <- data.frame(colData.dt,
 # head(glmm.wide[,c(1:8)])
 
 ## ALZ
+load("/blackhole/alessia/CircModel/data/ALZData_list.RData")
 glmm.db <- rbindlist(lapply(ALZData_list[1:6], function(x) data.frame(x, circ_id = rownames(x))), 
                      idcol = "method", use.names = TRUE)
 glmm.melt <- rbindlist(lapply(ALZData_list[1:6], function(x) reshape2::melt(x)), 
@@ -229,7 +224,7 @@ count.matrix.glmm <- CREART::get_combined_matrix("/blackhole/alessia/circzi/chec
 count.matrix.glmm <- CREART::get_combined_matrix("/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/realdata/IPF/analyses/", 
                                                  select_methods = unique(colData$method))
 ## ALZ
-count.matrix.glmm <- CREART::get_combined_matrix("/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/realdata/ALZ/analysis/", 
+count.matrix.glmm <- CREART::get_combined_matrix("/blackhole/alessia/circzi/checkCircRNAnormalizationdistribution/realdata/ALZ/", 
                                                  select_methods = unique(colData$method))
 
 glmm.long = melt(count.matrix.glmm)
@@ -243,16 +238,11 @@ se.glmm <- SummarizedExperiment(assays = list(counts = count.matrix.glmm),
 eset.glmm <- ExpressionSet(assay(se.glmm),
                       AnnotatedDataFrame(as.data.frame(colData(se.glmm))))
 
-#------------------------------------------------
-## load function to perform DE analysis
-#------------------------------------------------
 
+# load function to perform DE analysis ------
 source("/blackhole/alessia/CircModel/DEscripts.R")
 
-#-----------------------------------------------
 ## useful function for zinb-wave weights 
-#-----------------------------------------------
-
 computeExactWeights <- function (model, x) 
 {
   mu <- getMu(model)
@@ -269,9 +259,7 @@ computeExactWeights <- function (model, x)
   zinbwg
 }
 
-#---------------------------------------
-## specify the algorithms to be compared
-#---------------------------------------
+# specify the algorithms to be compared -------
 
 algos <- list("DESeq2"= runDESeq2,
               "DESeq2-ZI"=runDESeq2.ZI,
@@ -289,9 +277,7 @@ algos <- list("DESeq2"= runDESeq2,
 namesAlgos <- names(algos)
 names(namesAlgos) <- namesAlgos
 
-#---------------------------------
-## simulation results
-#---------------------------------
+# simulation results -----------
 
 resTest <- list()
 resHeldout <- list()
@@ -301,9 +287,7 @@ ratemodel <- list()
 
 set.seed(12388)
 
-# ---------------------------------------------------------------------------------------------------------------------
-## run benchmark of NB and ZINB models across evaluation and verification datasets
-# ---------------------------------------------------------------------------------------------------------------------
+#  run benchmark of NB and ZINB models across evaluation and verification datasets ---------------------
 
 ## multi-machines
 # hosts <- c("anhal", "anhal")
@@ -377,9 +361,7 @@ save(resTes,resHeldout,lfcTest,lfcHeldout,
      namesAlgos,
      file="/blackhole/alessia/CircModel/power/DM1_sensitivityPrecision_CCP2_NBZINBmodels.RData")
 
-# ----------------------------------------------------------------------------------------------------------------------------------------
-## run benchmark of NB vs GLMM models across evaluation and verification datasets (using unbalanced verification and evalutation datasets)
-# ----------------------------------------------------------------------------------------------------------------------------------------
+# run benchmark of NB vs GLMM models across evaluation and verification datasets (using unbalanced verification and evalutation datasets) ----
 
 resTest <- list()
 resHeldout <- list()
@@ -665,36 +647,28 @@ save(resMethods, resTes, resHeldout,lfcTest,lfcHeldout,
      namesAlgos,
      file="/blackhole/alessia/CircModel/power/ALZ_sensitivityPrecision_CCP2_glmglmm_30rep.RData")
 
-# -------------------
-## type I error rate
-# -------------------
+# type I error control -------------
 
 randomSubsets <- read.table("/blackhole/alessia/CircModel/type_I_error_control/random_shuffle_ALZ.txt",strings=FALSE)
-resTest<- list()
-resHeldout <- list()
-lfcTest <- list()
-lfcHeldout <- list()
-ratemodel <- list()
-nreps <- 30
+nreps <- 50
 set.seed(12388)
 library("future.apply")
 
 # plan(multisession, workers = 2)
 ## define BIOCPARALLEL parameters
-hosts <- c("grigri", "grigri", "anhal")
+hosts <- c(rep("grigri", 8), "threesum", "anhal")
 param <- SnowParam(workers = hosts, type = "SOCK")
 param
 
-resMethods <- bplapply(1:30, function(i) {   
+resMethods <- bplapply(1:50, function(i) {   
   
   cat(i," ")
   # i = 1
-  
-  NormSet <- as.character(randomSubsets[i,c(1:10)])
-  TumorSet <- as.character(randomSubsets[i,-c(1:10)])
+  NormSet <- as.character(randomSubsets[i,c(1:7)])
+  TumorSet <- as.character(randomSubsets[i,-c(1:7)])
   eTest <- e[,c(NormSet, TumorSet)]
-  eTest_filt <- CREART::smallest_group_filter(x = as.data.table(ccp2[,c("circ_id", testSet)]), 
-                                              cond = as.data.table(coldata[coldata$sample%in%testSet,]),
+  eTest_filt <- CREART::smallest_group_filter(x = as.data.table(ccp2[,c("circ_id", c(NormSet, TumorSet))]), 
+                                              cond = as.data.table(coldata[coldata$sample%in%c(NormSet, TumorSet),]),
                                               rthr = 1)
   
   keep = eTest_filt$circ_id
@@ -715,8 +689,10 @@ resMethods <- bplapply(1:30, function(i) {
   lfcTest <- as.data.frame(c(lapply(resTest0, function(z) z$beta)))
   rownames(resTest) <- keep
   rownames(lfcTest) <- keep
-  signif <- lapply(resTest0, function(x) ifelse(x$padj <= 0.1, 1, 0))
-  ratemodel <- as.data.frame(c(lapply(signif, function(x) mean(x))))
+  signif1 <- lapply(resTest0, function(x) ifelse(x$padj <= 0.1, 1, 0))
+  sigific05 <- lapply(resTest0, function(x) ifelse(x$padj <= 0.05, 1, 0))
+  ratemodel <- data.frame(res.1=c(lapply(signif1, function(x) mean(x))),
+                             res.05=c(lapply(signif05, function(x) mean(x))))
 
   testSetGLMM <- coldata[coldata$sample%in%c(NormSet, TumorSet),]
 
@@ -753,7 +729,7 @@ resMethods <- bplapply(1:30, function(i) {
   pvalues <- as.numeric(unlist(lapply(summaries, function(x){stats::coef(x)$cond[2,4]})))
   pvalues[is.na(pvalues)] = 1
   padj = p.adjust(pvalues, method = "BH")
-  
+  pval = c(0.05, 0.1)
   rateTMB = list()
   rateTMB.adj = list()
   
@@ -782,4 +758,4 @@ resRateGLMM <- lapply(res, function(x) lapply(x, "[[", "rateGLMM"))
 resTestGLMM <- lapply(res, function(x) lapply(x, "[[", "resTestGLMM"))
 
 save(resRate,resTest,namesAlgos,resRateGLMM,resTestGLMM,
-     file="/blackhole/alessia/CircModel/type_I_error_control/ALZ_typeIerrorGLM_GLMM_30rep.RData")
+     file="/blackhole/alessia/CircModel/type_I_error_control/ALZ_typeIerrorGLM_GLMM_50rep.RData")
