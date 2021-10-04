@@ -96,10 +96,10 @@ renameAtoB <- function(f,a,b) {
 
 ## Between and Within method Concordance
 
-### TALL data
+### ALZ data
 
 ```{r}
-load(file = "/blackhole/alessia/CircModel/power/IPF_sensitivityPrecision_CCP2_glmglmm_30rep.RData")
+load(file = "/blackhole/alessia/CircModel/robustness/ALZ_sensitivityPrecision_CCP2_glmglmm_30rep.RData.bk")
 
 nreps = 30
 
@@ -116,7 +116,7 @@ conc.witbet <- compute_concordance_withbetw(ps_fitted_list = ps_fitted, maxrank 
 conc.betglmm <- compute_concordance_withGLMM(ps_fitted_list = ps_fitted, maxrank = maxrank)
 
 
-concordance_df_summary <- suppressWarnings(ddply(conc.betglmm, ~ rank + method1 + method2, function(x) colMeans(x[,c("concordance", "nfeatures")])))
+concordance_df_summary <- suppressWarnings(ddply(conc.witbet, ~ rank + method1 + method2, function(x) colMeans(x[,c("concordance", "nfeatures")])))
 
 AUC_AOC_between_methods <- suppressWarnings(ddply(concordance_df_summary, ~ method1 + method2, function(x) AucAocFun(cVals = x$concordance[x$rank <= maxrank], nfeatures = mean(x$nfeatures[x$rank <= maxrank]), threshold = maxrank)))
 
@@ -142,14 +142,14 @@ conc_df_sub$method1 <- factor(conc_df_sub$method1, levels = levels(conc_df_sub$m
                                          "GLMM",
                                          "voom"))
                                          # "EBSeq"))
-png("/blackhole/alessia/CircModel/consinstency/ConcordancewithGLMM_top400_DM1dataset.png", res = 200, units = "cm", width = 20, height = 25)
+png("/blackhole/alessia/CircModel/consinstency/ConcordancewithGLMM_top400_ALZdataset.png", res = 200, units = "cm", width = 20, height = 25)
 ggplot(conc_df_sub, aes(x = method1, y = concordance, color = method1)) +
     geom_boxplot() +
     coord_flip() +
     scale_x_discrete(limits = levels(conc_df_sub$method1)[rev(ord)]) +
     xlab("Method") + ylab("Concordance") +
   # facet_wrap(~.id)+
-    ggtitle(label = "IPF data",
+    ggtitle(label = "ALZ data",
             subtitle = "Normal vs tumor") +
     theme_minimal() +
     theme(plot.margin = unit(c(0,0,0,0), "cm"),

@@ -1,8 +1,3 @@
-### This code was supplied to sbatch, e.g.:
-#                                       to be generated     output filedir     log                  errors
-#                                             |                       |         |                     |
-# Rscript ./power/eval_functions_call.R ./data/sims.RData ./data/evals.RDS > ./data/sims.log 2> ./data/sims.err
-
 source("/blackhole/alessia/CircModel/parametric_sim/eval_functions.R")
 
 register(SerialParam())

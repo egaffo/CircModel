@@ -244,9 +244,9 @@ methods2 <- c("circMeta",
               "voom",
               "voom-ZINB Wave")
 names(cols) <- methods2
-png(file = "/blackhole/alessia/CircModel/parametric_sim/AUC_ALZSim.png",
-     width = 12, height = 10, units = "in", res = 300)
-ggplot(evals_ROC_df, aes(x=reorder(method, -auc), y = auc, color = method)) + 
+# png(file = "/blackhole/alessia/CircModel/parametric_sim/Figure/AUC_ALZSim.png",
+#      width = 12, height = 10, units = "in", res = 300)
+p1 = ggplot(evals_ROC_df, aes(x=reorder(method, -auc), y = auc, color = method)) + 
   geom_boxplot() + 
   ylab("AUC") +
   xlab("") +
@@ -254,7 +254,9 @@ ggplot(evals_ROC_df, aes(x=reorder(method, -auc), y = auc, color = method)) +
   scale_color_manual(values = cols) +
   facet_wrap( ~ sampleSize) + #,
              # labeller = labeller(dataset = detection.labels)) +
-  theme(axis.text.x = element_text(face = "bold", color = "black", 
+  theme_classic() +
+  theme(legend.position = "none",
+        axis.text.x = element_text(face = "bold", color = "black", 
                                    size = 8.5, angle = 45, vjust=.97, hjust=1.1),
         strip.text.x = element_text(face = "bold.italic", size = 9),
         strip.text.y = element_text(face = "bold.italic", size = 9), #angle = 75),
@@ -262,7 +264,7 @@ ggplot(evals_ROC_df, aes(x=reorder(method, -auc), y = auc, color = method)) +
           colour = "grey", size = 1),
         title = element_text(size = 12)) +
   ggtitle("AUC across sample size - Dataset ALZ\n(n.sim,30; ZINB distr.; FC,1.5; TPR,0.1)")
-dev.off()
+# dev.off()
 
 evals_stats_df <- readRDS("/blackhole/alessia/CircModel/parametric_sim/evals_stats_ALZ_df.RDS")
 
@@ -286,9 +288,9 @@ p <- evals_stats_df %>%
             spec.mean  = mean(Specificity)) %>% 
   ggplot(aes(y=sens.mean, x=1-spec.mean, color=method))
 
-png(file = "/blackhole/alessia/CircModel/parametric_sim/sens_spec_ALZ.png",
-     width = 10, height = 10, units = "in", res = 300)
-p + geom_point(size = 3) + 
+# png(file = "/blackhole/alessia/CircModel/parametric_sim/Figure/sens_spec_ALZ.png",
+     # width = 5, height = 5, units = "in", res = 300)
+p2 = p + geom_point(size = 3) + 
   theme_bw() + 
   facet_wrap( ~ sampleSize) +
   # scale_shape_manual(values=1:5) +
@@ -297,7 +299,8 @@ p + geom_point(size = 3) +
   xlab("1 - specificity (false positive rate)") + 
   # coord_cartesian(xlim=c(-.003,.035)) + 
   geom_vline(xintercept=.05) +
-  theme(legend.position = "bottom",
+  theme_classic() +
+  theme(legend.position = "none",
         axis.text.x = element_text(#face = "bold", color = "#993333",
                                    size = 9, angle = 45, vjust=.9, hjust=0.8),
         strip.text.x = element_text(face = "bold.italic", size = 9),
@@ -307,6 +310,40 @@ p + geom_point(size = 3) +
   guides(shape=guide_legend(nrow=2,byrow=TRUE)) + 
   ggtitle("Power across sample size - Dataset ALZ\n(n.sim,30; ZINB distr.; FC,1.5; TPR,0.1)")
   # scale_x_continuous(breaks=c(0,.1))
-dev.off()
+# dev.off()
+
+legend = get_legend(p + geom_point(size = 3) + 
+                      theme_bw() + 
+                      facet_wrap( ~ sampleSize) +
+                      # scale_shape_manual(values=1:5) +
+                      scale_color_manual(values = cols) +
+                      ylab("Sensitivity") +
+                      xlab("1 - specificity (false positive rate)") + 
+                      # coord_cartesian(xlim=c(-.003,.035)) + 
+                      geom_vline(xintercept=.05) +
+                      theme_classic() +
+                      theme(legend.position = "bottom",
+                            axis.text.x = element_text(#face = "bold", color = "#993333",
+                              size = 9, angle = 45, vjust=.9, hjust=0.8),
+                            strip.text.x = element_text(face = "bold.italic", size = 9),
+                            strip.text.y = element_text(face = "bold.italic", size = 9), #angle = 75),
+                            strip.background = element_rect(#fill = "lightblue",
+                              colour = "grey", size = 1)) +
+                      guides(shape=guide_legend(nrow=2,byrow=TRUE)) + 
+                      ggtitle("Power across sample size - Dataset ALZ\n(n.sim,30; ZINB distr.; FC,1.5; TPR,0.1)"))
+
+prow <- plot_grid( p1 ,
+                   p2 ,
+                   align = 'vh',
+                   labels = c("a", "b"),
+                   hjust = -1,
+                   nrow = 1
+)
 
 
+p <- plot_grid( prow, legend, ncol = 1, rel_heights = c(1, .2))
+
+pgrid.arrange(arrangeGrob(p1,
+                         p2,
+                         nrow=1),
+             legend, nrow=2, heights=c(10, 1))
