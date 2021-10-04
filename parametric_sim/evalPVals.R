@@ -53,8 +53,8 @@ methods_Sel = c("circMeta","DESeq2_poscounts_gampoi","DESeq2_poscounts_zinbwave"
                 "limma_voom_TMM_zinbwave","limma_voom_TMM",
                 "edgeR_TMM_zinbwave","edgeR_TMM_standard","edgeR_TMM_robustDisp", "DESeq2-ZI", "GLMM")                         
 library(purrr)
-evals_file="/blackhole/alessia/CircModel/parametric_sim/ALZ_detmet_evals_allGLMM_parametricsimulations_S12_power.RDS" #from eval_function_call.R
-sim_flow_file="/blackhole/alessia/CircModel/parametric_sim/ALZ_glmm_simulation_flow.RData"
+evals_file="/blackhole/alessia/CircModel/parametric_sim/ALZ_detmet_evals_allGLMM_parametricsimulations_S123_power.RDS" #from eval_function_call.R
+sim_flow_file="/blackhole/alessia/CircModel/parametric_sim/ALZ_simulation_flow.RData"
 df_creator <- function(evals_file, sim_flow_file, out_dir){
   cat("Reading evals","\n")
   evals <- readRDS(file = evals_file)
@@ -133,7 +133,8 @@ df_creator <- function(evals_file, sim_flow_file, out_dir){
                                            "voom-ZINB Wave"))
   lengths_ROC <- ldply(.data = evals_noTM,.fun = function(methods){
     sum(ldply(.data = methods,.fun = function(m){
-      ROC <- AUC::roc(predictions = 1-as.matrix(m$pValMat)[,"rawP"], labels = as.factor(grepl(pattern = "TP",x = rownames(as.matrix(m$pValMat)))))
+      ROC <- AUC::roc(predictions = 1-as.matrix(m$pValMat)[,"rawP"], labels = as.factor(grepl(pattern = "TP",
+                                                                                              x = rownames(as.matrix(m$pValMat)))))
       return(length(ROC$tpr))
     })$V1)
   })
@@ -146,7 +147,7 @@ df_creator <- function(evals_file, sim_flow_file, out_dir){
   evals_ROC_summary_df <- ddply(.data = evals_ROC_df[,-ncol(evals_ROC_df)],.variables = ~ 
                                   method + 
                                   dataset + 
-                                  distribution + 
+                                  #distribution + 
                                   sampleSize +
                                   simulation +
                                   TPR +
@@ -170,7 +171,7 @@ df_creator <- function(evals_file, sim_flow_file, out_dir){
   evals_ROC_summary_mean_df <- ddply(.data = evals_ROC_summary_df,.variables = ~ 
                                        method + 
                                        dataset + 
-                                       distribution + 
+                                       #distribution + 
                                        sampleSize +
                                        simulation +
                                        TPR +
@@ -243,7 +244,6 @@ methods2 <- c("circMeta",
               "voom",
               "voom-ZINB Wave")
 names(cols) <- methods2
-
 png(file = "/blackhole/alessia/CircModel/parametric_sim/AUC_ALZSim.png",
      width = 12, height = 10, units = "in", res = 300)
 ggplot(evals_ROC_df, aes(x=reorder(method, -auc), y = auc, color = method)) + 
