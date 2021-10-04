@@ -17,8 +17,8 @@ Data used in this analysis was retrieved from available GEO repository of Ribo-d
 ## Goodness of Fit (GOF) evaluation
 The directory _./goodness_of_fit/_ contains the _GOF.Rmd_ file which loads circRNA data, estimates several parametric models on the real datasets and evaluates the goodness of fit for each dataset. 
 
-### Power
-The directory _./power/_ contains for each real-dataset several files:
+### Robustness
+The directory _./robustness/_ contains:
 <ul>
   <li> getPheno.R which create a file .txt containing B combination of samples for the creation of synthetic datasets; </li>
   <li> glm_glmm_paired.R and DEscripts.R which estimates the Negative Binomial and GLMM models for each synthetic datasets saving the results as .RData; </li>
@@ -27,13 +27,13 @@ The directory _./power/_ contains for each real-dataset several files:
 </ul>
 
 ### Consinstency
-The directory _./consinstency/_ contains for each real-dataset several files:
+The directory _./consinstency/_ contains:
 <ul>
-<li> consistency_replicability.Rmd which loads DECs results and then tests the differential expression detection methods in terms of Concordance At the Top. </li>
+<li> consistency_replicability.Rmd which loads DECs results from robustness evaluation and then tests the differential expression detection methods in terms of Concordance At the Top. </li>
 </ul>
 
 ## Type I Error Control
-The directory _./type_I_error_control/_ contains the _TIEC.Rmd_ file which loads DECs results estimated using glm_glmm_paired.R and DEscripts.R for the evaluation of the ability of differential expression detection methods to control the type first error using mock datasets, without differentially abundant features, generated using getSampleShuffle.R.
+The directory _./type_I_error_control/_ contains the _TIEC.Rmd_ file which loads DECs results estimated using glm_glmm_paired.R and DEscripts.R for the evaluation of the ability of differential expression detection methods to control the type first error using mock datasets, without differentially abundant features, generated using getSampleShuffle.R script.
 
 ## Data
 Since the entire data production took a long time, the _./data/_ directory contains several outputs from all the analyses. This should make it easier for the user to replicate the results.
