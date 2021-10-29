@@ -127,6 +127,21 @@ deseq2gpLrt_run <- function(countData, colData, design, contrast) {
     results(dds)
 }
 
+deseq2zw_run <- function(countData, colData, design, contrast, weights) {
+    dds <- DESeqDataSetFromMatrix(countData, colData = colData, design = design)
+    weights[which(weights<1e-6)] <- 1e-06
+    assays(dds)[["weights"]] = weights
+    dds <- DESeq(dds, 
+                 # quiet = TRUE, 
+                 sfType = "poscounts", 
+                 # useT = TRUE, 
+                 minmu = 1e-6, 
+                 minReplicatesForReplace = Inf, 
+                 test = "LRT", 
+                 reduced = ~ 1)
+    # results(dds, contrast = contrast)
+    results(dds)
+}
 deseq2_pv <- function(x) { x$pvalue }
 ```
 
@@ -148,7 +163,28 @@ edgeRrbst_run <- function(countData, group, design) {
   y <- calcNormFactors(y)
   des <- model.matrix(design)
   y <- estimateGLMRobustDisp(y, des) #maxit = 6
-  fit <- glmFit(y, des)
+  fit <- glmQLFit(y = y, dispersion = y$tagwise.dispersion, 
+                 robust = TRUE, design = des)
+  glmLRT(fit, coef = 2)
+}
+
+edgeRrbst50df_run <- function(countData, group, design) {
+  y <- DGEList(countData, group = group)
+  y <- calcNormFactors(y)
+  des <- model.matrix(design)
+  y <- estimateGLMRobustDisp(y = dge, design, prior.df = 50, maxit = 10) #maxit = 6
+  fit <- glmQLFit(y = y, dispersion = y$tagwise.dispersion, 
+                 robust = TRUE, design = des)
+  glmLRT(fit, coef = 2)
+}
+
+edgeRrbstEdf_run <- function(countData, group, design) {
+  y <- DGEList(countData, group = group)
+  y <- calcNormFactors(y)
+  des <- model.matrix(design)
+  y <- estimateDisp(y, des) #maxit = 6
+  fit <- glmQLFit(y = y, dispersion = y$tagwise.dispersion, 
+                 robust = TRUE, design = des)
   glmLRT(fit, coef = 2)
 }
 
@@ -177,6 +213,35 @@ voom_run <- function(countData, group, design) {
     eBayes(lmFit(y, des))
 }
 voom_pv <- function(x) { x$p.value[, 2] }
+```
+
+### circMeta
+
+```{r}
+## limma-voom family
+cMeta_run <- function(countData, group, design) {
+  groupVar <- group#ass$colData$Group
+  counts <- countData#ass$counts
+  names(groupVar) <- colnames(counts)
+  counts <- apply(counts,2,function(x) {storage.mode(x) <- 'integer'; x})
+  m=rowMeans(counts)
+
+  sfs=colSums(counts)
+  sfs=sfs/min(sfs)
+  #if(dat$sf) dat$counts=sweep(dat$counts,2,sfs,FUN='/')
+  n0=sum(sample_data(physeq)$grp=="grp1")
+  n1=sum(sample_data(physeq)$grp=="grp2")
+  m0=rowMeans(counts[,sample_data(physeq)$grp=="grp1"])
+  m1=rowMeans(counts[,sample_data(physeq)$grp=="grp2"])
+  n=nrow(counts)
+  pval=rep(1,n)
+  for(i in 1:n){
+    z=(m1[i]-m0[i])/sqrt(m1[i]/n1+m0[i]/n0)
+    pval[i]=2*pnorm(-abs(z))
+  }
+  p.value
+}
+cMeta_pv <- function(x) { x$p.value[, 2] }
 ```
 
 ```{r}
@@ -224,6 +289,16 @@ bd <- bd %>%
                                  colData = coldat, 
                                  design = ~condition,
                                  contrast = c("condition", "2", "1"))) %>%
+  addMethod(label = "deseq2zw", func = deseq2zw_run, post = deseq2_pv, 
+            meta = list(pkg_name = "DESeq2/zinbwave", 
+                        pkg_vers = paste(as.character(packageVersion("DESeq2")), 
+                                         as.character(packageVersion("zinbwave")), 
+                                         sep = "/")),
+            params = rlang::quos(countData = cntdat,
+                                 colData = coldat, 
+                                 design = ~condition,
+                                 contrast = c("condition", "2", "1"),
+                                 weights = weights)) %>%
   addMethod(label = "edgeR", func = edgeR_run, post = edgeR_pv,
             meta = list(pkg_name = "edgeR", pkg_vers = as.character(packageVersion("edgeR"))),
             params = rlang::quos(countData = cntdat,
@@ -239,6 +314,16 @@ bd <- bd %>%
                                  design = ~coldat$condition,
                                  weights = weights)) %>%
   addMethod(label = "edgeRrbst", func = edgeRrbst_run, post = edgeR_pv,
+            meta = list(pkg_name = "edgeR", pkg_vers = as.character(packageVersion("edgeR"))),
+            params = rlang::quos(countData = cntdat,
+                                 group = coldat$condition,
+                                 design = ~coldat$condition)) %>%
+  addMethod(label = "edgeRrbst50df", func = edgeRrbst50df_run, post = edgeR_pv,
+            meta = list(pkg_name = "edgeR", pkg_vers = as.character(packageVersion("edgeR"))),
+            params = rlang::quos(countData = cntdat,
+                                 group = coldat$condition,
+                                 design = ~coldat$condition)) %>%
+  addMethod(label = "edgeRrbstEdf", func = edgeRrbstEdf_run, post = edgeR_pv,
             meta = list(pkg_name = "edgeR", pkg_vers = as.character(packageVersion("edgeR"))),
             params = rlang::quos(countData = cntdat,
                                  group = coldat$condition,
