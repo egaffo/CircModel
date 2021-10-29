@@ -192,8 +192,12 @@ deseq2gpLrt_run <- function(countData, colData, design, contrast) {
 
 deseq2zw_run <- function(countData, colData, design, contrast, weights) {
     dds <- DESeqDataSetFromMatrix(countData, colData = colData, design = design)
-    weights[which(weights<1e-6)] <- 1e-06
-    assays(dds)[["weights"]] = weights
+    if(!is.null(weights)){
+      weights[which(weights < 1e-6)] <- 1e-06
+      assays(dds)[["weights"]] <- weights  
+    }else{
+      warning("Weights expected but NULL was given. DESeq2 will not use weights")
+    }
     dds <- DESeq(dds, 
                  # quiet = TRUE, 
                  sfType = "poscounts", 
@@ -235,7 +239,7 @@ edgeRrbst50df_run <- function(countData, group, design) {
   y <- DGEList(countData, group = group)
   y <- calcNormFactors(y)
   des <- model.matrix(design)
-  y <- estimateGLMRobustDisp(y = dge, design, prior.df = 50, maxit = 10) #maxit = 6
+  y <- estimateGLMRobustDisp(y = y, des, prior.df = 50) #maxit = 6
   fit <- glmQLFit(y = y, dispersion = y$tagwise.dispersion, 
                  robust = TRUE, design = des)
   glmLRT(fit, coef = 2)
@@ -399,7 +403,6 @@ bd <- bd %>%
                                  group = coldat$condition,
                                  design = ~coldat$condition))
 
-
 bd
 ```
 
@@ -489,7 +492,7 @@ datasetList <-
                   status = as.integer(rowdata[, "DE.ind"]),
                   weights = compute_weights(countdata = mat,
                                             coldat = factor(coldata[, "Group"])),
-                  # weights = NULL,
+                  # weights = NULL, ## only for quick testing
                   nGenes = nrow(mat))
              
            }, 
