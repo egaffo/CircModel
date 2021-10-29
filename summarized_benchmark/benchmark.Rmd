@@ -286,29 +286,30 @@ voom_pv <- function(x) { x$p.value[, 2] }
 
 ```{r}
 ## circMeta
-cMeta_run <- function(countData, group, design) {
-  groupVar <- group #ass$colData$Group
-  counts <- countData #ass$counts
-  names(groupVar) <- colnames(counts)
-  counts <- apply(counts,2,function(x) {storage.mode(x) <- 'integer'; x})
-  m=rowMeans(counts)
+cMeta_run <- function(countData, group) {
+  groupVar <- group 
+  names(groupVar) <- colnames(countData)
+  countData <- apply(countData, 2, function(x) {storage.mode(x) <- 'integer'; x})
+  m = rowMeans(countData)
 
-  sfs=colSums(counts)
-  sfs=sfs/min(sfs)
-  #if(dat$sf) dat$counts=sweep(dat$counts,2,sfs,FUN='/')
-  n0=sum(sample_data(physeq)$grp=="grp1")
-  n1=sum(sample_data(physeq)$grp=="grp2")
-  m0=rowMeans(counts[,sample_data(physeq)$grp=="grp1"])
-  m1=rowMeans(counts[,sample_data(physeq)$grp=="grp2"])
-  n=nrow(counts)
-  pval=rep(1,n)
+  sfs = colSums(countData)
+  sfs = sfs / min(sfs)
+  #if(dat$sf) countData = sweep(countData,2,sfs,FUN='/')
+  n0 = sum(groupVar == levels(groupVar)[1]) 
+  n1 = sum(groupVar == levels(groupVar)[2]) # assume 2 levels factor groups
+  m0 = rowMeans(countData[, groupVar == levels(groupVar)[1]])
+  m1 = rowMeans(countData[, groupVar == levels(groupVar)[2]])
+  n  = nrow(countData)
+  pval = rep(1, n)
   for(i in 1:n){
-    z=(m1[i]-m0[i])/sqrt(m1[i]/n1+m0[i]/n0)
-    pval[i]=2*pnorm(-abs(z))
+    z = (m1[i] - m0[i]) / sqrt(m1[i] / n1 + m0[i] / n0)
+    pval[i] = 2 * pnorm(-abs(z))
   }
-  p.value
+  
+  names(pval) <- rownames(countData)
+  data.frame(p.value = pval)
 }
-cMeta_pv <- function(x) { x$p.value[, 2] }
+cMeta_pv <- function(x) { x$p.value }
 ```
 
 ## Add memthods to the bench
@@ -401,7 +402,11 @@ bd <- bd %>%
             meta = list(pkg_name = "limma-voom", pkg_vers = as.character(packageVersion("limma"))),
             params = rlang::quos(countData = cntdat,
                                  group = coldat$condition,
-                                 design = ~coldat$condition))
+                                 design = ~coldat$condition)) %>%
+  addMethod(label = "circMeta", func = cMeta_run, post = cMeta_pv, 
+            meta = list(pkg_name = "circMeta", pkg_vers = as.character(packageVersion("circMeta"))),
+            params = rlang::quos(countData = cntdat,
+                                 group = coldat$condition))
 
 bd
 ```
