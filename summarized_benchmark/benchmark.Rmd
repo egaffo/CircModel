@@ -28,7 +28,7 @@ library(zinbwave)
 ```
 
 ```{r}
-nWorkers <- 24
+nWorkers <- multicoreWorkers() # 24
 
 ## load simulated data
 simulated_datasets_qs <- "/home/enrico/tools/CircModel/semi_parametric_sim/trimmed_simulated_datasets.qs"
@@ -192,11 +192,11 @@ deseq2gpLrt_run <- function(countData, colData, design, contrast) {
 
 deseq2zw_run <- function(countData, colData, design, contrast, weights) {
     dds <- DESeqDataSetFromMatrix(countData, colData = colData, design = design)
-    if(!is.null(weights)){
-      weights[which(weights < 1e-6)] <- 1e-06
-      assays(dds)[["weights"]] <- weights  
+    if(is.null(weights)){
+      message("Weights expected but NULL was given. DESeq2 will not use weights")
     }else{
-      warning("Weights expected but NULL was given. DESeq2 will not use weights")
+      weights[which(weights < 1e-6)] <- 1e-06
+      assays(dds)[["weights"]] <- weights
     }
     dds <- DESeq(dds, 
                  # quiet = TRUE, 
@@ -286,7 +286,7 @@ voom_pv <- function(x) { x$p.value[, 2] }
 
 ```{r}
 ## circMeta
-cMeta_run <- function(countData, group) {
+cMeta_run <- function(countData, group, sf = TRUE) {
   groupVar <- group 
   names(groupVar) <- colnames(countData)
   countData <- apply(countData, 2, function(x) {storage.mode(x) <- 'integer'; x})
@@ -294,7 +294,7 @@ cMeta_run <- function(countData, group) {
 
   sfs = colSums(countData)
   sfs = sfs / min(sfs)
-  #if(dat$sf) countData = sweep(countData,2,sfs,FUN='/')
+  if(sf) countData = sweep(countData, 2, sfs, FUN='/')
   n0 = sum(groupVar == levels(groupVar)[1]) 
   n1 = sum(groupVar == levels(groupVar)[2]) # assume 2 levels factor groups
   m0 = rowMeans(countData[, groupVar == levels(groupVar)[1]])
@@ -306,6 +306,8 @@ cMeta_run <- function(countData, group) {
     pval[i] = 2 * pnorm(-abs(z))
   }
   
+  # fdr = p.adjust(pval, method = 'fdr')
+  # lfc = log( (m1 + 1) / (m0 + 1), 2 )
   names(pval) <- rownames(countData)
   data.frame(p.value = pval)
 }
