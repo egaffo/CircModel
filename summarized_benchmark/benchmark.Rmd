@@ -25,13 +25,17 @@ library("DESeq2")
 library("tximport")
 library(glmGamPoi)
 library(zinbwave)
+library(scran)
+
+library(BiocParallel)
+library(batchtools)
 ```
 
 ```{r}
 nWorkers <- multicoreWorkers() # 24
 
 ## load simulated data
-simulated_datasets_qs <- "/home/enrico/tools/CircModel/semi_parametric_sim/trimmed_simulated_datasets.qs"
+simulated_datasets_qs <- "/sharedfs01/circrna/CircModel/semi_parametric_sim/trimmed_simulated_datasets.qs"
 
 sim_ds_list <- qread(file = simulated_datasets_qs, nthreads = nWorkers)
 ```
@@ -76,26 +80,32 @@ simple_auc <- function(TPR, FPR){
 
 ## DESeq2 defaults
 deseq2_run <- function(countData, colData, design, contrast) {
-    dds <- DESeqDataSetFromMatrix(countData, colData = colData, design = design)
-    dds <- DESeq(dds)
-    results(dds, contrast = contrast)
+  
+  library("DESeq2")
+  dds <- DESeqDataSetFromMatrix(countData, colData = colData, design = design)
+  dds <- DESeq(dds)
+  results(dds, contrast = contrast)
 }
 
 ## use LRT 
 deseq2lrt_run <- function(countData, colData, design, contrast) {
-    dds <- DESeqDataSetFromMatrix(countData, colData = colData, design = design)
-    dds <- DESeq(dds, 
-                 test = "LRT",
-                 reduced = ~ 1)
-    results(dds)
+  
+  library("DESeq2")
+  dds <- DESeqDataSetFromMatrix(countData, colData = colData, design = design)
+  dds <- DESeq(dds, 
+               test = "LRT",
+               reduced = ~ 1)
+  results(dds)
 }
 
 ## use betaPrior
 deseq2bp_run <- function(countData, colData, design, contrast) {
-    dds <- DESeqDataSetFromMatrix(countData, colData = colData, design = design)
-    dds <- DESeq(dds, 
-                 betaPrior = T)
-    results(dds, contrast = contrast)
+  
+  library("DESeq2")
+  dds <- DESeqDataSetFromMatrix(countData, colData = colData, design = design)
+  dds <- DESeq(dds, 
+               betaPrior = T)
+  results(dds, contrast = contrast)
 }
 
 ## use recommended parameters for single-cell data
@@ -110,17 +120,19 @@ deseq2bp_run <- function(countData, colData, design, contrast) {
 ##         are not optimal for single cell count matrices
 ## set fitType = "glmGamPoi"
 deseq2zi_run <- function(countData, colData, design, contrast) {
-    dds <- DESeqDataSetFromMatrix(countData, colData = colData, design = design)
-    dds <- DESeq(dds, 
-                 # quiet = TRUE, 
-                 sfType = "poscounts", 
-                 useT = TRUE, 
-                 minmu = 1e-6, 
-                 minReplicatesForReplace = Inf, 
-                 test = "LRT", 
-                 reduced = ~ 1)
-    # results(dds, contrast = contrast)
-    results(dds)
+  
+  library("DESeq2")
+  dds <- DESeqDataSetFromMatrix(countData, colData = colData, design = design)
+  dds <- DESeq(dds, 
+               # quiet = TRUE, 
+               sfType = "poscounts", 
+               useT = TRUE, 
+               minmu = 1e-6, 
+               minReplicatesForReplace = Inf, 
+               test = "LRT", 
+               reduced = ~ 1)
+  # results(dds, contrast = contrast)
+  results(dds)
 }
 # deseq2zi_pv <- function(x) { x$pvalue } ## no need this, can use the deseq_pv
 
@@ -132,20 +144,21 @@ deseq2zi_run <- function(countData, colData, design, contrast) {
 ##          function from the genefilter package may give better results.
 deseq2lc_run <- function(countData, colData, design, contrast) {
   
-    dds <- DESeqDataSetFromMatrix(countData, colData = colData, design = design)
-    
-    dds <- estimateSizeFactors(dds, locfunc = genefilter::shorth)
-    
-    dds <- DESeq(dds, 
-                 # quiet = TRUE, 
-                 sfType = "poscounts", 
-                 useT = TRUE, 
-                 minmu = 1e-6, 
-                 minReplicatesForReplace = Inf, 
-                 test = "LRT", 
-                 reduced = ~ 1)
-    # results(dds, contrast = contrast)
-    results(dds)
+  library("DESeq2")
+  dds <- DESeqDataSetFromMatrix(countData, colData = colData, design = design)
+  
+  dds <- estimateSizeFactors(dds, locfunc = genefilter::shorth)
+  
+  dds <- DESeq(dds, 
+               # quiet = TRUE, 
+               sfType = "poscounts", 
+               useT = TRUE, 
+               minmu = 1e-6, 
+               minReplicatesForReplace = Inf, 
+               test = "LRT", 
+               reduced = ~ 1)
+  # results(dds, contrast = contrast)
+  results(dds)
 }
 
 ## use recommended parameters for single-cell data and the scran::computeSumFactors
@@ -153,6 +166,8 @@ deseq2lc_run <- function(countData, colData, design, contrast) {
 ## 'setting sizeFactors from scran::computeSumFactors. The default size factors 
 ##  are not optimal for single cell count matrices'
 deseq2sc_run <- function(countData, colData, design, contrast) {
+  
+  library("DESeq2")
   library(scran)
   
   dds <- DESeqDataSetFromMatrix(countData, colData = colData, design = design)
@@ -176,38 +191,43 @@ deseq2sc_run <- function(countData, colData, design, contrast) {
 ## DESeq2 requires use of test="LRT" and specification of a reduced design.
 deseq2gpLrt_run <- function(countData, colData, design, contrast) {
   
-    dds <- DESeqDataSetFromMatrix(countData, colData = colData, design = design)
-    dds <- DESeq(dds, 
-                 # quiet = TRUE, 
-                 sfType = "poscounts", 
-                 # useT = TRUE, 
-                 minmu = 1e-6, 
-                 minReplicatesForReplace = Inf, 
-                 fitType = "glmGamPoi",
-                 test = "LRT", 
-                 reduced = ~ 1)
-    # results(dds, contrast = contrast)
-    results(dds)
+  library("DESeq2")
+  library(glmGamPoi)
+  dds <- DESeqDataSetFromMatrix(countData, colData = colData, design = design)
+  dds <- DESeq(dds, 
+               # quiet = TRUE, 
+               sfType = "poscounts", 
+               # useT = TRUE, 
+               minmu = 1e-6, 
+               minReplicatesForReplace = Inf, 
+               fitType = "glmGamPoi",
+               test = "LRT", 
+               reduced = ~ 1)
+  # results(dds, contrast = contrast)
+  results(dds)
 }
 
 deseq2zw_run <- function(countData, colData, design, contrast, weights) {
-    dds <- DESeqDataSetFromMatrix(countData, colData = colData, design = design)
-    if(is.null(weights)){
-      message("Weights expected but NULL was given. DESeq2 will not use weights")
-    }else{
-      weights[which(weights < 1e-6)] <- 1e-06
-      assays(dds)[["weights"]] <- weights
-    }
-    dds <- DESeq(dds, 
-                 # quiet = TRUE, 
-                 sfType = "poscounts", 
-                 # useT = TRUE, 
-                 minmu = 1e-6, 
-                 minReplicatesForReplace = Inf, 
-                 test = "LRT", 
-                 reduced = ~ 1)
-    # results(dds, contrast = contrast)
-    results(dds)
+  
+  library("DESeq2")
+  dds <- DESeqDataSetFromMatrix(countData, colData = colData, design = design)
+  
+  if(is.null(weights)){
+    message("Weights expected but NULL was given. DESeq2 will not use weights")
+  }else{
+    weights[which(weights < 1e-6)] <- 1e-06
+    assays(dds, withDimnames =F, "weights")[["weights"]] <- weights
+  }
+  dds <- DESeq(dds, 
+               # quiet = TRUE, 
+               sfType = "poscounts", 
+               # useT = TRUE, 
+               minmu = 1e-6, 
+               minReplicatesForReplace = Inf, 
+               test = "LRT", 
+               reduced = ~ 1)
+  # results(dds, contrast = contrast)
+  results(dds)
 }
 deseq2_pv <- function(x) { x$pvalue }
 ```
@@ -217,15 +237,19 @@ deseq2_pv <- function(x) { x$pvalue }
 ```{r}
 ## edgeR family
 edgeR_run <- function(countData, group, design) {
-    y <- DGEList(countData, group = group)
-    y <- calcNormFactors(y)
-    des <- model.matrix(design)
-    y <- estimateDisp(y, des)
-    fit <- glmFit(y, des)
-    glmLRT(fit, coef=2)
+  
+  library(edgeR)
+  y <- DGEList(countData, group = group)
+  y <- calcNormFactors(y)
+  des <- model.matrix(design)
+  y <- estimateDisp(y, des)
+  fit <- glmFit(y, des)
+  glmLRT(fit, coef=2)
 }
 
 edgeRrbst_run <- function(countData, group, design) {
+  
+  library(edgeR)
   y <- DGEList(countData, group = group)
   y <- calcNormFactors(y)
   des <- model.matrix(design)
@@ -236,6 +260,8 @@ edgeRrbst_run <- function(countData, group, design) {
 }
 
 edgeRrbst50df_run <- function(countData, group, design) {
+  
+  library(edgeR)
   y <- DGEList(countData, group = group)
   y <- calcNormFactors(y)
   des <- model.matrix(design)
@@ -246,6 +272,8 @@ edgeRrbst50df_run <- function(countData, group, design) {
 }
 
 edgeRrbstEdf_run <- function(countData, group, design) {
+  
+  library(edgeR)
   y <- DGEList(countData, group = group)
   y <- calcNormFactors(y)
   des <- model.matrix(design)
@@ -256,6 +284,8 @@ edgeRrbstEdf_run <- function(countData, group, design) {
 }
 
 edgeRzw_run <- function(countData, group, design, weights) {
+  
+  library(edgeR)
   y <- DGEList(countData, group = group)
   y$weights <- weights
   y <- calcNormFactors(y)
@@ -273,11 +303,14 @@ edgeR_pv <- function(x) { x$table$PValue }
 ```{r}
 ## limma-voom family
 voom_run <- function(countData, group, design) {
-    y <- DGEList(countData, group = group)
-    y <- calcNormFactors(y)
-    des <- model.matrix(design)
-    y <- voom(y, des)
-    eBayes(lmFit(y, des))
+    
+  library(edgeR)
+  library(limma)
+  y <- DGEList(countData, group = group)
+  y <- calcNormFactors(y)
+  des <- model.matrix(design)
+  y <- voom(y, des)
+  eBayes(lmFit(y, des))
 }
 voom_pv <- function(x) { x$p.value[, 2] }
 ```
@@ -420,23 +453,24 @@ printMethods(bd)
 ### Weight functions
 
 ```{r}
-computeExactWeights <- function (model, x) {
-  library(zinbwave)
+compute_weights <- function(countdata, coldat, ...) {
   
-  mu <- getMu(model)
-  pi <- getPi(model)
-  theta <- getTheta(model)
-  theta <- matrix(rep(theta, each = ncol(x)), ncol = nrow(x))
-  nb_part <- dnbinom(t(x), size = theta, mu = mu)
-  zinb_part <- pi * ( t(x) == 0 ) + (1 - pi) *  nb_part
-  zinbwg <- ( (1 - pi) * nb_part ) / zinb_part
-  zinbwg <- t(zinbwg)
-  zinbwg[x > 0] <- 1
-  zinbwg[zinbwg < 1e-15] <- 1e-15
-  zinbwg
-}
-
-compute_weights <- function(countdata, coldat) {
+  computeExactWeights <- function (model, x) {
+    library(zinbwave)
+    
+    mu <- getMu(model)
+    pi <- getPi(model)
+    theta <- getTheta(model)
+    theta <- matrix(rep(theta, each = ncol(x)), ncol = nrow(x))
+    nb_part <- dnbinom(t(x), size = theta, mu = mu)
+    zinb_part <- pi * ( t(x) == 0 ) + (1 - pi) *  nb_part
+    zinbwg <- ( (1 - pi) * nb_part ) / zinb_part
+    zinbwg <- t(zinbwg)
+    zinbwg[x > 0] <- 1
+    zinbwg[zinbwg < 1e-15] <- 1e-15
+    zinbwg
+  }
+  
   library(zinbwave)
   
   zinbmodel <- zinbFit(Y = countdata,
@@ -445,7 +479,7 @@ compute_weights <- function(countdata, coldat) {
                        # epsilon = nrow(countdata), #1e10
                        commondispersion = TRUE, 
                        verbose = FALSE, 
-                       BPPARAM = SerialParam())
+                       ...) #BPPARAM = BiocParallel::SerialParam()
   
   computeExactWeights(model = zinbmodel,
                       x = countdata)
@@ -464,33 +498,38 @@ datasetList <-
                 y = de_ds_list), 
          recursive = F)
 
-subsetIdx <- c(1:3, 31:33, 61:63, # { bulk 3, 5, 10 } x 3
-               91:93, 121:123, 151:153) # { sice 3, 5, 10 } x 3
-# subsetIdx <- 1:length(datasetList) # all
+# subsetIdx <- c(1:3, 31:33, 61:63, # { bulk 3, 5, 10 } x 3
+#                91:93, 121:123, 151:153) # { sice 3, 5, 10 } x 3
+subsetIdx <- 1:length(datasetList) # all
 datasetList <- datasetList[subsetIdx]
 ```
 
 ```{r}
-## seek all zero rows
-# a <- lapply(de_ds_list, 
-#            function(y) {
-#              lapply(y$Datasets$sim.data.list, 
-#                     function(x) {
-#                       sum(rowSums(x$counts) == 0)
-#                     })
-#            })
+## set scheduler for cluster computing
+zwcpus <- 12
+bpparam <- BatchtoolsParam(workers = length(datasetList), 
+                           saveregistry = F,
+                           cluster = "slurm",
+                           resources = list(ncpus = zwcpus, 
+                                            walltime = 3600, # 1h max
+                                            memory = 4096) # 4Gb, 2048 2 GByte, 8192 8 Gb
+)
+
+## Multithread, single machine
+# bpparam <- MulticoreParam(nWorkers)
 ```
+
+## Prepare dataset and input parameters
 
 ```{r}
 ## prepare dataset and input parameters
 datasetList <- 
   bplapply(datasetList, 
-           function(x) {
+           function(x, compute_weights, zwcpus) {
+             
              ## remove rows with only zero counts
              mat <- x$counts
              mat <- mat[rowSums(mat > 0) >= 3, ]
-             # message(paste("0s rows:", sum(rowSums(mat) == 0)))
-             # message(mat["Gene_301", ])
              coldata <- x$colData[colnames(mat), ]
              rowdata <- x$rowData[rownames(mat), ]
              
@@ -498,18 +537,27 @@ datasetList <-
                   cntdat = mat, 
                   status = as.integer(rowdata[, "DE.ind"]),
                   weights = compute_weights(countdata = mat,
-                                            coldat = factor(coldata[, "Group"])),
+                                            coldat = factor(coldata[, "Group"]),
+                                            BPPARAM = BiocParallel::MulticoreParam(workers = zwcpus)),
                   # weights = NULL, ## only for quick testing
                   nGenes = nrow(mat))
              
            }, 
-           BPPARAM = MulticoreParam(nWorkers))
+           compute_weights = compute_weights,
+           zwcpus = zwcpus,
+           # BPPARAM = MulticoreParam(nWorkers))
+           BPPARAM = bpparam)
 ```
 
 ```{r}
+## override BPPARAM
+bpparam$resources$ncpus <- 1
+
 sbL <- bplapply(datasetList, 
-                function(x) { buildBench(bd, data = x, truthCols = "status") },
-                BPPARAM = BiocParallel::MulticoreParam(nWorkers))
+                function(x, bd) { SummarizedBenchmark::buildBench(bd, data = x, truthCols = "status") },
+                bd = bd,
+                # BPPARAM = BiocParallel::MulticoreParam(nWorkers))
+                BPPARAM = bpparam)
 # sbL
 ```
 
@@ -521,18 +569,24 @@ sbL <- bplapply(datasetList,
 
 ```{r}
 sbL <- bplapply(sbL, function(x) {
-  addPerformanceMetric(x, 
-                       evalMetric = c("rejections", "TPR", "TNR", "FDR", "FNR"),
-                       assay = "status")},
-  BPPARAM = BiocParallel::MulticoreParam(nWorkers))
+  SummarizedBenchmark::addPerformanceMetric(x, 
+                                            evalMetric = c("rejections", "TPR", "TNR", "FDR", "FNR"),
+                                            assay = "status")},
+  # BPPARAM = BiocParallel::MulticoreParam(nWorkers))
+  BPPARAM = bpparam)
+
+## precision = 1 - FDR
+## recall = TPR
+## specificity = TNR
 ```
 
 ```{r}
 sbL <- bplapply(sbL, function(x) {
-  estimatePerformanceMetrics(x, 
-                             alpha = c(0.01, 0.05, 0.1), 
-                             addColData = T)},
-  BPPARAM = BiocParallel::MulticoreParam(nWorkers))
+  SummarizedBenchmark::estimatePerformanceMetrics(x, 
+                                                  alpha = c(0.01, 0.05, 0.1), 
+                                                  addColData = T)},
+  # BPPARAM = BiocParallel::MulticoreParam(nWorkers))
+  BPPARAM = bpparam)
 ```
 
 ```{r}
@@ -541,7 +595,7 @@ plotMethodsOverlap(sbL[[1]], assay = "status", alpha = 0.1, order.by = "freq")
 ```
 
 ```{r}
-# SummarizedBenchmark::plotROC(sb1, assay = "status")
+# SummarizedBenchmark::plotROC(sbL[[1]], assay = "status")
 ```
 
 ```{r, fig.width=4, fig.height=4}
@@ -575,11 +629,11 @@ mean_eval_metrics_dt <-
                   by = .(SetSize, MZP, DsType, Method, ID)]
 ```
 
-## ROC (FPR vs TPR)
+## FDR vs TPR
 
 ```{r}
 ggplot(mean_eval_metrics_dt[DsType == "de"], 
-       aes(x = AvgFPR, y = AvgTPR, color = Method)) +
+       aes(x = AvgFDR, y = AvgTPR, color = Method)) +
   geom_abline(linetype = "dashed") +
   geom_line() +
   facet_grid(cols = vars(SetSize),
@@ -593,7 +647,7 @@ ggplot(mean_eval_metrics_dt[DsType == "de"],
 ### AUC
 
 ```{r}
-auROCcs <- eval_metrics_dt[, .(AUC = simple_auc(TPR, FPR)), 
+auROCcs <- eval_metrics_dt[, .(AUC = simple_auc(TPR, FDR)), 
              by = .(Dataset, SetSize, MZP, DsType, Method)]
 
 mean_auROCcs <- auROCcs[, .(AUC = mean(AUC)), 
@@ -623,12 +677,11 @@ datatable(show_dt, rownames = F, filter = "top") %>%
   formatRound("AUC", 3)
 ```
 
-
-## FDR vs TPR
+## ROC (FPR vs TPR)
 
 ```{r}
 ggplot(mean_eval_metrics_dt[DsType == "de"], 
-       aes(x = AvgFDR, y = AvgTPR, color = Method)) +
+       aes(x = AvgFPR, y = AvgTPR, color = Method)) +
   geom_abline(linetype = "dashed") +
   geom_line() +
   facet_grid(cols = vars(SetSize),
@@ -642,7 +695,7 @@ ggplot(mean_eval_metrics_dt[DsType == "de"],
 ### AUC
 
 ```{r}
-auROCcs <- eval_metrics_dt[, .(AUC = simple_auc(TPR, FDR)), 
+auROCcs <- eval_metrics_dt[, .(AUC = simple_auc(TPR, FPR)), 
              by = .(Dataset, SetSize, MZP, DsType, Method)]
 
 mean_auROCcs <- auROCcs[, .(AUC = mean(AUC)), 
