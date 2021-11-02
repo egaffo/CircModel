@@ -1,0 +1,369 @@
+---
+title: "Simulations with SPsimSeq"
+author: "Enrico Gaffo"
+date: "`r Sys.Date()`"
+output: 
+  html_document: 
+    toc: yes
+    otc_float: yes
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+# load required libraries
+library(data.table)
+
+library(ggplot2)
+library(pheatmap)
+library(viridis)
+library(DT)
+
+# library(devtools)
+# install_github("CenterForStatistics-UGent/SPsimSeq", Ncpus = 12)
+library(SPsimSeq)
+
+library(edgeR)
+library(DESeq2)
+library(BiocParallel)
+
+# install.packages("qs", Ncpus = 24)
+library(qs)
+```
+
+# The source data set
+
+Load the original data and make a basic filtering  
+
+```{r}
+# load the original data
+counts_mt <- as.matrix(data.frame(fread("../data/MS_unfiltered_CirComPara2_circbjr.csv"), 
+                                  row.names = "circ_id"))
+group_dt <- fread("../data/MS_meta.csv")
+group_df <- data.frame(group_dt, 
+                       row.names = "sample_id")
+```
+
+MS data have `r nrow(counts_mt)` circRNAs.  
+
+Samples partitioned between conditions  
+
+```{r}
+cond_parts <- group_dt[, .N, by = condition][, Frac := N/sum(N)][]
+cond_parts
+```
+
+```{r}
+# remove genes with insufficient expression (important step to avoid bugs)
+counts_mt <- counts_mt[rowSums(counts_mt > 0) >= 3, ]
+```
+
+MS filtered data have `r nrow(counts_mt)` circRNAs (BJR > 0 in 3 or more samples).  
+
+```{r}
+lib_sizes <- apply(counts_mt, 2, sum)[rownames(group_df)]
+lib_size_dt <- data.table(group_df, 
+                          Lib_size = lib_sizes, 
+                          keep.rownames = "Sample")
+
+plot_dt <- lib_size_dt
+plot_dt$Sample <- factor(plot_dt$Sample, 
+                         levels = plot_dt[order(Lib_size), Sample],
+                         ordered = T)
+
+ggplot(plot_dt,
+       aes(x = Sample, y = Lib_size)) +
+  geom_col() +
+  facet_grid(cols = vars(condition), space = "free_x", drop = T, scales = "free_x") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+```{r}
+ggplot(plot_dt,
+       aes(x = condition, y = Lib_size)) +
+  geom_boxplot(varwidth = T) +
+  geom_point(shape = 21)
+```
+
+```{r}
+# subset an equivalent size of the source dataset
+seed.num <- 2021
+set.seed(seed.num)
+```
+
+```{r}
+# SPsimSeq simulation
+SPsimSeq_simulate <- 
+  function(params_list, ...) {
+    
+    counts_mt <- params_list$counts_mt
+    reps_per_group <- params_list$reps_per_group
+    Ncircrnas <- params_list$Ncircrnas
+    fracDECs <- params_list$fracDECs
+    # circs_to_sim <- params_list$circs_to_sim
+    group_df <- params_list$group_df
+    model_zeros <- params_list$model_zeros
+    n.sims <- params_list$n.sims
+    
+    # counts_mat <- counts_mt[circs_to_sim, ]
+    counts_mat <- counts_mt
+    
+    sim_pars <- paste(n.sims, "data sets of", 
+                      Ncircrnas, "circRNAs per", 
+                      2 * reps_per_group, "samples, modelling zero probability",
+                      model_zeros)
+    
+    start_time <- Sys.time()
+    message(paste(start_time, "start SPsimSeq to simulate", 
+                  sim_pars))
+    
+    simdatasets <- 
+      SPsimSeq(n.sim = n.sims,
+               s.data = counts_mat, 
+               n.genes = Ncircrnas, 
+               tot.samples = 2 * reps_per_group, 
+               pDE = fracDECs, 
+               # cand.DE.genes = list(null.genes=c('A', 'B'), nonnull.genes=c('C', 'D'))
+               group = as.integer(factor(group_df[colnames(counts_mat), ])), 
+               group.config = c(.5, .5), # fixed to equal group sizes
+               model.zero.prob = model_zeros,
+               batch = rep(1, ncol(counts_mat)),
+               batch.config = 1, 
+               w = NULL, #0.5,
+               result.format = "list",
+               return.details = TRUE,
+               ...) 
+    
+    runtime <- difftime(Sys.time(), start_time, units = "s")
+    message(paste("SPsimSeq took", runtime, "seconds"))
+    
+    list(Datasets = simdatasets,
+         runtime = runtime)
+  }
+```
+
+## Library size of samples
+
+```{r}
+## compute sample similarity according to library size
+sample_clust_by_libsize <- 
+  hclust(d = dist(x = lib_sizes, method = "euclidean"), 
+         method = "complete")
+
+Nclust_libsize <- 4
+```
+
+```{r, fig.height=7.5, fig.width=4.5}
+pheatmap(mat = as.matrix(lib_sizes), 
+         scale = "none", 
+         color = viridis(255),
+         cluster_rows = sample_clust_by_libsize, 
+         cluster_cols = F, 
+         cutree_rows = Nclust_libsize, 
+         cellwidth = 9, cellheight = 9, 
+         annotation_row = group_df)
+```
+
+```{r}
+sample_libsize_clust_dt <- 
+  merge(data.table(Sample = sample_clust_by_libsize$labels, 
+                   Corder = sample_clust_by_libsize$order,
+                   LibGroup = cutree(tree = sample_clust_by_libsize, 
+                                     k = Nclust_libsize)),
+        lib_size_dt,
+        by = "Sample")
+
+ggplot(sample_libsize_clust_dt,
+       aes(x = factor(LibGroup), y = Lib_size, color = condition)) +
+  geom_boxplot(varwidth = T) +
+  geom_jitter(position = position_dodge2(width = .5), shape = 1)
+```
+
+```{r}
+datatable(sample_libsize_clust_dt[, .(Nsamples = .N,
+                            MaxLibSize = max(Lib_size),
+                            MinLibSize = min(Lib_size)), 
+                        by = .(LibGroup, condition)][order(LibGroup, condition)],
+          rownames = F, filter = "top")
+```
+
+# Simulate datasets
+
+## Prepare the source data set 
+
+Select samples of similar library size from the original data set
+
+### DE data sets
+
+```{r}
+## subset original matrix using samples of similar library size
+sample_subset <- sample_libsize_clust_dt[LibGroup == 2, Sample]
+## subset sample metadata 
+sample_table <- group_df[sample_subset, "condition", drop = F]
+
+orig_mat <- counts_mt[, sample_subset]
+## only for testing
+# orig_mat <- orig_mat[, data.table(sample_table, keep.rownames = "Sample")[, head(.SD, 5), by = condition][, Sample]]
+
+## filter out circRNAs expressed in less than 3 samples
+orig_mat <- orig_mat[rowSums(orig_mat > 0) >= 3, ]
+```
+
+`r dim(orig_mat)` circRNAs - samples in the fitered original data set.  
+
+```{r}
+## parameters to simulate the data sets
+Ncircrnas <- 3000
+```
+
+```{r}
+## compute the expression quantiles to select equally distributed circRNA
+## expression among expression range
+library(edgeR)
+orig_nf <- calcNormFactors(orig_mat, method = "TMM")
+norm_orig_mat <- orig_mat/orig_nf
+avg_xrps_orig_mat <- apply(norm_orig_mat, 1, mean)
+## compute 10 expression quantiles
+expression_quantiles <- quantile(avg_xrps_orig_mat,
+                                 seq(from = 0, to = 1, by = .1))
+## assign the expression quantile to each circRNA
+qt_circ_dt <-
+  data.frame(circ_id = 1:nrow(orig_mat),
+             avg_xrps = avg_xrps_orig_mat,
+             qt = cut(avg_xrps_orig_mat, include.lowest = T,
+                      breaks = expression_quantiles))
+circs_per_qt <- floor(Ncircrnas / (length(expression_quantiles) - 1))
+circs_to_sim <-
+  unlist(lapply(split(qt_circ_dt$circ_id, f = qt_circ_dt$qt),
+                sample, size = circs_per_qt))
+circs_to_sim_names <- rownames(orig_mat)[circs_to_sim]
+
+## further subset original matrix to the selected circRNAs
+orig_mat <- orig_mat[circs_to_sim, ]
+```
+
+```{r}
+## save source dataset
+orig_mat_dge <- edgeR::DGEList(counts = orig_mat, group = sample_table[colnames(orig_mat), "condition"])
+
+source_dataset_qs <- "trimmed_source_dataset.qs"
+qsave(x = orig_mat_dge, file = source_dataset_qs, nthreads = 48, preset = "fast")
+```
+
+The source data sets can be loaded from the <a href="`r source_dataset_qs`">`r source_dataset_qs`</a> R object using the <a href="https://cran.r-project.org/web/packages/qs/index.html">qs</a> package.  
+
+### Not DE data sets
+
+```{r}
+## subset original matrix using samples of similar library size
+## NB: use samples from one condition
+# mock_sample_subset <- sample_libsize_clust_dt[LibGroup == 2 & 
+#                                                 condition == "Healthy controls", 
+#                                               Sample]
+# mock_orig_mat <- counts_mt[, mock_sample_subset]
+# ## filter out circRNAs expressed in less than 3 samples
+# mock_orig_mat <- mock_orig_mat[rowSums(mock_orig_mat > 0) >= 3, ]
+# 
+# ## subset sample metadata 
+# mock_sample_table <- group_df[mock_sample_subset, "condition", drop = F]
+
+# `r dim(mock_orig_mat)` circRNAs - samples in the filtered original mock data set.  
+```
+
+Nothing to do here. Will just set faction of DE to 0.   
+
+## Set parameters to simulate the data sets
+
+
+```{r}
+## parameters to simulate the data sets
+n.sims <- 30
+```
+
+### DE data sets
+
+```{r}
+## ---- DE data sets ----
+params_list <- 
+  list(counts_mt = orig_mat,
+       Ncircrnas = Ncircrnas, 
+       fracDECs = 0.1,
+       group_df = sample_table,
+       n.sims = n.sims)
+
+bulk_sims_params <- 
+  list(N03_bulk = c(params_list, reps_per_group =  3, model_zeros = FALSE),
+       N05_bulk = c(params_list, reps_per_group =  5, model_zeros = FALSE),
+       N10_bulk = c(params_list, reps_per_group = 10, model_zeros = FALSE))
+
+sice_sims_params <- 
+  list(N03_sice = c(params_list, reps_per_group =  3, model_zeros = TRUE),
+       N05_sice = c(params_list, reps_per_group =  5, model_zeros = TRUE),
+       N10_sice = c(params_list, reps_per_group = 10, model_zeros = TRUE))
+```
+
+### Not DE data sets
+
+```{r}
+## ---- no DE data sets ----
+## use the single condition samples and set fraction of DECs = 0
+mock_params_list <- 
+  list(counts_mt = orig_mat, #mock_orig_mat,
+       Ncircrnas = Ncircrnas, 
+       fracDECs = 0,
+       group_df = sample_table, #mock_sample_table,
+       n.sims = n.sims)
+
+mock_bulk_sims_params <- 
+  list(N03_bulk_mock = c(mock_params_list, reps_per_group =  3, model_zeros = FALSE),
+       N05_bulk_mock = c(mock_params_list, reps_per_group =  5, model_zeros = FALSE),
+       N10_bulk_mock = c(mock_params_list, reps_per_group = 10, model_zeros = FALSE))
+
+mock_sice_sims_params <- 
+  list(N03_sice_mock = c(mock_params_list, reps_per_group =  3, model_zeros = TRUE),
+       N05_sice_mock = c(mock_params_list, reps_per_group =  5, model_zeros = TRUE),
+       N10_sice_mock = c(mock_params_list, reps_per_group = 10, model_zeros = TRUE))
+```
+
+## Do simulations
+
+```{r}
+## do simulations in parallel
+ds_par_list <- 
+  c(bulk_sims_params, 
+    sice_sims_params,
+    mock_bulk_sims_params, 
+    mock_sice_sims_params)
+
+sim_ds_list <- 
+  bplapply(X = ds_par_list, 
+           FUN = SPsimSeq_simulate, 
+           BPPARAM = MulticoreParam()) #workers = 2
+
+## save the simulated data sets
+# simulated_datasets_rds <- "simulated_datasets.rds"
+# saveRDS(object = sim_ds_list, 
+#         file = simulated_datasets_rds)
+
+## 'qs' is much quicker than 'saveRDS' !!
+simulated_datasets_qs <- "trimmed_simulated_datasets.qs"
+qsave(x = sim_ds_list, file = simulated_datasets_qs, nthreads = 48, preset = "fast")
+```
+
+```{r}
+## save in text format each simulated dataset: 
+## 1. count matrix, 2. DE indicators, 3. sample design table
+# sim_dir <- "simulated_datasets"
+## TODO (?)
+```
+
+The simulated data sets can be loaded from the <a href="`r simulated_datasets_qs`">`r simulated_datasets_qs`</a> R object using the <a href="https://cran.r-project.org/web/packages/qs/index.html">qs</a> package.  
+
+# Session info
+
+```{r}
+sessionInfo()
+```
+

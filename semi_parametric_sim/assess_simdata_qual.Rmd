@@ -60,7 +60,7 @@ de_ds_stats <- rbindlist(list(Expression = expression_stats,
                               FeatureFracZero = featureFracZero_stats, 
                               ExprVsFracZero = exprVsFracZero_stats, 
                               LibsizeVsFracZero = libsizeVsFracZero_stats), 
-                         use.names = T, idcol = "Measure")
+                         use.names = T, idcol = "Measure", fill = T)
 
 fwrite(de_ds_stats, file = "de_ds_stats.csv", sep = "\t", row.names = F)
 ```
@@ -80,7 +80,7 @@ not_de_ds_stats <- rbindlist(list(Expression = expression_stats,
                                   FeatureFracZero = featureFracZero_stats, 
                                   ExprVsFracZero = exprVsFracZero_stats, 
                                   LibsizeVsFracZero = libsizeVsFracZero_stats), 
-                             use.names = T, idcol = "Measure")
+                             use.names = T, idcol = "Measure", fill = T)
 
 fwrite(not_de_ds_stats, file = "not_de_ds_stats.csv", sep = "\t", row.names = F)
 ```

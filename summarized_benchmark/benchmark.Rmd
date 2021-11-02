@@ -78,7 +78,7 @@ simple_auc <- function(TPR, FPR){
 ```{r}
 ## DESeq2 family
 
-## DESeq2 defaults
+## 1. DESeq2 defaults
 deseq2_run <- function(countData, colData, design, contrast) {
   
   library("DESeq2")
@@ -87,7 +87,7 @@ deseq2_run <- function(countData, colData, design, contrast) {
   results(dds, contrast = contrast)
 }
 
-## use LRT 
+## 2. use LRT 
 deseq2lrt_run <- function(countData, colData, design, contrast) {
   
   library("DESeq2")
@@ -98,7 +98,7 @@ deseq2lrt_run <- function(countData, colData, design, contrast) {
   results(dds)
 }
 
-## use betaPrior
+## 3. use betaPrior
 deseq2bp_run <- function(countData, colData, design, contrast) {
   
   library("DESeq2")
@@ -108,7 +108,7 @@ deseq2bp_run <- function(countData, colData, design, contrast) {
   results(dds, contrast = contrast)
 }
 
-## use recommended parameters for single-cell data
+## 4. use recommended parameters for single-cell data
 ## https://bioconductor.org/packages/release/bioc/vignettes/DESeq2/inst/doc/DESeq2.html#recommendations-for-single-cell-analysis
 ## Use test="LRT"
 ## useT=TRUE
@@ -134,9 +134,8 @@ deseq2zi_run <- function(countData, colData, design, contrast) {
   # results(dds, contrast = contrast)
   results(dds)
 }
-# deseq2zi_pv <- function(x) { x$pvalue } ## no need this, can use the deseq_pv
 
-## use recommended parameters for single-cell data and the genefilter::shorth
+## 5. use recommended parameters for single-cell data and the genefilter::shorth
 ## in estimating  the size factors (parameter 'locfunc')
 ## ?estimateSizeFactors
 ## locfunc: a function to compute a location for a sample. By default, the 
@@ -161,7 +160,7 @@ deseq2lc_run <- function(countData, colData, design, contrast) {
   results(dds)
 }
 
-## use recommended parameters for single-cell data and the scran::computeSumFactors
+## 6. use recommended parameters for single-cell data and the scran::computeSumFactors
 ## to estimate the size factors
 ## 'setting sizeFactors from scran::computeSumFactors. The default size factors 
 ##  are not optimal for single cell count matrices'
@@ -185,10 +184,10 @@ deseq2sc_run <- function(countData, colData, design, contrast) {
   results(dds)
 }
 
-## https://bioconductor.org/packages/release/bioc/vignettes/DESeq2/inst/doc/DESeq2.html#speed-up-and-parallelization-thoughts
-## By using the argument fitType="glmGamPoi", one can leverage the faster NB GLM 
+## 7. By using the argument fitType="glmGamPoi", one can leverage the faster NB GLM 
 ## engine written by Constantin Ahlmann-Eltze. Note that glmGamPoi’s interface in 
 ## DESeq2 requires use of test="LRT" and specification of a reduced design.
+## https://bioconductor.org/packages/release/bioc/vignettes/DESeq2/inst/doc/DESeq2.html#speed-up-and-parallelization-thoughts
 deseq2gpLrt_run <- function(countData, colData, design, contrast) {
   
   library("DESeq2")
@@ -207,6 +206,7 @@ deseq2gpLrt_run <- function(countData, colData, design, contrast) {
   results(dds)
 }
 
+## 8. use ZinbWave weights
 deseq2zw_run <- function(countData, colData, design, contrast, weights) {
   
   library("DESeq2")
@@ -236,6 +236,8 @@ deseq2_pv <- function(x) { x$pvalue }
 
 ```{r}
 ## edgeR family
+
+## 1. default edgeR
 edgeR_run <- function(countData, group, design) {
   
   library(edgeR)
@@ -247,6 +249,7 @@ edgeR_run <- function(countData, group, design) {
   glmLRT(fit, coef=2)
 }
 
+## 2. robust
 edgeRrbst_run <- function(countData, group, design) {
   
   library(edgeR)
@@ -259,6 +262,7 @@ edgeRrbst_run <- function(countData, group, design) {
   glmLRT(fit, coef = 2)
 }
 
+## 3. 50 degrees of freedom
 edgeRrbst50df_run <- function(countData, group, design) {
   
   library(edgeR)
@@ -271,6 +275,7 @@ edgeRrbst50df_run <- function(countData, group, design) {
   glmLRT(fit, coef = 2)
 }
 
+## 4. auto estimation of df
 edgeRrbstEdf_run <- function(countData, group, design) {
   
   library(edgeR)
@@ -283,6 +288,7 @@ edgeRrbstEdf_run <- function(countData, group, design) {
   glmLRT(fit, coef = 2)
 }
 
+## 5. ZinbWave weights
 edgeRzw_run <- function(countData, group, design, weights) {
   
   library(edgeR)
@@ -404,6 +410,12 @@ bd <- bd %>%
                                  design = ~condition,
                                  contrast = c("condition", "2", "1"),
                                  weights = weights)) %>%
+  addMethod(label = "deseq2bp", func = deseq2bp_run, post = deseq2_pv,
+            meta = list(pkg_name = "DESeq2", pkg_vers = as.character(packageVersion("DESeq2"))),
+            params = rlang::quos(countData = cntdat,
+                                 colData = coldat, 
+                                 design = ~condition,
+                                 contrast = c("condition", "2", "1"))) %>%
   addMethod(label = "edgeR", func = edgeR_run, post = edgeR_pv,
             meta = list(pkg_name = "edgeR", pkg_vers = as.character(packageVersion("edgeR"))),
             params = rlang::quos(countData = cntdat,
@@ -629,6 +641,10 @@ mean_eval_metrics_dt <-
                   by = .(SetSize, MZP, DsType, Method, ID)]
 ```
 
+```{r}
+fwrite(eval_metrics_dt, "eval_metrics.csv.gz", sep = "\t", row.names = F)
+```
+
 ## FDR vs TPR
 
 ```{r}
@@ -652,6 +668,10 @@ auROCcs <- eval_metrics_dt[, .(AUC = simple_auc(TPR, FDR)),
 
 mean_auROCcs <- auROCcs[, .(AUC = mean(AUC)), 
                             by = .(SetSize, MZP, DsType, Method)]
+```
+
+```{r}
+fwrite(auROCcs, "FDRvsTPR_AUC.csv", sep = "\t", row.names = F)
 ```
 
 ```{r}
@@ -700,6 +720,10 @@ auROCcs <- eval_metrics_dt[, .(AUC = simple_auc(TPR, FPR)),
 
 mean_auROCcs <- auROCcs[, .(AUC = mean(AUC)), 
                             by = .(SetSize, MZP, DsType, Method)]
+```
+
+```{r}
+fwrite(auROCcs, "ROC_AUC.csv", sep = "\t", row.names = F)
 ```
 
 ```{r}
