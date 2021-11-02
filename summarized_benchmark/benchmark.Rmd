@@ -642,7 +642,7 @@ mean_eval_metrics_dt <-
 ```
 
 ```{r}
-fwrite(eval_metrics_dt, "eval_metrics.csv", sep = "\t", row.names = F)
+fwrite(eval_metrics_dt, "eval_metrics.csv.gz", sep = "\t", row.names = F)
 ```
 
 ## FDR vs TPR
