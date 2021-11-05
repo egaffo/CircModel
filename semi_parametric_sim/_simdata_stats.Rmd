@@ -17,20 +17,28 @@ source("calculateStats.R")
 
 ```{r}
 simCalculateDispersions <- function(x) {
-    
-    dge <- edgeR::DGEList(counts = x[['counts']], 
-                          group  = x[['colData']]$Group)
-    dge <- edgeR::calcNormFactors(dge)
-    design_mm <- model.matrix(~ Group, data = x[['colData']])
-    dge <- edgeR::estimateDisp(dge, design = design_mm)
-    # dge$AveLogCPM <- edgeR::aveLogCPM(dge)
-    dge
+  
+  ## filter out not expressed features
+  dge <- edgeR::DGEList(counts = x[['counts']][rowSums(x[['counts']]) > 0, ], 
+                        group  = x[['colData']]$Group)
+  dge <- edgeR::calcNormFactors(dge)
+  design_mm <- model.matrix(~ Group, data = x[['colData']])
+  dge <- edgeR::estimateDisp(dge, design = design_mm)
+  # dge$AveLogCPM <- edgeR::aveLogCPM(dge)
+  dge
 }
 
 simCalculateDispersionsList <- function(sims_list) {
-    
+  
     bplapply(sims_list, simCalculateDispersions, BPPARAM = MulticoreParam())
 }
+
+# update_dataset_rowData <- function(x) {
+#   x$rowData$keep <- rowSums(x$counts) > 0
+#   # data.table(x$rowData, keep.rownames = "Gene")[, .N, by = .(DE.ind, keep)]
+#   x
+# }
+# 
 ```
 
 ```{r}
@@ -93,6 +101,8 @@ sourceSampleDF <-
 featureDF_list <- split(featureDF, f = featureDF$Dataset)
 sampleDF_list <- split(sampleDF, f = sampleDF$Dataset)
 ```
+
+## Similarity to the source data set
 
 ```{r}
 featureDF_dt <- 
@@ -227,6 +237,83 @@ ggplot(plot_dt, aes(x = AveBJR)) +
   facet_grid(rows = vars(SampleSize), scales = "free_y") +
   scale_x_log10()
 ```
+
+### DECs expression
+
+```{r}
+# a <- data.frame(bjrs_l[Dataset == "N03_bulk_de" & dataset == 1][, .(AvgBJR = mean(BJR)), by = Gene], row.names = "Gene")
+# b <- sim_data_list$N03_bulk_de[[1]]$rowData[rownames(a), ]
+# 
+# head(a)
+# head(b)
+# 
+# b$AveBJR <- a[rownames(b), "AvgBJR"]
+# 
+# b$xprs_qt <- 
+#   cut(b$AveBJR, 
+#       include.lowest = F,
+#       breaks = quantile(b$AveBJR,
+#                         seq(from = 0, to = 1, by = .1)))
+# 
+# ggplot(b, aes(x = DE.ind, y = AveBJR)) +
+#   geom_boxplot() +
+#   scale_y_log10()
+# 
+# ggplot(b, aes(x = AveBJR)) +
+#   geom_histogram(aes(fill = DE.ind), alpha = .5, position = "identity") +
+#   scale_x_log10()
+# 
+# 
+# ggplot(b, aes(x = AveBJR)) +
+#   geom_histogram(aes(fill = DE.ind), alpha = .5, position = "identity") +
+#   xlim(c(0, 10))
+```
+
+```{r}
+featureDE_ind <- 
+  rbindlist(lapply(setNames(names(sim_data_list), nm = names(sim_data_list)),
+                   function(x, y) {
+                     rbindlist(lapply(y[[x]], 
+                                      function(z) {
+                                        data.table(z$rowData, keep.rownames = "gene_id")
+                                      }), idcol = "dataset")
+                   },
+                   y = sim_data_list), 
+            idcol = "Dataset")
+
+featureDE_ind <- 
+  merge(featureDE_ind, 
+        featureDF, 
+        by = c("Dataset", "dataset", "gene_id"),
+        all = T)
+```
+
+```{r}
+ggplot(featureDE_ind[, .(MedianAvgBJR = median(AveBJR, na.rm = T)), 
+                     by = .(Dataset, dataset, DE.ind)],
+       aes(x = Dataset, y = MedianAvgBJR)) +
+  geom_violin(aes(fill = DE.ind))
+```
+
+```{r}
+# ggplot(featureDE_ind[, .(MedianAvgBJR = median(AveBJR, na.rm = T)), 
+#                      by = .(Dataset, dataset, DE.ind)],
+#        aes(x = MedianAvgBJR)) +
+#   geom_histogram(aes(fill = DE.ind), alpha = .5, position = "identity") +
+#   facet_wrap(~ Dataset)
+```
+
+```{r}
+ggplot(featureDE_ind,
+       aes(x = AveBJR)) +
+  geom_density(aes(color = dataset, group = dataset)) +
+  scale_x_log10() +
+  facet_grid(rows = vars(ifelse(DE.ind, "DEC", "NotDEC")), 
+             cols = vars(Dataset), 
+             scales = "free_y") +
+  theme(legend.position = "top")
+```
+
 
 ### Expression distribution
 
