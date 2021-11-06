@@ -89,7 +89,10 @@ deseq2_run <- function(countData, colData, design, contrast) {
   library("DESeq2")
   dds <- DESeqDataSetFromMatrix(countData, colData = colData, design = design)
   dds <- DESeq(dds)
-  results(dds, contrast = contrast)
+  results(dds, 
+          contrast = contrast, 
+          test = "Wald", 
+          independentFiltering = F)
 }
 
 ## 2. use LRT 
@@ -100,7 +103,8 @@ deseq2lrt_run <- function(countData, colData, design, contrast) {
   dds <- DESeq(dds, 
                test = "LRT",
                reduced = ~ 1)
-  results(dds)
+  
+  results(dds, independentFiltering = F)
 }
 
 ## 3. use betaPrior
@@ -110,7 +114,10 @@ deseq2bp_run <- function(countData, colData, design, contrast) {
   dds <- DESeqDataSetFromMatrix(countData, colData = colData, design = design)
   dds <- DESeq(dds, 
                betaPrior = T)
-  results(dds, contrast = contrast)
+  results(dds, 
+          contrast = contrast, 
+          test = "Wald", 
+          independentFiltering = F)
 }
 
 ## 4. use recommended parameters for single-cell data
@@ -137,7 +144,7 @@ deseq2zi_run <- function(countData, colData, design, contrast) {
                test = "LRT", 
                reduced = ~ 1)
   # results(dds, contrast = contrast)
-  results(dds)
+  results(dds, independentFiltering = F)
 }
 
 ## 5. use recommended parameters for single-cell data and the genefilter::shorth
@@ -162,7 +169,7 @@ deseq2lc_run <- function(countData, colData, design, contrast) {
                test = "LRT", 
                reduced = ~ 1)
   # results(dds, contrast = contrast)
-  results(dds)
+  results(dds, independentFiltering = F)
 }
 
 ## 6. use recommended parameters for single-cell data and the scran::computeSumFactors
@@ -186,7 +193,7 @@ deseq2sc_run <- function(countData, colData, design, contrast) {
                test = "LRT", 
                reduced = ~ 1)
   # results(dds, contrast = contrast)
-  results(dds)
+  results(dds, independentFiltering = F)
 }
 
 ## 7. By using the argument fitType="glmGamPoi", one can leverage the faster NB GLM 
@@ -208,7 +215,7 @@ deseq2gpLrt_run <- function(countData, colData, design, contrast) {
                test = "LRT", 
                reduced = ~ 1)
   # results(dds, contrast = contrast)
-  results(dds)
+  results(dds, independentFiltering = F)
 }
 
 ## 8. use ZinbWave weights
@@ -232,9 +239,14 @@ deseq2zw_run <- function(countData, colData, design, contrast, weights) {
                test = "LRT", 
                reduced = ~ 1)
   # results(dds, contrast = contrast)
-  results(dds)
+  results(dds, independentFiltering = F)
 }
-deseq2_pv <- function(x) { x$pvalue }
+
+deseq2_pv <- function(x) { 
+  res <- x$pvalue 
+  res[is.na(res)] <- 1
+  res
+}
 ```
 
 ### edgeR family
@@ -319,7 +331,11 @@ edgeRql_run <- function(countData, group, design, weights) {
   glmQLFTest(fit, coef = 2)
 }
 
-edgeR_pv <- function(x) { x$table$PValue }
+edgeR_pv <- function(x) { 
+  res <- x$table$PValue 
+  res[is.na(res)] <- 1
+  res
+  }
 ```
 
 ### limma-voom family
@@ -337,18 +353,83 @@ voom_run <- function(countData, group, design) {
   eBayes(lmFit(y, des))
 }
 
-# voomRbst_run <- function(countData, group, design) {
-#     
-#   library(edgeR)
-#   library(limma)
-#   y <- DGEList(countData, group = group)
-#   y <- calcNormFactors(y)
-#   des <- model.matrix(design)
-#   y <- voom(y, des)
-#   eBayes(lmFit(y, des), robust = T)
-# }
+## estimation of df.prior and var.prior be robustified against outlier sample variances
+voomRbst_run <- function(countData, group, design) {
 
-voom_pv <- function(x) { x$p.value[, 2] }
+  library(edgeR)
+  library(limma)
+  y <- DGEList(countData, group = group)
+  y <- calcNormFactors(y)
+  des <- model.matrix(design)
+  y <- voom(y, des)
+  eBayes(lmFit(y, des), robust = T)
+}
+
+## voom quantile normalization
+voomQn_run <- function(countData, group, design) {
+  
+  des <- model.matrix(design)
+  voom.data <- limma::voom(countData, 
+                           design = des, 
+                           normalize.method = 'quantile')
+  limma::eBayes(limma::lmFit(voom.data, design = des))
+}
+
+## limma-voom code as in the vignette (no prior edgeR; mind the robust = T param)
+voomSimple_run <- function(countData, group, design) {
+  
+  des <- model.matrix(design)
+  limma::eBayes(limma::lmFit(limma::voom(counts = countData, 
+                                         design = des), 
+                             des), 
+                robust = TRUE)
+}
+
+
+## voomLmFit is more robust to zero counts than calling voom, 
+## duplicateCorrelation and lmFit separately and provides more rigorous error rate control.
+voomLmFit_run <- function(countData, group, design) {
+    
+  des <- model.matrix(design)
+  ## Empirical sample quality weights will be estimated if sample.weights=TRUE 
+  ## or if var.design or var.group are non-NULL. In that case, voomLmFit is 
+  ## analogous to running voomWithQualityWeights followed by lmFit.
+  ## voomLmFit is usually followed by running eBayes on the fitted model object. 
+  limma::eBayes(edgeR::voomLmFit(counts = countData, 
+                                 design = des, 
+                                 # block = NULL, 
+                                 # prior.weights = NULL,
+                                 sample.weights = TRUE,
+                                 # var.design = NULL, 
+                                 # var.group = NULL, 
+                                 # lib.size = NULL, 
+                                 # normalize.method = "none",
+                                 # span = 0.5, 
+                                 # plot = FALSE, 
+                                 save.plot = FALSE))
+}
+
+# limma-voom with ZINBWaVE weights
+voomZw_run <- function(countData, group, design, weights) {
+  
+  des <- model.matrix(design)
+  v <- limma::voom(counts = countData, 
+                   design = des, 
+                   plot = FALSE, 
+                   weights = weights)
+  # v$weights <- v$weights * weights
+  fit <- limma::lmFit(v, design = des, weights = v$weights)
+  # fit$df.residual <- rowSums(weights) - ncol(design)
+  limma::eBayes(fit, robust = T)
+}
+
+# voomWithQualityWeights
+
+voom_pv <- function(x) { 
+  res <- x$p.value[, 2] 
+  res[is.na(res)] <- 1
+  res
+  }
 ```
 
 ### circMeta
@@ -380,8 +461,143 @@ cMeta_run <- function(countData, group, sf = TRUE) {
   names(pval) <- rownames(countData)
   data.frame(p.value = pval)
 }
-cMeta_pv <- function(x) { x$p.value }
+cMeta_pv <- function(x) { 
+  res <- x$p.value
+  res[is.na(res)] <- 1
+  res
+}
 ```
+
+### Other
+
+```{r}
+# poissonSeq <- function(countData, group, design) {
+#     library(PoissonSeq)
+#     dat = list(n = count.matrix(cdata), 
+#                y=sample.annotations(cdata)$condition, 
+#                pair = FALSE, 
+#                type = 'twoclass', 
+#                gname=rownames(count.matrix(cdata)))
+#     PS.test = PoissonSeq::PS.Main(dat)
+#     PS.nc = PS.test$nc
+#     PS.gname = rownames(PS.test)
+#     PS.tt = PS.test$tt
+#     PS.pvalue = PS.test$pval
+#     PS.FDR = PS.test$fdr
+#     PS.logfc =  PS.test$log.fc
+#     result.table = data.frame('nc' = PS.nc, 
+#     'Genename' = PS.gname, 
+#     'tt' = PS.tt, 
+#     'pvalue' = PS.pvalue, 
+#     'FDR'=PS.FDR, 'log.fc' = PS.logfc)
+# }
+
+# ROTS <- function(countData, group, design) {
+#     library(ROTS)
+#     log=F
+#     transformation<-T
+#     normalize<-T
+#     if(normalize&&transformation){
+#     if(transformation){
+#       log=TRUE
+#       nf <- edgeR::calcNormFactors(count.matrix(cdata), method = 'TMM' )
+#       voom.data <- limma::voom(count.matrix(cdata),
+#                                design = model.matrix(~factor(sample.annotations(cdata)$condition)),
+#                                lib.size = colSums(count.matrix(cdata)) * nf)
+#       Exp <- voom.data$E
+#     }else{
+#       edgeR.dgelist <- edgeR::DGEList(counts = count.matrix(cdata),
+#                                       group = factor(sample.annotations(cdata)$condition))
+#       edgeR.dgelist <- edgeR::calcNormFactors(edgeR.dgelist, method = 'TMM')
+#       Factors <- edgeR.dgelist$samples$lib.size * edgeR.dgelist$samples$norm.factors
+#       Exp <- t(t(edgeR.dgelist$counts)/Factors) * mean(Factors)
+#     }
+#   }else{
+#     Exp <- count.matrix(cdata)
+#   }
+# 
+# 
+#   results <- ROTS::ROTS(data = Exp,
+#                         groups = as.numeric(as.character(factor(sample.annotations(cdata)$condition))),
+#                         K = NULL, B = 1000, log = log)
+#   rots.pvalues <- results$pvalue
+#   rots.logFC <- results$logfc
+#   rots.FDR <- results$FDR
+#   result.table <- data.frame('pvalue' = rots.pvalues, 'logFC' = rots.logFC, 'FDR' = rots.FDR)
+# }
+
+# baySeq <- function(countData, group, design) {
+#     
+#     baySeq.cd <- new('countData',
+#                      data = countData,
+#                      replicates = group,
+#                      groups = list(NDE = rep(1, length(design)),
+#                                    DE = design))
+#     
+#     libsizes(baySeq.cd) <- baySeq::getLibsizes(baySeq.cd, estimationType = "edgeR")
+#     
+#     baySeq.cd <- baySeq::getPriors.NB(baySeq.cd,
+#                                       # samplesize = sample.size,
+#                                       equalDispersions = TRUE,
+#                                       estimation = "QL",
+#                                       cl = NULL)
+#     baySeq.cd <- baySeq::getLikelihoods.NB(baySeq.cd,
+#                                            # prs = c(0.5, 0.5), 
+#                                            pET = "BIC", 
+#                                            cl = NULL)
+#     baySeq.cd@annotation <- data.frame(rowID = rownames(baySeq.cd@data),
+#                                        row.names = rownames(baySeq.cd@data))
+#     baySeq.posteriors.DE <- exp(baySeq.cd@posteriors)[, 'DE']
+#     baySeq.FDR <- baySeq::topCounts(baySeq.cd, group = 'DE',
+#                                     FDR = 1)$FDR.DE[match(rownames(countData),
+#                                                           rownames(baySeq::topCounts(baySeq.cd,
+#                                                                                      group = 'DE', FDR = 1)))]
+#     baySeq.score <- 1 - baySeq.FDR
+#     data.frame('FDR' = baySeq.FDR, 'score' = baySeq.score, 'posterior.DE' = baySeq.posteriors.DE)
+# }
+
+# SAMseq <- function(countData, group, design) {
+#     library(samr)
+#   condition.12 <- rep(1, length(sample.annotations(cdata)$condition))
+#   condition.12[which(sample.annotations(cdata)$condition == levels(factor(sample.annotations(cdata)$condition))[2])] <- 2
+#   SAMseq.test <- samr::SAMseq(count.matrix(cdata), condition.12, resp.type = 'Two class unpaired', geneid = rownames(count.matrix(cdata)), genenames = rownames(count.matrix(cdata)), nperms = 100, nresamp = 20, 
+#                               fdr.output = 1)
+#   SAMseq.result <- rbind(SAMseq.test$siggenes.table$genes.up, SAMseq.test$siggenes.table$genes.lo)
+#   SAMseq.statistic <- rep(0, nrow(count.matrix(cdata)))
+#   SAMseq.statistic[match(SAMseq.result[, 1], rownames(count.matrix(cdata)))] <- as.numeric(SAMseq.result[, 3])
+#   SAMseq.FDR <- rep(1, nrow(count.matrix(cdata)))
+#   SAMseq.FDR[match(SAMseq.result[, 1], rownames(count.matrix(cdata)))] <- as.numeric(SAMseq.result[, 5])/100
+#   SAMseq.score <- 1 - SAMseq.FDR
+#   result.table <- data.frame('statistic' = SAMseq.statistic, 'FDR' = SAMseq.FDR, 'score' = SAMseq.score)
+# }
+
+
+# DeSingle_run <- function(countData, group, design) {
+#   #Load library and the test data for DEsingle
+#   library(DEsingle)
+#   library(SingleCellExperiment)
+#   data(TestData)
+#   
+#   # Convert the test data in DEsingle to SingleCellExperiment data representation
+#   sce <- SingleCellExperiment(assays = list(counts = countData))
+#   
+#   # Detecting the DE genes with SingleCellExperiment input sce
+#   results <- DEsingle(counts = sce, group = group)
+#   
+#   # Dividing the DE genes into 3 categories at threshold of FDR < 0.05
+#   results.classified <- DEtype(results = results, threshold = 0.05)
+#   
+#   # Dividing the DE genes into 3 categories at threshold of FDR < 0.05
+#   # results.classified <- DEtype(results = results, threshold = 1)
+#   
+#   # results$emdall
+#   pValMat <- as.matrix(results$pvalue)
+#   colnames(pValMat) <- c("adjP")
+#   statInfo <- cbind("foldChange" = results$foldChange)
+#   list("pValMat" = pValMat, "statInfo" = statInfo)
+# }# END - function: DeSingle
+```
+
 
 ## Add memthods to the bench
 
@@ -494,12 +710,46 @@ bd <- bd %>%
             params = rlang::quos(countData = cntdat,
                                  group = coldat$condition,
                                  design = ~coldat$condition)) %>%
-  addMethod(label = "voom_Dt_MFT", ## limma-voom, defauls, moderated F-statistic (?) 
+  addMethod(label = "voom_Dt_MFT", ## limma-voom, defauls, moderated F-statistic (or is it t-stats ?) 
             func = voom_run, post = voom_pv, 
             meta = list(pkg_name = "limma-voom", pkg_vers = as.character(packageVersion("limma"))),
             params = rlang::quos(countData = cntdat,
                                  group = coldat$condition,
                                  design = ~coldat$condition)) %>%
+    addMethod(label = "voom_Rb_MFT", ## limma-voom, use robust est, moderated F-statistic (or is it t-stats ?) 
+            func = voomRbst_run, post = voom_pv, 
+            meta = list(pkg_name = "limma-voom", pkg_vers = as.character(packageVersion("limma"))),
+            params = rlang::quos(countData = cntdat,
+                                 group = coldat$condition,
+                                 design = ~coldat$condition)) %>%
+    addMethod(label = "voom_Qn_MFT", ## limma-voom, use quantile normalization, moderated F-statistic (or is it t-stats ?) 
+            func = voomQn_run, post = voom_pv, 
+            meta = list(pkg_name = "limma-voom", pkg_vers = as.character(packageVersion("limma"))),
+            params = rlang::quos(countData = cntdat,
+                                 group = coldat$condition,
+                                 design = ~coldat$condition)) %>%
+    addMethod(label = "voom_Sp_MFT", ## limma-voom, defaults as in vignette, moderated F-statistic (or is it t-stats ?) 
+            func = voomSimple_run, post = voom_pv, 
+            meta = list(pkg_name = "limma-voom", pkg_vers = as.character(packageVersion("limma"))),
+            params = rlang::quos(countData = cntdat,
+                                 group = coldat$condition,
+                                 design = ~coldat$condition)) %>%
+    addMethod(label = "voom_LF_MFT", ## limma-voom, use voomLmFit, moderated F-statistic (or is it t-stats ?) 
+            func = voomLmFit_run, post = voom_pv, 
+            meta = list(pkg_name = "limma-voom", pkg_vers = as.character(packageVersion("limma"))),
+            params = rlang::quos(countData = cntdat,
+                                 group = coldat$condition,
+                                 design = ~coldat$condition)) %>%
+  addMethod(label = "voom_ZW_MFT", ## limma-voom, use ZinbWave weigths, moderated F-statistic (or is it t-stats ?) 
+            func = voomZw_run, post = voom_pv, 
+            meta = list(pkg_name = "limma-voom/zinbwave", 
+                        pkg_vers = paste(as.character(packageVersion("limma")), 
+                                         as.character(packageVersion("zinbwave")), 
+                                         sep = "/")),
+            params = rlang::quos(countData = cntdat,
+                                 group = coldat$condition,
+                                 design = ~coldat$condition,
+                                 weights = weights)) %>%
   addMethod(label = "circMeta_Dt_PZT", ## circMeta, defaults, Poisson z-test
             func = cMeta_run, post = cMeta_pv, 
             meta = list(pkg_name = "circMeta", pkg_vers = as.character(packageVersion("circMeta"))),
@@ -591,12 +841,13 @@ datasetList <-
   bplapply(datasetList, 
            function(x, compute_weights, zwcpus) {
              
-             ## remove rows with only zero counts
+             ## remove rows with at least 2 samples expressed
              mat <- x$counts[rowSums(x$counts > 0) >= 3, ]
              coldata <- x$colData[colnames(mat), ]
              rowdata <- x$rowData[rownames(mat), ]
              discarded.rowData <- x$rowData[!rownames(x$rowData) %in% rownames(mat), ]
              
+             ## TODO: keep track of runtime
              list(coldat = data.frame(condition = factor(coldata[, "Group"])), 
                   cntdat = mat, 
                   status = as.integer(rowdata[, "DE.ind"]),
@@ -765,7 +1016,7 @@ mean_auROCcs <- auROCcs[, .(AUC = mean(AUC)),
 fwrite(auROCcs, "FDRvsTPR_AUC.csv", sep = "\t", row.names = F)
 ```
 
-```{r}
+```{r, fig.width=10}
 ggplot(auROCcs, aes(x = Method, y = AUC)) +
   geom_boxplot() +
   geom_point(data = mean_auROCcs, 
@@ -817,7 +1068,7 @@ mean_auROCcs <- auROCcs[, .(AUC = mean(AUC)),
 fwrite(auROCcs, "ROC_AUC.csv", sep = "\t", row.names = F)
 ```
 
-```{r}
+```{r, fig.width=10}
 ggplot(auROCcs, aes(x = Method, y = AUC)) +
   geom_boxplot() +
   geom_point(data = mean_auROCcs, 
