@@ -1,0 +1,365 @@
+---
+title: "Evaluate benchmark results"
+author: "Enrico Gaffo"
+date: "28/10/2021"
+output: 
+  html_document: 
+    toc: yes
+    toc_float: yes
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(SummarizedBenchmark)
+library("magrittr")
+library(data.table)
+library(qs)
+library(DT)
+
+library(BiocParallel)
+# library(batchtools)
+```
+
+```{r}
+nWorkers <- multicoreWorkers() # 24
+alpha_targets <- c(0.01, 0.05, 0.1) 
+```
+
+```{r}
+## auxiliary functions
+
+simple_auc <- function(TPR, FPR){
+  # inputs already sorted, best scores first 
+  dFPR <- c(diff(FPR), 0)
+  dTPR <- c(diff(TPR), 0)
+  sum(TPR * dFPR) + sum(dTPR * dFPR)/2
+}
+
+f1 <- function(P, R) {
+  2 * ((P * R)/(P + R))
+}
+```
+
+# DE data sets
+
+```{r}
+## read data
+sumBench_perf_metrics_qs <- "sumBench_perf_metrics.qs"
+sbL <- qread(file = sumBench_perf_metrics_qs, 
+             nthreads = multicoreWorkers())
+```
+
+```{r}
+## example plot
+plotMethodsOverlap(sbL[[1]], assay = "status", alpha = 0.1, order.by = "freq")
+```
+
+```{r}
+# SummarizedBenchmark::plotROC(sbL[[1]], assay = "status")
+```
+
+## Nominal performance
+
+```{r}
+# x<- sbL[[100]]
+sbAssayL <- 
+  rbindlist(lapply(sbL, 
+                   function(x){
+                     data.table(as.data.frame(colData(x)), 
+                                keep.rownames = "Method")
+                     }), 
+            idcol = "Dataset")
+
+sbAssayL[, c("SetSize", "MZP", "DsType", "DsId") := tstrsplit(Dataset, "_")]
+```
+
+```{r}
+value_cols <- 
+  c(grep("rejections", colnames(sbAssayL), value = T),
+    grep("TPR", colnames(sbAssayL), value = T),
+    grep("TNR", colnames(sbAssayL), value = T),
+    grep("FDR", colnames(sbAssayL), value = T))
+
+mSbAssayL <- 
+  sbAssayL[, lapply(.SD, mean, na.rm = T), 
+           .SDcols = value_cols,
+           by = .(SetSize, MZP, DsType, Method)]
+```
+
+```{r}
+show_dt <- copy(mSbAssayL)
+show_dt$SetSize <- factor(show_dt$SetSize)
+show_dt$MZP <- factor(show_dt$MZP)
+show_dt$DsType <- factor(show_dt$DsType)
+show_dt$Method <- factor(show_dt$Method)
+
+datatable(show_dt, 
+          caption = paste("Alphas:", paste(alpha_targets, collapse = "/")),
+          rownames = F, 
+          filter = "top") %>%
+  formatRound(value_cols, 3)
+```
+
+```{r, fig.width=10}
+## Avg TPR
+plot_dt <- melt(mSbAssayL, id.vars = c("SetSize", "MZP", "DsType", "Method"))
+
+ggplot(plot_dt[grep("TPR", variable)], 
+       aes(x = Method, y = value)) +
+  geom_line(aes(group = variable, color = variable)) +
+  geom_point(aes(shape = variable, color = variable)) +
+  ylab("Average recall") +
+  scale_color_discrete("Alpha", labels = alpha_targets) +
+  scale_shape_discrete("Alpha", labels = alpha_targets) +
+  facet_grid(cols = vars(SetSize), rows = vars(MZP), scales = "free_y") +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5),
+        legend.position = "top")
+```
+
+```{r, fig.width=10}
+## Avg Precision
+ggplot(plot_dt[grep("FDR", variable)], 
+       aes(x = Method, y = 1 - value)) +
+  geom_line(aes(group = variable, color = variable)) +
+  geom_point(aes(shape = variable, color = variable)) +
+  ylab("Average precision") +
+  scale_color_discrete("Alpha", labels = alpha_targets) +
+  scale_shape_discrete("Alpha", labels = alpha_targets) +
+  facet_grid(cols = vars(SetSize), rows = vars(MZP), scales = "free_y") +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5),
+        legend.position = "top")
+```
+
+```{r, fig.width=10}
+## F1-score
+ds_id_cols <- c("SetSize", "MZP", "DsType", "Method", "DsId", "Dataset")
+
+f1s <- 
+  merge(melt(sbAssayL[, c(ds_id_cols,
+                          grep("FDR", colnames(sbAssayL), value = T)), with = F], 
+             id.vars = ds_id_cols, 
+             value.name = "FDR",
+             variable.name = "Alpha")[, Alpha := sub("FDR.", "", Alpha)][],
+        melt(sbAssayL[, c(ds_id_cols,
+                          grep("TPR", colnames(sbAssayL), value = T)), with = F], 
+             id.vars = ds_id_cols, 
+             value.name = "TPR",
+             variable.name = "Alpha")[, Alpha := sub("TPR.", "", Alpha)][],
+        by = c(ds_id_cols, "Alpha"))[, F1 := f1(1-FDR, TPR)][]
+
+mf1s <- f1s[, .(F1 = mean(F1, na.rm = T)), by = .(SetSize, MZP, DsType, Method, Alpha)]
+```
+
+```{r, fig.width=10, fig.height=7}
+ggplot(f1s, 
+       aes(x = Method, y = F1)) +
+  geom_boxplot(aes(color = Alpha), position = "dodge", outlier.size = .7) +
+  ylab("F1") +
+  scale_color_discrete("Alpha", labels = alpha_targets) +
+  facet_grid(cols = vars(SetSize), rows = vars(paste(MZP, Alpha)), scales = "free_y") +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5),
+        legend.position = "top")
+```
+
+```{r, fig.width=10}
+ggplot(mf1s, 
+       aes(x = Method, y = F1)) +
+  geom_line(aes(group = Alpha, color = Alpha)) +
+  geom_point(aes(shape = Alpha, color = Alpha)) +
+  ylab("Average F1") +
+  scale_color_discrete("Alpha", labels = alpha_targets) +
+  scale_shape_discrete("Alpha", labels = alpha_targets) +
+  facet_grid(cols = vars(SetSize), rows = vars(MZP), scales = "free_y") +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5),
+        legend.position = "top")
+```
+
+```{r}
+pval_deind_dt <- 
+  rbindlist(lapply(sbL,
+                   function(x) {
+                     melt(data.table(true_val = as.integer(groundTruths(x)[["status"]]),
+                                     assays(x)[["status"]]),
+                          id.vars = "true_val",
+                          value.name = "preds",
+                          variable.name = "Method")
+                   }),
+            idcol = "Dataset")
+```
+
+```{r}
+fwrite(pval_deind_dt, "pval_deind.csv.gz", sep = "\t", row.names = F)
+```
+
+```{r}
+# dcast(pval_deind_dt[preds <= .05, 
+#                     .(TP = sum(true_val), 
+#                       FP = sum(true_val == 0)), 
+#                     by = .(Dataset, Method)][, .(PPV = TP/(TP+FP)), 
+#                                              by = .(Dataset, Method)][, .(mPPV = mean(PPV)), 
+#                                                                       by = .(Dst = sub("_[0-9]{2}$", "", 
+#                                                                                        Dataset), 
+#                                                                              Method)], 
+#       Method ~ Dst)
+```
+
+```{r}
+eval_metrics_dt <- 
+  pval_deind_dt[order(Dataset, Method, preds, 
+             decreasing = F)][, .(ID = seq_len(length(true_val)),
+                                  Tot.DE = sum(true_val),
+                                  Nrows = length(true_val), 
+                                  TPR = cumsum(true_val)/sum(true_val),
+                                  FPR = cumsum(true_val == 0)/sum(true_val == 0), # FP/(FP+TN)
+                                  FDR = cumsum(true_val == 0)/sum(true_val >= 0)), # FP/(FP+TP)
+                              by = .(Dataset, Method)]
+
+eval_metrics_dt[, c("SetSize", "MZP", "DsType", "DsId") := tstrsplit(Dataset, "_")]
+
+# ggplot(eval_metrics_dt, aes(x = SetSize, y = Nrows)) + geom_boxplot() + facet_grid(cols = vars(MZP))
+```
+
+```{r}
+mean_eval_metrics_dt <- 
+  eval_metrics_dt[, .(AvgTPR = mean(TPR),
+                      AvgFPR = mean(FPR),
+                      AvgFDR = mean(FDR)),
+                  by = .(SetSize, MZP, DsType, Method, ID)]
+```
+
+```{r}
+fwrite(eval_metrics_dt, "eval_metrics.csv.gz", sep = "\t", row.names = F)
+```
+
+## FDR vs TPR
+
+```{r}
+ggplot(mean_eval_metrics_dt[DsType == "de"], 
+       aes(x = AvgFDR, y = AvgTPR, color = Method)) +
+  geom_abline(linetype = "dashed") +
+  geom_line() +
+  facet_grid(cols = vars(SetSize),
+             rows = vars(MZP)) +
+  coord_equal(expand = T) +
+  theme_bw() +
+  theme(legend.position = "top") +
+  ggtitle("DE simulations")
+```
+
+### AUC
+
+```{r}
+auROCcs <- eval_metrics_dt[, .(AUC = simple_auc(TPR, FDR)), 
+             by = .(Dataset, SetSize, MZP, DsType, Method = as.character(Method))]
+
+mean_auROCcs <- auROCcs[, .(AUC = mean(AUC, na.rm = T),
+                            sdAUC = sd(AUC, na.rm = T),
+                            seAUC = sqrt(var(AUC, na.rm = T)/length(AUC))), 
+                            by = .(SetSize, MZP, DsType, Method = as.character(Method))]
+```
+
+```{r}
+fwrite(auROCcs, "FDRvsTPR_AUC.csv", sep = "\t", row.names = F)
+```
+
+```{r, fig.width=10}
+ggplot(auROCcs, aes(x = Method, y = AUC)) +
+  geom_boxplot() +
+  geom_point(data = mean_auROCcs, 
+             shape = 21, fill = "red") +
+  facet_grid(cols = vars(SetSize),
+             rows = vars(MZP), 
+             scales = "free_y") +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5))
+```
+
+```{r, fig.width=10}
+ggplot(mean_auROCcs, aes(x = Method, y = AUC)) +
+  geom_line(aes(group = paste(SetSize, MZP, DsType))) +
+  geom_point(shape = 21, fill = "red") +
+  # geom_pointrange(aes(ymin = AUC - sdAUC, ymax = AUC + sdAUC),
+  #                 shape = 21, fill = "red") +
+  ylab("Average AUC (FDR, TPR)") +
+  facet_grid(cols = vars(SetSize),
+             rows = vars(MZP), 
+             scales = "free_y") +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5))
+```
+
+```{r}
+show_dt <- copy(mean_auROCcs)
+show_dt$SetSize <- factor(show_dt$SetSize)
+show_dt$MZP <- factor(show_dt$MZP)
+show_dt$DsType <- factor(show_dt$DsType)
+show_dt$Method <- factor(show_dt$Method)
+
+datatable(show_dt, rownames = F, filter = "top") %>%
+  formatRound(c("AUC", "sdAUC", "seAUC"), 3)
+```
+
+## ROC (FPR vs TPR)
+
+```{r}
+ggplot(mean_eval_metrics_dt[DsType == "de"], 
+       aes(x = AvgFPR, y = AvgTPR, color = Method)) +
+  geom_abline(linetype = "dashed") +
+  geom_line() +
+  facet_grid(cols = vars(SetSize),
+             rows = vars(MZP)) +
+  coord_equal(expand = T) +
+  theme_bw() +
+  theme(legend.position = "top") +
+  ggtitle("DE simulations")
+```
+
+### AUC
+
+```{r}
+auROCcs <- eval_metrics_dt[, .(AUC = simple_auc(TPR, FPR)), 
+             by = .(Dataset, SetSize, MZP, DsType, Method)]
+
+mean_auROCcs <- auROCcs[, .(AUC = mean(AUC)), 
+                            by = .(SetSize, MZP, DsType, Method)]
+```
+
+```{r}
+fwrite(auROCcs, "ROC_AUC.csv", sep = "\t", row.names = F)
+```
+
+```{r, fig.width=10}
+ggplot(auROCcs, aes(x = Method, y = AUC)) +
+  geom_boxplot() +
+  geom_point(data = mean_auROCcs, 
+             shape = 21, fill = "red") +
+  facet_grid(cols = vars(SetSize),
+             rows = vars(MZP), 
+             scales = "free_y") +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5))
+```
+
+```{r}
+show_dt <- copy(mean_auROCcs)
+show_dt$SetSize <- factor(show_dt$SetSize)
+show_dt$MZP <- factor(show_dt$MZP)
+show_dt$DsType <- factor(show_dt$DsType)
+show_dt$Method <- factor(show_dt$Method)
+
+datatable(show_dt, rownames = F, filter = "top") %>%
+  formatRound("AUC", 3)
+```
+
+# Session info
+
+```{r}
+sessionInfo()
+```
+
