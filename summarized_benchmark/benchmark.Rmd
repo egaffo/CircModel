@@ -259,9 +259,9 @@ edgeR_run <- function(countData, group, design) {
   
   library(edgeR)
   y <- DGEList(countData, group = group)
-  y <- calcNormFactors(y)
+  y <- calcNormFactors(y) # method = "TMMwsp" for zero counts?
   des <- model.matrix(design)
-  y <- estimateDisp(y, des)
+  y <- estimateDisp(y, des) # min.row.sum = 5 default. Change?
   fit <- glmFit(y, des)
   glmLRT(fit, coef=2)
 }
@@ -313,8 +313,8 @@ edgeRzw_run <- function(countData, group, design, weights) {
   y$weights <- weights
   y <- calcNormFactors(y)
   des <- model.matrix(design)
-  y <- estimateGLMRobustDisp(y, des) #maxit = 6
-  fit <- glmFit(y, des)
+  y <- estimateGLMRobustDisp(y, des) # estimateDisp(y, des)?
+  fit <- glmFit(y, des) #glmQLFit?
   glmLRT(fit, coef = 2)
 }
 
@@ -906,10 +906,12 @@ sbL <- bplapply(sbL, function(x) {
 ```
 
 ```{r}
-sbL <- bplapply(sbL, function(x) {
+alpha_targets <- c(0.01, 0.05, 0.1) 
+sbL <- bplapply(sbL, function(x, alphas) {
   SummarizedBenchmark::estimatePerformanceMetrics(x, 
-                                                  alpha = c(0.01, 0.05, 0.1), 
+                                                  alpha = alphas, 
                                                   addColData = T)},
+  alphas = alpha_targets,
   # BPPARAM = BiocParallel::MulticoreParam(nWorkers))
   BPPARAM = bpparam)
 ```
@@ -932,7 +934,114 @@ plotMethodsOverlap(sbL[[1]], assay = "status", alpha = 0.1, order.by = "freq")
 # SummarizedBenchmark::plotROC(sbL[[1]], assay = "status")
 ```
 
-```{r, fig.width=4, fig.height=4}
+```{r}
+# x<- sbL[[100]]
+sbAssayL <- 
+  rbindlist(lapply(sbL, 
+                   function(x){
+                     data.table(as.data.frame(colData(x)), 
+                                keep.rownames = "Method")
+                     }), 
+            idcol = "Dataset")
+
+sbAssayL[, c("SetSize", "MZP", "DsType", "DsId") := tstrsplit(Dataset, "_")]
+```
+
+```{r}
+value_cols <- 
+  c(grep("rejections", colnames(sbAssayL), value = T),
+    grep("TPR", colnames(sbAssayL), value = T),
+    grep("TNR", colnames(sbAssayL), value = T),
+    grep("FDR", colnames(sbAssayL), value = T))
+
+mSbAssayL <- 
+  sbAssayL[, lapply(.SD, mean, na.rm = T), 
+           .SDcols = value_cols,
+           by = .(SetSize, MZP, DsType, Method)]
+```
+
+```{r}
+show_dt <- copy(mSbAssayL)
+show_dt$SetSize <- factor(show_dt$SetSize)
+show_dt$MZP <- factor(show_dt$MZP)
+show_dt$DsType <- factor(show_dt$DsType)
+show_dt$Method <- factor(show_dt$Method)
+
+datatable(show_dt, 
+          caption = paste("Alphas:", paste(alpha_targets, collapse = "/")),
+          rownames = F, 
+          filter = "top") %>%
+  formatRound(value_cols, 3)
+```
+
+```{r, fig.width=10}
+## Avg TPR
+plot_dt <- melt(mSbAssayL, id.vars = c("SetSize", "MZP", "DsType", "Method"))
+
+ggplot(plot_dt[grep("TPR", variable)], 
+       aes(x = Method, y = value)) +
+  geom_line(aes(group = variable, color = variable)) +
+  ylab("Average recall") +
+  scale_color_discrete("Alpha", labels = alpha_targets) +
+  facet_grid(cols = vars(SetSize), rows = vars(MZP), scales = "free_y") +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5),
+        legend.position = "top")
+```
+
+```{r, fig.width=10}
+## Avg Precision
+ggplot(plot_dt[grep("FDR", variable)], 
+       aes(x = Method, y = 1 - value)) +
+  geom_line(aes(group = variable, color = variable)) +
+  ylab("Average precision") +
+  scale_color_discrete("Alpha", labels = alpha_targets) +
+  facet_grid(cols = vars(SetSize), rows = vars(MZP), scales = "free_y") +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5),
+        legend.position = "top")
+```
+
+```{r, fig.width=10}
+## F1-score
+
+f1 <- function(P, R) {
+  2 * ((P * R)/(P + R))
+}
+
+ds_id_cols <- c("SetSize", "MZP", "DsType", "Method", "DsId", "Dataset")
+
+f1s <- 
+  merge(melt(sbAssayL[, c(ds_id_cols,
+                          grep("FDR", colnames(sbAssayL), value = T)), with = F], 
+             id.vars = ds_id_cols, 
+             value.name = "FDR",
+             variable.name = "Alpha")[, Alpha := sub("FDR.", "", Alpha)][],
+        melt(sbAssayL[, c(ds_id_cols,
+                          grep("TPR", colnames(sbAssayL), value = T)), with = F], 
+             id.vars = ds_id_cols, 
+             value.name = "TPR",
+             variable.name = "Alpha")[, Alpha := sub("TPR.", "", Alpha)][],
+        by = c(ds_id_cols, "Alpha"))[, F1 := f1(1-FDR, TPR)][]
+
+mf1s <- f1s[, .(F1 = mean(F1, na.rm = T)), by = .(SetSize, MZP, DsType, Method, Alpha)]
+```
+
+```{r, fig.width=10}
+ggplot(mf1s, 
+       aes(x = Method, y = F1)) +
+  geom_line(aes(group = Alpha, color = Alpha)) +
+  geom_point(aes(shape = Alpha, color = Alpha)) +
+  ylab("Average F1") +
+  scale_color_discrete("Alpha", labels = alpha_targets) +
+  scale_shape_discrete("Alpha", labels = alpha_targets) +
+  facet_grid(cols = vars(SetSize), rows = vars(MZP), scales = "free_y") +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5),
+        legend.position = "top")
+```
+
+```{r}
 pval_deind_dt <- 
   rbindlist(lapply(sbL,
                    function(x) {
