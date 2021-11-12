@@ -40,9 +40,76 @@ simple_auc <- function(TPR, FPR){
 f1 <- function(P, R) {
   2 * ((P * R)/(P + R))
 }
+
+prec.from.f1.score <- function(recall, f1){
+  x <- (f1 * recall) / (2 * recall - f1)
+  ylimit <- 1
+  if(f1 > 1 | recall > 1){
+    ylimit <- 100  
+  }
+  ifelse(x >= 0 & x <= ylimit, x, NA)
+}
 ```
 
+# Simulated data sets 
+
+```{r}
+simulated_datasets_qs <- "/sharedfs01/circrna/CircModel/summarized_benchmark/datasetList.qs"
+
+sim_ds_list <- qread(file = simulated_datasets_qs, nthreads = multicoreWorkers())
+```
+
+## Raw expression
+
+```{r}
+sim_ds_avgbjr <- 
+  rbindlist(lapply(sim_ds_list, 
+                   function(x) data.frame(circ_id = rownames(x$cntdat), 
+                                          AvgBJR = rowMeans(x$cntdat))), 
+            use.names = T, idcol = "dataset")
+
+sim_ds_avgbjr[, c("SetSize", "MZP", "Purpose", "ID") := tstrsplit(dataset, "_", type.convert = F)]
+```
+
+```{r}
+ggplot(sim_ds_avgbjr, 
+       aes(x = ID, y = AvgBJR)) +
+  # geom_boxplot(outlier.size = .5, varwidth = T, notch = T) +
+  geom_violin(draw_quantiles = c(.25, .5, .75)) +
+  scale_y_log10() +
+  facet_grid(cols = vars(MZP),
+             rows = vars(paste(SetSize, Purpose))) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5))
+```
+
+## Fraction of zeros per circRNA
+
+```{r}
+sim_ds_fraczeros <- 
+  rbindlist(lapply(sim_ds_list, 
+                   function(x) data.frame(circ_id = rownames(x$cntdat), 
+                                          FracZeros = rowSums(x$cntdat == 0) / ncol(x$cntdat))), 
+            use.names = T, idcol = "dataset")
+
+sim_ds_fraczeros[, c("SetSize", "MZP", "Purpose", "ID") := tstrsplit(dataset, "_", type.convert = F)]
+```
+
+```{r}
+ggplot(sim_ds_fraczeros, 
+       aes(x = ID, y = FracZeros)) +
+  geom_boxplot(outlier.size = .5, varwidth = T, notch = T) +
+  # geom_violin(draw_quantiles = c(.25, .5, .75)) +
+  facet_grid(cols = vars(MZP),
+             rows = vars(paste(SetSize, Purpose))) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5))
+```
+
+
 # DE data sets
+
+## Method prediction overlap 
 
 ```{r}
 ## read data
@@ -53,7 +120,242 @@ sbL <- qread(file = sumBench_perf_metrics_qs,
 
 ```{r}
 ## example plot
-plotMethodsOverlap(sbL[[1]], assay = "status", alpha = 0.1, order.by = "freq")
+# plotMethodsOverlap(sbL[[1]], assay = "status", alpha = 0.1, order.by = "freq")
+```
+
+```{r}
+library(ComplexHeatmap)
+
+# x <- sbL[[1]]
+
+cmL <- lapply(sbL, function(x) {
+  status_mat <- assays(x)[["status"]] <= 0.1
+  status_mat[is.na(status_mat)] <- F
+  
+  cm <- make_comb_mat(status_mat, min_set_size = 0)
+  
+  list(overlap_frac = comb_size(cm) / nrow(assays(x)[["status"]]),
+       # comb_name(cm),
+       cm = cm,
+       set_names = set_name(cm))
+})
+
+set_names <- 
+  dcast(rbindlist(lapply(cmL, function(x) {data.table(Method = x$set_names,
+                                                      ID = seq_along(x$set_names))}),
+                  idcol = "DS"),
+        DS ~ ID,
+        value.var = "Method")
+
+## check methods order in combinations is always the same
+# nrow(unique(data.frame(set_names, row.names = "DS"))) == 1
+
+ovlp_frac <- 
+  rbindlist(lapply(cmL, function(x) {data.table(OvlpFrac = x$overlap_frac,
+                                                Comb = names(x$overlap_frac))}),
+            idcol = "DS")
+ovlp_frac[, c("SetSize", "MZP", "Purpose", "ID") := tstrsplit(DS, "_", type.convert = F)]
+
+
+mean_ovlp_frac <- ovlp_frac[, .(AvgOvlpFrac = mean(OvlpFrac)), 
+                            by = .(SetSize, MZP, Purpose, Comb)][order(SetSize, MZP, Purpose, -AvgOvlpFrac)]
+
+mean_ovlp_frac[, Comb_degree := sum(as.integer(unlist(strsplit(Comb, "")))), by = Comb]
+```
+
+```{r}
+# null_comb <- paste0(rep("0", length(set_names) - 1), collapse = "")
+
+## top bar annotation data
+# selected_comb_sizes_dt <- mean_ovlp_frac[Comb_degree > 1, 
+#                                          .(SetSize, MZP, Purpose, Comb, 
+#                                            AvgOvlpFrac)][order(-AvgOvlpFrac)][1:15, ]
+selected_comb_sizes_dt <- 
+  mean_ovlp_frac[Comb_degree > 1][order(SetSize, MZP, Purpose, -AvgOvlpFrac), 
+                                  lapply(.SD, head, 15),
+                                  by = .(SetSize, MZP, Purpose),
+                                  .SDcols = c("SetSize", "MZP", "Purpose", "Comb", 
+                                              "AvgOvlpFrac")]
+
+## row annotation data
+setSize <- 
+  rbindlist(lapply(cmL, function(x) {
+    data.table(Method = names(set_size(x$cm)),
+               setSize = set_size(x$cm),
+               setSize_frac = set_size(x$cm) / (comb_size(x$cm)[1] / x$overlap_frac[1]))
+  }),
+  idcol = "DS")
+setSize[, c("SetSize", "MZP", "Purpose", "ID") := tstrsplit(DS, "_", type.convert = F)]
+
+mean_setSize <- 
+  setSize[, .(AvgsetSize_frac = mean(setSize_frac)), 
+          by = .(SetSize, MZP, Purpose, Method)][order(SetSize, MZP, Purpose, -AvgsetSize_frac)]
+```
+
+```{r}
+## N03_bulk_de
+# setsize <- "N03"
+# mzp <- "bulk"
+# purpose <- "de"
+# selected_comb_sizes_dt
+# mean_setSize
+# ovlp_frac
+# setSize
+
+plot_common_pred_upset <- function(setsize, mzp, purpose, 
+                                   selected_comb_sizes_dt, mean_setSize, 
+                                   ovlp_frac, setSize) {
+  selected_comb_sizes <- setNames(selected_comb_sizes_dt[SetSize == setsize & 
+                                                           MZP == mzp & 
+                                                           Purpose == purpose, 
+                                                         AvgOvlpFrac], 
+                                  nm = selected_comb_sizes_dt[SetSize == setsize & 
+                                                                MZP == mzp & 
+                                                                Purpose == purpose, 
+                                                              Comb])
+  
+  mt <- as.matrix(sapply(names(selected_comb_sizes), 
+                         function(x) as.integer(unlist(strsplit(x, "")))))
+  rownames(mt) <- set_names[1, 2:length(set_names)]
+  
+  cmt <- make_comb_mat(t(mt), min_set_size = 0)
+  
+  top_boxplot_mat <- 
+    as.matrix(data.frame(dcast(ovlp_frac[Comb %in% comb_name(cmt) &
+                                           SetSize == setsize & 
+                                           MZP == mzp & 
+                                           Purpose == purpose], 
+                               DS ~ Comb, 
+                               value.var = "OvlpFrac"), 
+                         row.names = "DS", 
+                         check.names = F)) * 100
+  
+  top_anno <- 
+    HeatmapAnnotation(#"Common\npredictions\n(mean %)" = anno_barplot(selected_comb_sizes[comb_name(cmt)] * 100, 
+      # border = FALSE, 
+      # gp = gpar(fill = "black"), 
+      # height = unit(3, "cm")), 
+      "Common\npredictions\n(%)" = anno_boxplot(top_boxplot_mat[, comb_name(cmt)]),
+      annotation_name_side = "left", 
+      annotation_name_rot = 0)
+  
+  ## row annotation
+  mean_set_size <- setNames(mean_setSize[SetSize == setsize & 
+                                           MZP == mzp & 
+                                           Purpose == purpose, 
+                                         AvgsetSize_frac], 
+                            nm = mean_setSize[SetSize == setsize & 
+                                                MZP == mzp & 
+                                                Purpose == purpose, 
+                                              Method])
+  
+  row_boxplot_mat <- 
+    as.matrix(data.frame(dcast(setSize[SetSize == setsize & 
+                                         MZP == mzp & 
+                                         Purpose == purpose], 
+                               DS ~ Method, 
+                               value.var = "setSize_frac"), 
+                         row.names = "DS", 
+                         check.names = F)) * 100
+  
+  row_anno <- 
+    rowAnnotation(#"Predicted\nDECs\nmean (%)" = anno_barplot(mean_set_size[set_name(cmt)] * 100, 
+      # axis_param = list(side = "top", 
+      #                   labels_rot = 0),
+      # border = FALSE, 
+      # gp = gpar(fill = "black"), 
+      # width = unit(3, "cm")),
+      "Predicted\nDECs (%)" = anno_boxplot(t(row_boxplot_mat[, set_name(cmt)]), 
+                                           axis_param = list(side = "top", 
+                                                             labels_rot = 0),
+                                           # border = FALSE, 
+                                           # gp = gpar(fill = "black"), 
+                                           width = unit(3, "cm")),
+      annotation_name_side = "top",
+      annotation_name_rot = 0)
+  
+  ## plot Upset
+  UpSet(cmt, 
+        # column_title = paste("Top combinations:", setsize, mzp, purpose),
+        row_title = paste(setsize, mzp, purpose),
+        top_annotation = top_anno, 
+        right_annotation = row_anno, 
+        set_order = order(-mean_set_size[set_name(cmt)]),
+        comb_order = order(-selected_comb_sizes[comb_name(cmt)]))
+}
+```
+
+### Bulk
+
+```{r, fig.height=16.5, fig.width=6.5}
+## concatenating the plots shuflles the combinations in the lower plots
+# ## bulk alike
+# plot_common_pred_upset(setsize = "N03", mzp = "bulk", purpose = "de", ## N03_bulk_de
+#                        selected_comb_sizes_dt, mean_setSize, 
+#                        ovlp_frac, setSize)  %v%
+#   plot_common_pred_upset(setsize = "N05", mzp = "bulk", purpose = "de", ## N05_bulk_de
+#                        selected_comb_sizes_dt, mean_setSize, 
+#                        ovlp_frac, setSize)  %v%
+#   plot_common_pred_upset(setsize = "N10", mzp = "bulk", purpose = "de", ## N10_bulk_de
+#                        selected_comb_sizes_dt, mean_setSize, 
+#                        ovlp_frac, setSize)
+```
+
+```{r, fig.height=5.5, fig.width=6.5}
+plot_common_pred_upset(setsize = "N03", mzp = "bulk", purpose = "de", ## N03_bulk_de
+                       selected_comb_sizes_dt, mean_setSize,
+                       ovlp_frac, setSize)
+```
+
+```{r, fig.height=5.5, fig.width=6.5}
+plot_common_pred_upset(setsize = "N05", mzp = "bulk", purpose = "de", ## N05_bulk_de
+                       selected_comb_sizes_dt, mean_setSize,
+                       ovlp_frac, setSize)
+```
+
+```{r, fig.height=5.5, fig.width=6.5}
+plot_common_pred_upset(setsize = "N10", mzp = "bulk", purpose = "de", ## N10_bulk_de
+                       selected_comb_sizes_dt, mean_setSize,
+                       ovlp_frac, setSize)
+```
+
+### Sice 
+
+```{r, fig.height=16.5, fig.width=6.5}
+## single-cell alike
+# plot_common_pred_upset(setsize = "N03", mzp = "sice", purpose = "de", ## N03_bulk_de
+#                        selected_comb_sizes_dt, mean_setSize, 
+#                        ovlp_frac, setSize)  %v%
+#   plot_common_pred_upset(setsize = "N05", mzp = "sice", purpose = "de", ## N05_bulk_de
+#                        selected_comb_sizes_dt, mean_setSize, 
+#                        ovlp_frac, setSize)  %v%
+#   plot_common_pred_upset(setsize = "N10", mzp = "sice", purpose = "de", ## N10_bulk_de
+#                        selected_comb_sizes_dt, mean_setSize, 
+#                        ovlp_frac, setSize)
+```
+
+```{r, fig.height=5.5, fig.width=6.5}
+plot_common_pred_upset(setsize = "N03", mzp = "sice", purpose = "de", ## N03_bulk_de
+                       selected_comb_sizes_dt, mean_setSize, 
+                       ovlp_frac, setSize)
+```
+
+```{r, fig.height=5.5, fig.width=6.5}
+plot_common_pred_upset(setsize = "N05", mzp = "sice", purpose = "de", ## N05_bulk_de
+                       selected_comb_sizes_dt, mean_setSize, 
+                       ovlp_frac, setSize)
+```
+
+```{r, fig.height=5.5, fig.width=6.5}
+plot_common_pred_upset(setsize = "N10", mzp = "sice", purpose = "de", ## N10_bulk_de
+                       selected_comb_sizes_dt, mean_setSize, 
+                       ovlp_frac, setSize)
+```
+
+```{r}
+# library(ggplot2)
+# library(ComplexUpset)
+# https://cran.r-project.org/web/packages/ComplexUpset/vignettes/Examples_R.html
 ```
 
 ```{r}
@@ -134,6 +436,8 @@ ggplot(plot_dt[grep("FDR", variable)],
         legend.position = "top")
 ```
 
+### F1-scores 
+
 ```{r, fig.width=10}
 ## F1-score
 ds_id_cols <- c("SetSize", "MZP", "DsType", "Method", "DsId", "Dataset")
@@ -151,8 +455,37 @@ f1s <-
              variable.name = "Alpha")[, Alpha := sub("TPR.", "", Alpha)][],
         by = c(ds_id_cols, "Alpha"))[, F1 := f1(1-FDR, TPR)][]
 
-mf1s <- f1s[, .(F1 = mean(F1, na.rm = T)), by = .(SetSize, MZP, DsType, Method, Alpha)]
+mf1s <- f1s[, .(F1 = mean(F1, na.rm = T),
+                TPR = mean(TPR, na.rm = T),
+                FDR = mean(FDR, na.rm = T)), 
+            by = .(SetSize, MZP, DsType, Method, Alpha)]
 ```
+
+```{r, fig.width=10, fig.height=10}
+ggplot(mf1s, aes(x = TPR, y = 1 - FDR, color = Method, shape = Alpha)) +
+  stat_function(fun = prec.from.f1.score,
+                geom = "line", linetype = 2,
+                color = "grey", show.legend = c(shape = F),
+                xlim = c(.10,  1),
+                args = list(f1 = .25)) +
+  annotate(geom = "text", x = 1.01, y = .20, label = "0.25", 
+           color = "grey55", size = 3, hjust = 1, parse = F) +
+  stat_function(fun = prec.from.f1.score,
+                geom = "line", linetype = 2,
+                color = "grey", show.legend = c(shape = F),
+                # xlim = c(0.01,  1),
+                args = list(f1 = .10)) +
+  annotate(geom = "text", x = 1.01, y = .10, label = "0.10", 
+           color = "grey55", size = 3, hjust = 1, parse = F) +
+  geom_point() +
+  coord_fixed(xlim = c(0, .6), ylim = c(0, .6)) + #
+  scale_shape_manual("Alpha", values = 2:4, labels = alpha_targets) +
+  guides(shape = guide_legend(direction = "vertical")) +
+  facet_grid(cols = vars(SetSize), rows = vars(MZP)) + #, scales = "free"
+  theme_bw() +
+  theme(legend.position = "top")
+```
+
 
 ```{r, fig.width=10, fig.height=7}
 ggplot(f1s, 
@@ -191,6 +524,8 @@ pval_deind_dt <-
                           variable.name = "Method")
                    }),
             idcol = "Dataset")
+
+pval_deind_dt[is.na(preds), preds := 1]
 ```
 
 ```{r}
@@ -212,13 +547,18 @@ fwrite(pval_deind_dt, "pval_deind.csv.gz", sep = "\t", row.names = F)
 ```{r}
 eval_metrics_dt <- 
   pval_deind_dt[order(Dataset, Method, preds, 
-             decreasing = F)][, .(ID = seq_len(length(true_val)),
-                                  Tot.DE = sum(true_val),
-                                  Nrows = length(true_val), 
-                                  TPR = cumsum(true_val)/sum(true_val),
-                                  FPR = cumsum(true_val == 0)/sum(true_val == 0), # FP/(FP+TN)
-                                  FDR = cumsum(true_val == 0)/sum(true_val >= 0)), # FP/(FP+TP)
-                              by = .(Dataset, Method)]
+                      decreasing = F)][, .(ID = seq_len(length(true_val)),
+                                           Tot.DE = sum(true_val),
+                                           Tot.NDE = sum(true_val == 0),
+                                           Tot = length(true_val), 
+                                           TP = cumsum(true_val),
+                                           # TPR = cumsum(true_val)/sum(true_val),
+                                           # FPR = cumsum(true_val == 0)/sum(true_val == 0), # FP/(FP+TN)
+                                           # FDR = cumsum(true_val == 0)/sum(true_val >= 0), # FP/(FP+TP)
+                                           FP = cumsum(true_val == 0)), 
+                                       by = .(Dataset, Method)][, `:=`(TPR = TP / Tot.DE,
+                                                                       FPR = FP / Tot.NDE, # FP/(FP+TN)
+                                                                       FDR = FP / Tot)] # FP/(FP+TP)),
 
 eval_metrics_dt[, c("SetSize", "MZP", "DsType", "DsId") := tstrsplit(Dataset, "_")]
 
@@ -239,29 +579,50 @@ fwrite(eval_metrics_dt, "eval_metrics.csv.gz", sep = "\t", row.names = F)
 
 ## FDR vs TPR
 
-```{r}
+```{r, fig.width=10, fig.height=7}
 ggplot(mean_eval_metrics_dt[DsType == "de"], 
        aes(x = AvgFDR, y = AvgTPR, color = Method)) +
   geom_abline(linetype = "dashed") +
   geom_line() +
   facet_grid(cols = vars(SetSize),
              rows = vars(MZP)) +
-  coord_equal(expand = T) +
+  coord_fixed(expand = T, xlim = c(0, 1), ylim = c(0, 1)) +
   theme_bw() +
-  theme(legend.position = "top") +
+  theme(legend.position = "top",
+        axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5)) +
   ggtitle("DE simulations")
+```
+
+```{r, fig.width=10, fig.height=7}
+ggplot(mean_eval_metrics_dt[DsType == "de"], 
+       aes(x = AvgFDR, y = AvgTPR, color = Method)) +
+  geom_abline(linetype = "dashed") +
+  geom_vline(xintercept = 0.01, linetype = "dashed") +
+  geom_vline(xintercept = 0.05, linetype = "dashed") +
+  geom_vline(xintercept = 0.10, linetype = "dashed") +
+  geom_line() +
+  # geom_point(data = mf1s[DsType == "de", .(SetSize, MZP, Method, Alpha, AvgFDR = FDR, AvgTPR = TPR)], 
+  #            aes(shape = Alpha)) +
+  facet_grid(cols = vars(SetSize),
+             rows = vars(MZP)) +
+  coord_fixed(expand = T, xlim = c(0, .2), ylim = c(0, .4)) +
+  theme_bw() +
+  theme(legend.position = "right",
+        axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5))
 ```
 
 ### AUC
 
 ```{r}
 auROCcs <- eval_metrics_dt[, .(AUC = simple_auc(TPR, FDR)), 
-             by = .(Dataset, SetSize, MZP, DsType, Method = as.character(Method))]
+                           by = .(Dataset, SetSize, MZP, DsType, 
+                                  Method = as.character(Method))]
 
 mean_auROCcs <- auROCcs[, .(AUC = mean(AUC, na.rm = T),
                             sdAUC = sd(AUC, na.rm = T),
                             seAUC = sqrt(var(AUC, na.rm = T)/length(AUC))), 
-                            by = .(SetSize, MZP, DsType, Method = as.character(Method))]
+                            by = .(SetSize, MZP, DsType, 
+                                   Method = as.character(Method))]
 ```
 
 ```{r}
