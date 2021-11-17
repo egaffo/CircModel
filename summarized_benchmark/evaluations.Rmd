@@ -6,6 +6,7 @@ output:
   html_document: 
     toc: yes
     toc_float: yes
+    code_folding: hide
 editor_options: 
   chunk_output_type: console
 ---
@@ -17,9 +18,20 @@ library("magrittr")
 library(data.table)
 library(qs)
 library(DT)
+library(ComplexHeatmap)
 
 library(BiocParallel)
 # library(batchtools)
+```
+
+```{r}
+## output file path
+output_dir <- "evaluations"
+dir.create(path = output_dir, showWarnings = F, recursive = T)
+
+## input data
+simulated_datasets_qs <- "datasetList.qs"
+sumBench_perf_metrics_qs <- "sumBench_perf_metrics.qs"
 ```
 
 ```{r}
@@ -53,10 +65,10 @@ prec.from.f1.score <- function(recall, f1){
 
 # Simulated data sets 
 
-```{r}
-simulated_datasets_qs <- "/sharedfs01/circrna/CircModel/summarized_benchmark/datasetList.qs"
-
-sim_ds_list <- qread(file = simulated_datasets_qs, nthreads = multicoreWorkers())
+```{r read_sim_datasets}
+## read input: the simulated dataset list
+sim_ds_list <- qread(file = simulated_datasets_qs, 
+                     nthreads = multicoreWorkers())
 ```
 
 ## Raw expression
@@ -111,33 +123,29 @@ ggplot(sim_ds_fraczeros,
 
 ## Method prediction overlap 
 
-```{r}
-## read data
-sumBench_perf_metrics_qs <- "sumBench_perf_metrics.qs"
+```{r read_sumbench_objs}
+## read input: the list of the SummarizedBenchmark objects after the performance evaluation 
 sbL <- qread(file = sumBench_perf_metrics_qs, 
              nthreads = multicoreWorkers())
 ```
 
 ```{r}
 ## example plot
-# plotMethodsOverlap(sbL[[1]], assay = "status", alpha = 0.1, order.by = "freq")
+# plotMethodsOverlap(sbL[[1]], assay = "pv", alpha = 0.1, order.by = "freq")
 ```
 
 ```{r}
-library(ComplexHeatmap)
-
-# x <- sbL[[1]]
-
 cmL <- lapply(sbL, function(x) {
-  status_mat <- assays(x)[["status"]] <= 0.1
-  status_mat[is.na(status_mat)] <- F
   
-  cm <- make_comb_mat(status_mat, min_set_size = 0)
+  pv_mat <- assays(x)[["pv"]] <= 0.1
+  pv_mat[is.na(pv_mat)] <- F
   
-  list(overlap_frac = comb_size(cm) / nrow(assays(x)[["status"]]),
+  cm <- ComplexHeatmap::make_comb_mat(pv_mat, min_set_size = 0)
+  
+  list(overlap_frac = ComplexHeatmap::comb_size(cm) / nrow(assays(x)[["pv"]]),
        # comb_name(cm),
        cm = cm,
-       set_names = set_name(cm))
+       set_names = ComplexHeatmap::set_name(cm))
 })
 
 set_names <- 
@@ -180,9 +188,9 @@ selected_comb_sizes_dt <-
 ## row annotation data
 setSize <- 
   rbindlist(lapply(cmL, function(x) {
-    data.table(Method = names(set_size(x$cm)),
-               setSize = set_size(x$cm),
-               setSize_frac = set_size(x$cm) / (comb_size(x$cm)[1] / x$overlap_frac[1]))
+    data.table(Method = names(ComplexHeatmap::set_size(x$cm)),
+               setSize = ComplexHeatmap::set_size(x$cm),
+               setSize_frac = ComplexHeatmap::set_size(x$cm) / (ComplexHeatmap::comb_size(x$cm)[1] / x$overlap_frac[1]))
   }),
   idcol = "DS")
 setSize[, c("SetSize", "MZP", "Purpose", "ID") := tstrsplit(DS, "_", type.convert = F)]
@@ -192,7 +200,7 @@ mean_setSize <-
           by = .(SetSize, MZP, Purpose, Method)][order(SetSize, MZP, Purpose, -AvgsetSize_frac)]
 ```
 
-```{r}
+```{r upset_plot}
 ## N03_bulk_de
 # setsize <- "N03"
 # mzp <- "bulk"
@@ -218,10 +226,10 @@ plot_common_pred_upset <- function(setsize, mzp, purpose,
                          function(x) as.integer(unlist(strsplit(x, "")))))
   rownames(mt) <- set_names[1, 2:length(set_names)]
   
-  cmt <- make_comb_mat(t(mt), min_set_size = 0)
+  cmt <- ComplexHeatmap::make_comb_mat(t(mt), min_set_size = 0)
   
   top_boxplot_mat <- 
-    as.matrix(data.frame(dcast(ovlp_frac[Comb %in% comb_name(cmt) &
+    as.matrix(data.frame(dcast(ovlp_frac[Comb %in% ComplexHeatmap::comb_name(cmt) &
                                            SetSize == setsize & 
                                            MZP == mzp & 
                                            Purpose == purpose], 
@@ -359,7 +367,7 @@ plot_common_pred_upset(setsize = "N10", mzp = "sice", purpose = "de", ## N10_bul
 ```
 
 ```{r}
-# SummarizedBenchmark::plotROC(sbL[[1]], assay = "status")
+# SummarizedBenchmark::plotROC(sbL[[1]], assay = "pv")
 ```
 
 ## Nominal performance
@@ -408,7 +416,7 @@ datatable(show_dt,
 ## Avg TPR
 plot_dt <- melt(mSbAssayL, id.vars = c("SetSize", "MZP", "DsType", "Method"))
 
-ggplot(plot_dt[grep("TPR", variable)], 
+ggplot(plot_dt[grep("^TPR.[0-9]$", variable)], ## get P-values TPRs
        aes(x = Method, y = value)) +
   geom_line(aes(group = variable, color = variable)) +
   geom_point(aes(shape = variable, color = variable)) +
@@ -423,7 +431,7 @@ ggplot(plot_dt[grep("TPR", variable)],
 
 ```{r, fig.width=10}
 ## Avg Precision
-ggplot(plot_dt[grep("FDR", variable)], 
+ggplot(plot_dt[grep("^FDR.[0-9]$", variable)], 
        aes(x = Method, y = 1 - value)) +
   geom_line(aes(group = variable, color = variable)) +
   geom_point(aes(shape = variable, color = variable)) +
@@ -444,12 +452,12 @@ ds_id_cols <- c("SetSize", "MZP", "DsType", "Method", "DsId", "Dataset")
 
 f1s <- 
   merge(melt(sbAssayL[, c(ds_id_cols,
-                          grep("FDR", colnames(sbAssayL), value = T)), with = F], 
+                          grep("^FDR.[0-9]$", colnames(sbAssayL), value = T)), with = F], 
              id.vars = ds_id_cols, 
              value.name = "FDR",
              variable.name = "Alpha")[, Alpha := sub("FDR.", "", Alpha)][],
         melt(sbAssayL[, c(ds_id_cols,
-                          grep("TPR", colnames(sbAssayL), value = T)), with = F], 
+                          grep("^TPR.[0-9]$", colnames(sbAssayL), value = T)), with = F], 
              id.vars = ds_id_cols, 
              value.name = "TPR",
              variable.name = "Alpha")[, Alpha := sub("TPR.", "", Alpha)][],
@@ -517,8 +525,8 @@ ggplot(mf1s,
 pval_deind_dt <- 
   rbindlist(lapply(sbL,
                    function(x) {
-                     melt(data.table(true_val = as.integer(groundTruths(x)[["status"]]),
-                                     assays(x)[["status"]]),
+                     melt(data.table(true_val = as.integer(groundTruths(x)[["pv"]]),
+                                     assays(x)[["pv"]]),
                           id.vars = "true_val",
                           value.name = "preds",
                           variable.name = "Method")
@@ -529,7 +537,9 @@ pval_deind_dt[is.na(preds), preds := 1]
 ```
 
 ```{r}
-fwrite(pval_deind_dt, "pval_deind.csv.gz", sep = "\t", row.names = F)
+fwrite(pval_deind_dt, 
+       file.path(output_dir, "pval_deind.csv.gz"), 
+       sep = "\t", row.names = F)
 ```
 
 ```{r}
@@ -574,7 +584,9 @@ mean_eval_metrics_dt <-
 ```
 
 ```{r}
-fwrite(eval_metrics_dt, "eval_metrics.csv.gz", sep = "\t", row.names = F)
+fwrite(eval_metrics_dt, 
+       file.path(output_dir, "eval_metrics.csv.gz"), 
+       sep = "\t", row.names = F)
 ```
 
 ## FDR vs TPR
@@ -626,7 +638,9 @@ mean_auROCcs <- auROCcs[, .(AUC = mean(AUC, na.rm = T),
 ```
 
 ```{r}
-fwrite(auROCcs, "FDRvsTPR_AUC.csv", sep = "\t", row.names = F)
+fwrite(auROCcs, 
+       file.path(output_dir, "FDRvsTPR_AUC.csv"), 
+       sep = "\t", row.names = F)
 ```
 
 ```{r, fig.width=10}
@@ -692,7 +706,9 @@ mean_auROCcs <- auROCcs[, .(AUC = mean(AUC)),
 ```
 
 ```{r}
-fwrite(auROCcs, "ROC_AUC.csv", sep = "\t", row.names = F)
+fwrite(auROCcs, 
+       file.path(output_dir, "ROC_AUC.csv"), 
+       sep = "\t", row.names = F)
 ```
 
 ```{r, fig.width=10}
@@ -700,6 +716,20 @@ ggplot(auROCcs, aes(x = Method, y = AUC)) +
   geom_boxplot() +
   geom_point(data = mean_auROCcs, 
              shape = 21, fill = "red") +
+  facet_grid(cols = vars(SetSize),
+             rows = vars(MZP), 
+             scales = "free_y") +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5))
+```
+
+```{r, fig.width=10}
+ggplot(mean_auROCcs, aes(x = Method, y = AUC)) +
+  geom_line(aes(group = paste(SetSize, MZP, DsType))) +
+  geom_point(shape = 21, fill = "red") +
+  # geom_pointrange(aes(ymin = AUC - sdAUC, ymax = AUC + sdAUC),
+  #                 shape = 21, fill = "red") +
+  ylab("Average AUC (FDR, TPR)") +
   facet_grid(cols = vars(SetSize),
              rows = vars(MZP), 
              scales = "free_y") +
