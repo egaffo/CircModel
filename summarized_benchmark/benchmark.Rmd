@@ -55,25 +55,18 @@ not_de_ds_list <- sim_ds_list[grepl("mock", names(sim_ds_list))]
 # Bench design
 
 ```{r}
-simData <- de_ds_list$N03_bulk$Datasets$sim.data.list[[1]]
+# simData <- de_ds_list$N03_bulk$Datasets$sim.data.list[[1]]
+# 
+# mycounts <- round(simData$counts)
+# mycoldat <- data.frame(condition = factor(simData$colData[colnames(mycounts), "Group"]))
+# # rownames(mycoldat) <- colnames(mycounts)
+# mydat <- list(coldat = mycoldat, 
+#               cntdat = mycounts,
+#               status = as.integer(simData$rowData[rownames(mycounts), "DE.ind"]))
+# 
+# bd <- BenchDesign(data = mydat)
 
-mycounts <- round(simData$counts)
-mycoldat <- data.frame(condition = factor(simData$colData[colnames(mycounts), "Group"]))
-# rownames(mycoldat) <- colnames(mycounts)
-mydat <- list(coldat = mycoldat, 
-              cntdat = mycounts,
-              status = as.integer(simData$rowData[rownames(mycounts), "DE.ind"]))
-
-bd <- BenchDesign(data = mydat)
-```
-
-```{r}
-simple_auc <- function(TPR, FPR){
-  # inputs already sorted, best scores first 
-  dFPR <- c(diff(FPR), 0)
-  dTPR <- c(diff(TPR), 0)
-  sum(TPR * dFPR) + sum(dTPR * dFPR)/2
-}
+bd <- BenchDesign()
 ```
 
 ## Methods
@@ -85,39 +78,60 @@ simple_auc <- function(TPR, FPR){
 
 ## 1. DESeq2 defaults
 deseq2_run <- function(countData, colData, design, contrast) {
+
+  tictoc::tic()
   
-  library("DESeq2")
-  dds <- DESeqDataSetFromMatrix(countData, colData = colData, design = design)
-  dds <- DESeq(dds)
-  results(dds, 
-          contrast = contrast, 
-          test = "Wald", 
-          independentFiltering = F)
+  dds <- DESeq2::DESeqDataSetFromMatrix(countData, colData = colData, design = design)
+  dds <- DESeq2::DESeq(dds)
+  res <- DESeq2::results(dds, 
+                 contrast = contrast, 
+                 test = "Wald", 
+                 independentFiltering = F)
+  # or to shrink log fold changes association with condition:
+  # lfcShrink(dds, coef="condition_trt_vs_untrt", type="apeglm")
+  
+  runtime <- tictoc::toc(log = F, quiet = T)
+  
+  list(res = res, 
+       runtime = runtime$toc - runtime$tic)
+
 }
 
 ## 2. use LRT 
 deseq2lrt_run <- function(countData, colData, design, contrast) {
   
-  library("DESeq2")
-  dds <- DESeqDataSetFromMatrix(countData, colData = colData, design = design)
-  dds <- DESeq(dds, 
+  tictoc::tic()
+  
+  dds <- DESeq2::DESeqDataSetFromMatrix(countData, colData = colData, design = design)
+  dds <- DESeq2::DESeq(dds, 
                test = "LRT",
                reduced = ~ 1)
   
-  results(dds, independentFiltering = F)
+  res <- DESeq2::results(dds, independentFiltering = F)
+  
+  runtime <- tictoc::toc(log = F, quiet = T)
+  
+  list(res = res, 
+       runtime = runtime$toc - runtime$tic)
 }
 
 ## 3. use betaPrior
 deseq2bp_run <- function(countData, colData, design, contrast) {
   
-  library("DESeq2")
-  dds <- DESeqDataSetFromMatrix(countData, colData = colData, design = design)
-  dds <- DESeq(dds, 
+  tictoc::tic()
+  
+  dds <- DESeq2::DESeqDataSetFromMatrix(countData, colData = colData, design = design)
+  dds <- DESeq2::DESeq(dds, 
                betaPrior = T)
-  results(dds, 
-          contrast = contrast, 
-          test = "Wald", 
-          independentFiltering = F)
+  res <- DESeq2::results(dds, 
+                         contrast = contrast, 
+                         test = "Wald", 
+                         independentFiltering = F)
+  
+  runtime <- tictoc::toc(log = F, quiet = T)
+  
+  list(res = res, 
+       runtime = runtime$toc - runtime$tic)
 }
 
 ## 4. use recommended parameters for single-cell data
@@ -133,18 +147,25 @@ deseq2bp_run <- function(countData, colData, design, contrast) {
 ## set fitType = "glmGamPoi"
 deseq2zi_run <- function(countData, colData, design, contrast) {
   
-  library("DESeq2")
-  dds <- DESeqDataSetFromMatrix(countData, colData = colData, design = design)
-  dds <- DESeq(dds, 
-               # quiet = TRUE, 
-               sfType = "poscounts", 
-               useT = TRUE, 
-               minmu = 1e-6, 
-               minReplicatesForReplace = Inf, 
-               test = "LRT", 
-               reduced = ~ 1)
-  # results(dds, contrast = contrast)
-  results(dds, independentFiltering = F)
+  tictoc::tic()
+  
+  dds <- DESeq2::DESeqDataSetFromMatrix(countData, colData = colData, design = design)
+  
+  dds <- DESeq2::DESeq(dds, 
+                       # quiet = TRUE, 
+                       sfType = "poscounts", 
+                       useT = TRUE, 
+                       minmu = 1e-6, 
+                       minReplicatesForReplace = Inf, 
+                       test = "LRT", 
+                       reduced = ~ 1)
+  # DESeq2::results(dds, contrast = contrast)
+  res <- DESeq2::results(dds, independentFiltering = F)
+  
+  runtime <- tictoc::toc(log = F, quiet = T)
+  
+  list(res = res, 
+       runtime = runtime$toc - runtime$tic)
 }
 
 ## 5. use recommended parameters for single-cell data and the genefilter::shorth
@@ -155,21 +176,38 @@ deseq2zi_run <- function(countData, colData, design, contrast) {
 ##          function from the genefilter package may give better results.
 deseq2lc_run <- function(countData, colData, design, contrast) {
   
-  library("DESeq2")
-  dds <- DESeqDataSetFromMatrix(countData, colData = colData, design = design)
+  tictoc::tic()
   
-  dds <- estimateSizeFactors(dds, locfunc = genefilter::shorth)
+  dds <- DESeq2::DESeqDataSetFromMatrix(countData, colData = colData, design = design)
   
-  dds <- DESeq(dds, 
-               # quiet = TRUE, 
-               sfType = "poscounts", 
-               useT = TRUE, 
-               minmu = 1e-6, 
-               minReplicatesForReplace = Inf, 
-               test = "LRT", 
-               reduced = ~ 1)
+  dds <- DESeq2::estimateSizeFactors(dds, type = "poscounts", 
+                                     locfunc = function(x){ 
+                                       tryCatch(
+                                         {
+                                           genefilter::shorth(x)
+                                         },
+                                         error = function(cond) {
+                                           warning(paste("The 'shorth' function failed with the following message:\n", 
+                                                         cond, 
+                                                         "Will try to use 'half.range.mode' instead"))
+                                           genefilter::half.range.mode(x)}
+                                       ) })
+  
+  dds <- DESeq2::DESeq(dds, 
+                       # quiet = TRUE, 
+                       # sfType = "poscounts", 
+                       useT = TRUE, 
+                       minmu = 1e-6, 
+                       minReplicatesForReplace = Inf, 
+                       test = "LRT", 
+                       reduced = ~ 1)
   # results(dds, contrast = contrast)
-  results(dds, independentFiltering = F)
+  res <- DESeq2::results(dds, independentFiltering = F)
+  
+  runtime <- tictoc::toc(log = F, quiet = T)
+  
+  list(res = res, 
+       runtime = runtime$toc - runtime$tic)
 }
 
 ## 6. use recommended parameters for single-cell data and the scran::computeSumFactors
@@ -178,22 +216,30 @@ deseq2lc_run <- function(countData, colData, design, contrast) {
 ##  are not optimal for single cell count matrices'
 deseq2sc_run <- function(countData, colData, design, contrast) {
   
-  library("DESeq2")
-  library(scran)
+  tictoc::tic()
   
-  dds <- DESeqDataSetFromMatrix(countData, colData = colData, design = design)
+  dds <- DESeq2::DESeqDataSetFromMatrix(countData, colData = colData, design = design)
   
-  "sizeFactors"(dds) <- sizeFactors(computeSumFactors(dds, clusters = colData(dds)$condition))
+  # "sizeFactors"(dds) <- 
+  #   DESeq2::sizeFactors(scran::computeSumFactors(dds, 
+  #                                                clusters = SummarizedExperiment::colData(dds)$condition))
+  dds <- scran::computeSumFactors(dds, 
+                                  clusters = SummarizedExperiment::colData(dds)$condition)
   
-  dds <- DESeq(dds, 
-               # quiet = TRUE, 
-               useT = TRUE, 
-               minmu = 1e-6, 
-               minReplicatesForReplace = Inf, 
-               test = "LRT", 
-               reduced = ~ 1)
-  # results(dds, contrast = contrast)
-  results(dds, independentFiltering = F)
+  dds <- DESeq2::DESeq(dds, 
+                       # quiet = TRUE, 
+                       useT = TRUE, 
+                       minmu = 1e-6, 
+                       minReplicatesForReplace = Inf, 
+                       test = "LRT", 
+                       reduced = ~ 1)
+  # DESeq2::results(dds, contrast = contrast)
+  res <- DESeq2::results(dds, independentFiltering = F)
+  
+  runtime <- tictoc::toc(log = F, quiet = T)
+  
+  list(res = res, 
+       runtime = runtime$toc - runtime$tic)
 }
 
 ## 7. By using the argument fitType="glmGamPoi", one can leverage the faster NB GLM 
@@ -202,51 +248,77 @@ deseq2sc_run <- function(countData, colData, design, contrast) {
 ## https://bioconductor.org/packages/release/bioc/vignettes/DESeq2/inst/doc/DESeq2.html#speed-up-and-parallelization-thoughts
 deseq2gpLrt_run <- function(countData, colData, design, contrast) {
   
-  library("DESeq2")
   library(glmGamPoi)
-  dds <- DESeqDataSetFromMatrix(countData, colData = colData, design = design)
-  dds <- DESeq(dds, 
-               # quiet = TRUE, 
-               sfType = "poscounts", 
-               # useT = TRUE, 
-               minmu = 1e-6, 
-               minReplicatesForReplace = Inf, 
-               fitType = "glmGamPoi",
-               test = "LRT", 
-               reduced = ~ 1)
-  # results(dds, contrast = contrast)
-  results(dds, independentFiltering = F)
+  
+  tictoc::tic()
+  
+  dds <- DESeq2::DESeqDataSetFromMatrix(countData, colData = colData, design = design)
+  
+  dds <- DESeq2::DESeq(dds, 
+                       # quiet = TRUE, 
+                       sfType = "poscounts", 
+                       # useT = TRUE, 
+                       minmu = 1e-6, 
+                       minReplicatesForReplace = Inf, 
+                       fitType = "glmGamPoi",
+                       test = "LRT", 
+                       reduced = ~ 1)
+  # DESeq2::results(dds, contrast = contrast)
+  res <- DESeq2::results(dds, independentFiltering = F)
+  
+  runtime <- tictoc::toc(log = F, quiet = T)
+  
+  list(res = res, 
+       runtime = runtime$toc - runtime$tic)
 }
 
 ## 8. use ZinbWave weights
 deseq2zw_run <- function(countData, colData, design, contrast, weights) {
   
-  library("DESeq2")
-  dds <- DESeqDataSetFromMatrix(countData, colData = colData, design = design)
+  tictoc::tic()
   
-  if(is.null(weights)){
-    message("Weights expected but NULL was given. DESeq2 will not use weights")
-  }else{
-    weights[which(weights < 1e-6)] <- 1e-06
-    assays(dds, withDimnames =F, "weights")[["weights"]] <- weights
-  }
-  dds <- DESeq(dds, 
-               # quiet = TRUE, 
-               sfType = "poscounts", 
-               # useT = TRUE, 
-               minmu = 1e-6, 
-               minReplicatesForReplace = Inf, 
-               test = "LRT", 
-               reduced = ~ 1)
-  # results(dds, contrast = contrast)
-  results(dds, independentFiltering = F)
+  dds <- DESeq2::DESeqDataSetFromMatrix(countData, colData = colData, design = design)
+  
+  # if(is.null(weights)){
+  #   message("Weights expected but NULL was given. DESeq2 will not use weights")
+  # }else{
+  #   weights[which(weights < 1e-6)] <- 1e-06
+  #   assays(dds, withDimnames =F, "weights")[["weights"]] <- weights
+  # }
+  
+  dds <- DESeq2::DESeq(dds, 
+                       # quiet = TRUE, 
+                       sfType = "poscounts", 
+                       # useT = TRUE, 
+                       minmu = 1e-6, 
+                       minReplicatesForReplace = Inf, 
+                       test = "LRT", 
+                       reduced = ~ 1)
+  # DESeq2::results(dds, contrast = contrast)
+  res <- DESeq2::results(dds, independentFiltering = F)
+  
+  runtime <- tictoc::toc(log = F, quiet = T)
+  
+  list(res = res, 
+       runtime = runtime$toc - runtime$tic)
 }
 
+## post functions
 deseq2_pv <- function(x) { 
-  res <- x$pvalue 
+  res <- x$res$pvalue 
   res[is.na(res)] <- 1
   res
 }
+
+deseq2_apv <- function(x) { 
+  res <- x$res$padj
+  res[is.na(res)] <- 1
+  res
+}
+
+deseq2_lfc <- function(x) { x$res$log2FoldChange }
+
+deseq2_time <- function(x) { rep(as.numeric(x$runtime), nrow(x$res)) }
 ```
 
 ### edgeR family
@@ -257,85 +329,139 @@ deseq2_pv <- function(x) {
 ## 1. default edgeR
 edgeR_run <- function(countData, group, design) {
   
-  library(edgeR)
-  y <- DGEList(countData, group = group)
-  y <- calcNormFactors(y) # method = "TMMwsp" for zero counts?
-  des <- model.matrix(design)
-  y <- estimateDisp(y, des) # min.row.sum = 5 default. Change?
-  fit <- glmFit(y, des)
-  glmLRT(fit, coef=2)
+  tictoc::tic()
+  
+  y <- edgeR::DGEList(countData, group = group)
+  y <- edgeR::calcNormFactors(y) # method = "TMMwsp" for zero counts?
+  # des <- model.matrix(design)
+  des <- model.matrix(~group, data = y$samples)
+  y <- edgeR::estimateDisp(y, des) # min.row.sum = 5 default. Change?
+  fit <- edgeR::glmFit(y, des)
+  res <- edgeR::glmLRT(fit, coef=2)
+  
+  runtime <- tictoc::toc(log = F, quiet = T)
+  
+  list(res = res, 
+       runtime = runtime$toc - runtime$tic)
 }
 
 ## 2. robust
 edgeRrbst_run <- function(countData, group, design) {
   
-  library(edgeR)
-  y <- DGEList(countData, group = group)
-  y <- calcNormFactors(y)
-  des <- model.matrix(design)
-  y <- estimateGLMRobustDisp(y, des) #maxit = 6
-  fit <- glmQLFit(y = y, dispersion = y$tagwise.dispersion, 
+  tictoc::tic()
+  
+  y <- edgeR::DGEList(countData, group = group)
+  y <- edgeR::calcNormFactors(y)
+  # des <- model.matrix(design)
+  des <- model.matrix(~group, data = y$samples)
+  y <- edgeR::estimateGLMRobustDisp(y, des) #maxit = 6
+  fit <- edgeR::glmQLFit(y = y, dispersion = y$tagwise.dispersion, 
                  robust = TRUE, design = des)
-  glmLRT(fit, coef = 2)
+  res <- edgeR::glmLRT(fit, coef = 2)
+  
+  runtime <- tictoc::toc(log = F, quiet = T)
+  
+  list(res = res, 
+       runtime = runtime$toc - runtime$tic)
 }
 
 ## 3. 50 degrees of freedom
 edgeRrbst50df_run <- function(countData, group, design) {
   
-  library(edgeR)
-  y <- DGEList(countData, group = group)
-  y <- calcNormFactors(y)
-  des <- model.matrix(design)
-  y <- estimateGLMRobustDisp(y = y, des, prior.df = 50) #maxit = 6
-  fit <- glmQLFit(y = y, dispersion = y$tagwise.dispersion, 
+  tictoc::tic()
+  
+  y <- edgeR::DGEList(countData, group = group)
+  y <- edgeR::calcNormFactors(y)
+  # des <- model.matrix(design)
+  des <- model.matrix(~group, data = y$samples)
+  y <- edgeR::estimateGLMRobustDisp(y = y, des, prior.df = 50) #maxit = 6
+  fit <- edgeR::glmQLFit(y = y, dispersion = y$tagwise.dispersion, 
                  robust = TRUE, design = des)
-  glmLRT(fit, coef = 2)
+  res <- edgeR::glmLRT(fit, coef = 2)
+  
+  runtime <- tictoc::toc(log = F, quiet = T)
+  
+  list(res = res, 
+       runtime = runtime$toc - runtime$tic)
 }
 
 ## 4. auto estimation of df
 edgeRrbstEdf_run <- function(countData, group, design) {
   
-  library(edgeR)
-  y <- DGEList(countData, group = group)
-  y <- calcNormFactors(y)
-  des <- model.matrix(design)
-  y <- estimateDisp(y, des) #maxit = 6
-  fit <- glmQLFit(y = y, dispersion = y$tagwise.dispersion, 
+  tictoc::tic()
+  
+  y <- edgeR::DGEList(countData, group = group)
+  y <- edgeR::calcNormFactors(y)
+  # des <- model.matrix(design)
+  des <- model.matrix(~group, data = y$samples)
+  y <- edgeR::estimateDisp(y, des) #maxit = 6
+  fit <- edgeR::glmQLFit(y = y, dispersion = y$tagwise.dispersion, 
                  robust = TRUE, design = des)
-  glmLRT(fit, coef = 2)
+  res <- edgeR::glmLRT(fit, coef = 2)
+  
+  runtime <- tictoc::toc(log = F, quiet = T)
+  
+  list(res = res, 
+       runtime = runtime$toc - runtime$tic)
 }
 
 ## 5. ZinbWave weights
 edgeRzw_run <- function(countData, group, design, weights) {
   
-  library(edgeR)
-  y <- DGEList(countData, group = group)
+  tictoc::tic()
+  
+  y <- edgeR::DGEList(countData, group = group)
   y$weights <- weights
-  y <- calcNormFactors(y)
-  des <- model.matrix(design)
-  y <- estimateGLMRobustDisp(y, des) # estimateDisp(y, des)?
-  fit <- glmFit(y, des) #glmQLFit?
-  glmLRT(fit, coef = 2)
+  y <- edgeR::calcNormFactors(y)
+  # des <- model.matrix(design)
+  des <- model.matrix(~group, data = y$samples)
+  y <- edgeR::estimateGLMRobustDisp(y, des) # estimateDisp(y, des)?
+  fit <- edgeR::glmFit(y, des) #glmQLFit?
+  res <- edgeR::glmLRT(fit, coef = 2)
+  
+  runtime <- tictoc::toc(log = F, quiet = T)
+  
+  list(res = res, 
+       runtime = runtime$toc - runtime$tic)
 }
 
 ## 6. Quasi-likelihood dispersion estimate and empirical Bayes quasi-likelihood F-tests
 ## glmQLFit gives special attention to handling of zero counts
 edgeRql_run <- function(countData, group, design, weights) {
   
-  library(edgeR)
-  y <- DGEList(countData, group = group)
-  y <- calcNormFactors(y)
-  des <- model.matrix(design)
-  y <- estimateDisp(y = y, design = des, robust = TRUE)
-  fit <- glmQLFit(y, design = des, robust = TRUE)
-  glmQLFTest(fit, coef = 2)
+  tictoc::tic()
+  
+  y <- edgeR::DGEList(countData, group = group)
+  y <- edgeR::calcNormFactors(y)
+  # des <- model.matrix(design)
+  des <- model.matrix(~group, data = y$samples)
+  y <- edgeR::estimateDisp(y = y, design = des, robust = TRUE)
+  fit <- edgeR::glmQLFit(y, design = des, robust = TRUE)
+  res <- edgeR::glmQLFTest(fit, coef = 2)
+  
+  runtime <- tictoc::toc(log = F, quiet = T)
+  
+  list(res = res, 
+       runtime = runtime$toc - runtime$tic)
 }
 
+## post functions
 edgeR_pv <- function(x) { 
-  res <- x$table$PValue 
+  res <- x$res$table$PValue 
   res[is.na(res)] <- 1
   res
-  }
+}
+
+edgeR_apv <- function(x) {
+  res <- p.adjust(p = x$res$table$PValue, method = "BH")
+  # res <- topTags(x, number = Inf, sort.by = "none")$table$FDR
+  res[is.na(res)] <- 1
+  res
+}
+
+edgeR_lfc <- function(x) { x$res$table$logFC }
+
+edgeR_time <- function(x) { rep(as.numeric(x$runtime), nrow(x$res)) }
 ```
 
 ### limma-voom family
@@ -343,74 +469,107 @@ edgeR_pv <- function(x) {
 ```{r}
 ## limma-voom family
 voom_run <- function(countData, group, design) {
-    
-  library(edgeR)
-  library(limma)
-  y <- DGEList(countData, group = group)
-  y <- calcNormFactors(y)
+  
+  tictoc::tic()
+  
+  y <- edgeR::DGEList(countData, group = group)
+  y <- edgeR::calcNormFactors(y)
   des <- model.matrix(design)
-  y <- voom(y, des)
-  eBayes(lmFit(y, des))
+  y <- limma::voom(y, des)
+  res <- limma::eBayes(limma::lmFit(y, des))
+  
+  runtime <- tictoc::toc(log = F, quiet = T)
+  
+  list(res = res, 
+       runtime = runtime$toc - runtime$tic)
 }
 
 ## estimation of df.prior and var.prior be robustified against outlier sample variances
 voomRbst_run <- function(countData, group, design) {
 
-  library(edgeR)
-  library(limma)
-  y <- DGEList(countData, group = group)
-  y <- calcNormFactors(y)
+  tictoc::tic()
+  
+  y <- edgeR::DGEList(countData, group = group)
+  y <- edgeR::calcNormFactors(y)
   des <- model.matrix(design)
-  y <- voom(y, des)
-  eBayes(lmFit(y, des), robust = T)
+  y <- limma::voom(y, des)
+  res <- limma::eBayes(limma::lmFit(y, des), robust = T)
+  
+  runtime <- tictoc::toc(log = F, quiet = T)
+  
+  list(res = res, 
+       runtime = runtime$toc - runtime$tic)
 }
 
 ## voom quantile normalization
 voomQn_run <- function(countData, group, design) {
   
+  tictoc::tic()
+  
   des <- model.matrix(design)
   voom.data <- limma::voom(countData, 
                            design = des, 
                            normalize.method = 'quantile')
-  limma::eBayes(limma::lmFit(voom.data, design = des))
+  res <- limma::eBayes(limma::lmFit(voom.data, design = des))
+  
+  runtime <- tictoc::toc(log = F, quiet = T)
+  
+  list(res = res, 
+       runtime = runtime$toc - runtime$tic)
 }
 
 ## limma-voom code as in the vignette (no prior edgeR; mind the robust = T param)
 voomSimple_run <- function(countData, group, design) {
   
+  tictoc::tic()
+  
   des <- model.matrix(design)
-  limma::eBayes(limma::lmFit(limma::voom(counts = countData, 
-                                         design = des), 
-                             des), 
-                robust = TRUE)
+  res <- limma::eBayes(limma::lmFit(limma::voom(counts = countData, 
+                                                design = des), 
+                                    des), 
+                       robust = TRUE)
+  
+  runtime <- tictoc::toc(log = F, quiet = T)
+  
+  list(res = res, 
+       runtime = runtime$toc - runtime$tic)
 }
 
 
 ## voomLmFit is more robust to zero counts than calling voom, 
 ## duplicateCorrelation and lmFit separately and provides more rigorous error rate control.
 voomLmFit_run <- function(countData, group, design) {
-    
+  
+  tictoc::tic()
+  
   des <- model.matrix(design)
   ## Empirical sample quality weights will be estimated if sample.weights=TRUE 
   ## or if var.design or var.group are non-NULL. In that case, voomLmFit is 
   ## analogous to running voomWithQualityWeights followed by lmFit.
   ## voomLmFit is usually followed by running eBayes on the fitted model object. 
-  limma::eBayes(edgeR::voomLmFit(counts = countData, 
-                                 design = des, 
-                                 # block = NULL, 
-                                 # prior.weights = NULL,
-                                 sample.weights = TRUE,
-                                 # var.design = NULL, 
-                                 # var.group = NULL, 
-                                 # lib.size = NULL, 
-                                 # normalize.method = "none",
-                                 # span = 0.5, 
-                                 # plot = FALSE, 
-                                 save.plot = FALSE))
+  res <- limma::eBayes(edgeR::voomLmFit(counts = countData, 
+                                        design = des, 
+                                        # block = NULL, 
+                                        # prior.weights = NULL,
+                                        sample.weights = TRUE,
+                                        # var.design = NULL, 
+                                        # var.group = NULL, 
+                                        # lib.size = NULL, 
+                                        # normalize.method = "none",
+                                        # span = 0.5, 
+                                        # plot = FALSE, 
+                                        save.plot = FALSE))
+  
+  runtime <- tictoc::toc(log = F, quiet = T)
+  
+  list(res = res, 
+       runtime = runtime$toc - runtime$tic)
 }
 
 # limma-voom with ZINBWaVE weights
 voomZw_run <- function(countData, group, design, weights) {
+  
+  tictoc::tic()
   
   des <- model.matrix(design)
   v <- limma::voom(counts = countData, 
@@ -420,16 +579,36 @@ voomZw_run <- function(countData, group, design, weights) {
   # v$weights <- v$weights * weights
   fit <- limma::lmFit(v, design = des, weights = v$weights)
   # fit$df.residual <- rowSums(weights) - ncol(design)
-  limma::eBayes(fit, robust = T)
+  res <- limma::eBayes(fit, robust = T)
+  
+  runtime <- tictoc::toc(log = F, quiet = T)
+  
+  list(res = res, 
+       runtime = runtime$toc - runtime$tic)
 }
 
 # voomWithQualityWeights
 
+## post functions
 voom_pv <- function(x) { 
-  res <- x$p.value[, 2] 
+  res <- x$res$p.value[, 2] # res <- x$F.p.value	?
   res[is.na(res)] <- 1
   res
-  }
+}
+
+voom_apv <- function(x) {
+  # res <- p.adjust(p = x$p.value[, 2], method = "BH")
+  res <- limma::topTable(x$res, number = Inf, sort.by = "none")$adj.P.Val
+  res[is.na(res)] <- 1
+  res
+}
+
+voom_lfc <- function(x) {
+  # x$coefficients[, 2]
+  limma::topTable(x$res, number = Inf, sort.by = "none")$logFC
+}
+
+voom_time <- function(x) { rep(as.numeric(x$runtime), nrow(x$res)) }
 ```
 
 ### circMeta
@@ -437,6 +616,9 @@ voom_pv <- function(x) {
 ```{r}
 ## circMeta
 cMeta_run <- function(countData, group, sf = TRUE) {
+  
+  tictoc::tic()
+  
   groupVar <- group 
   names(groupVar) <- colnames(countData)
   countData <- apply(countData, 2, function(x) {storage.mode(x) <- 'integer'; x})
@@ -457,15 +639,34 @@ cMeta_run <- function(countData, group, sf = TRUE) {
   }
   
   # fdr = p.adjust(pval, method = 'fdr')
-  # lfc = log( (m1 + 1) / (m0 + 1), 2 )
+  lfc <- log( (m1 + 1) / (m0 + 1), 2)
+  
   names(pval) <- rownames(countData)
-  data.frame(p.value = pval)
+  res <- data.frame(p.value = pval, 
+                    logFC = lfc)
+  
+  runtime <- tictoc::toc(log = F, quiet = T)
+  
+  list(res = res, 
+       runtime = runtime$toc - runtime$tic)
 }
+
+## post functions
 cMeta_pv <- function(x) { 
-  res <- x$p.value
+  res <- x$res$p.value
   res[is.na(res)] <- 1
   res
 }
+
+cMeta_apv <- function(x) {
+  res <- p.adjust(x$res$p.value, method = "BH")
+  res[is.na(res)] <- 1
+  res
+}
+
+cMeta_lfc <- function(x) { x$res$logFC }
+
+cMeta_time <- function(x) { rep(as.numeric(x$runtime), nrow(x$res)) }
 ```
 
 ### Other
@@ -596,6 +797,13 @@ cMeta_pv <- function(x) {
 #   statInfo <- cbind("foldChange" = results$foldChange)
 #   list("pValMat" = pValMat, "statInfo" = statInfo)
 # }# END - function: DeSingle
+
+# #TODO
+# _apv <- function(x) {}
+# 
+# _lfc <- function(x) {}
+# 
+# _time <- function(x) {}
 ```
 
 
@@ -605,35 +813,60 @@ cMeta_pv <- function(x) {
 ## add memthods to the bench
 bd <- bd %>%
   addMethod(label = "DESeq2_Dt_WaT", ## DESeq2, default parameters, Wald test
-            func = deseq2_run, post = deseq2_pv,
+            func = deseq2_run, 
+            # post = deseq2_pv,
+            post = list(pv = deseq2_pv,
+                        adj_pv = deseq2_apv,
+                        lfc = deseq2_lfc,
+                        runtime = deseq2_time),
             meta = list(pkg_name = "DESeq2", pkg_vers = as.character(packageVersion("DESeq2"))),
             params = rlang::quos(countData = cntdat,
                                  colData = coldat, 
                                  design = ~condition,
                                  contrast = c("condition", "2", "1"))) %>%
   addMethod(label = "DESeq2_Dt_LRT", ## DESeq2, default parameters, likelihood ratio test
-            func = deseq2lrt_run, post = deseq2_pv,
+            func = deseq2lrt_run, 
+            # post = deseq2_pv,
+            post = list(pv = deseq2_pv,
+                        adj_pv = deseq2_apv,
+                        lfc = deseq2_lfc,
+                        runtime = deseq2_time),
             meta = list(pkg_name = "DESeq2", pkg_vers = as.character(packageVersion("DESeq2"))),
             params = rlang::quos(countData = cntdat,
                                  colData = coldat, 
                                  design = ~condition,
                                  contrast = c("condition", "2", "1"))) %>%
   addMethod(label = "DESeq2_Lc_LRT", ## DESeq2, parameters for low counts, likelihood ratio test
-            func = deseq2lc_run, post = deseq2_pv,
+            func = deseq2lc_run, 
+            # post = deseq2_pv,
+            post = list(pv = deseq2_pv,
+                        adj_pv = deseq2_apv,
+                        lfc = deseq2_lfc,
+                        runtime = deseq2_time),
             meta = list(pkg_name = "DESeq2", pkg_vers = as.character(packageVersion("DESeq2"))),
             params = rlang::quos(countData = cntdat,
                                  colData = coldat, 
                                  design = ~condition,
                                  contrast = c("condition", "2", "1"))) %>%
   addMethod(label = "DESeq2_Zi_LRT", ## DESeq2, parameters for single-cell data, likelihood ratio test
-            func = deseq2zi_run, post = deseq2_pv, 
+            func = deseq2zi_run, 
+            # post = deseq2_pv, 
+            post = list(pv = deseq2_pv,
+                        adj_pv = deseq2_apv,
+                        lfc = deseq2_lfc,
+                        runtime = deseq2_time),
             meta = list(pkg_name = "DESeq2", pkg_vers = as.character(packageVersion("DESeq2"))),
             params = rlang::quos(countData = cntdat,
                                  colData = coldat, 
                                  design = ~condition,
                                  contrast = c("condition", "2", "1"))) %>%
   addMethod(label = "DESeq2_Sc_LRT", ## DESeq2, parameters for single-cell data and scran::computeSumFactors, likelihood ratio test
-            func = deseq2sc_run, post = deseq2_pv,
+            func = deseq2sc_run, 
+            # post = deseq2_pv,
+            post = list(pv = deseq2_pv,
+                        adj_pv = deseq2_apv,
+                        lfc = deseq2_lfc,
+                        runtime = deseq2_time),
             meta = list(pkg_name = "DESeq2/scran",
                         pkg_vers = paste(as.character(packageVersion("DESeq2")),
                                          as.character(packageVersion("scran")),
@@ -643,7 +876,12 @@ bd <- bd %>%
                                  design = ~condition,
                                  contrast = c("condition", "2", "1"))) %>%
   addMethod(label = "DESeq2_GP_LRT", ## DESeq2, Gamma-Poisson, likelihood ratio test
-            func = deseq2gpLrt_run, post = deseq2_pv, 
+            func = deseq2gpLrt_run, 
+            # post = deseq2_pv, 
+            post = list(pv = deseq2_pv,
+                        adj_pv = deseq2_apv,
+                        lfc = deseq2_lfc,
+                        runtime = deseq2_time),
             meta = list(pkg_name = "DESeq2/glmGamPoi", 
                         pkg_vers = paste(as.character(packageVersion("DESeq2")), 
                                          as.character(packageVersion("glmGamPoi")), 
@@ -653,7 +891,12 @@ bd <- bd %>%
                                  design = ~condition,
                                  contrast = c("condition", "2", "1"))) %>%
   addMethod(label = "DESeq2_ZW_LRT", ## DESeq2, ZinbWave, likelihood ratio test
-            func = deseq2zw_run, post = deseq2_pv, 
+            func = deseq2zw_run, 
+            # post = deseq2_pv, 
+            post = list(pv = deseq2_pv,
+                        adj_pv = deseq2_apv,
+                        lfc = deseq2_lfc,
+                        runtime = deseq2_time),
             meta = list(pkg_name = "DESeq2/zinbwave", 
                         pkg_vers = paste(as.character(packageVersion("DESeq2")), 
                                          as.character(packageVersion("zinbwave")), 
@@ -664,20 +907,35 @@ bd <- bd %>%
                                  contrast = c("condition", "2", "1"),
                                  weights = weights)) %>%
   addMethod(label = "DESeq2_BP_WaT", ## DESeq2, betaPrior=T, Wald test
-            func = deseq2bp_run, post = deseq2_pv,
+            func = deseq2bp_run, 
+            # post = deseq2_pv,
+            post = list(pv = deseq2_pv,
+                        adj_pv = deseq2_apv,
+                        lfc = deseq2_lfc,
+                        runtime = deseq2_time),
             meta = list(pkg_name = "DESeq2", pkg_vers = as.character(packageVersion("DESeq2"))),
             params = rlang::quos(countData = cntdat,
                                  colData = coldat, 
                                  design = ~condition,
                                  contrast = c("condition", "2", "1"))) %>%
   addMethod(label = "edgeR_Dt_LRT", ## edgeR, defaults, likelihood ratio test 
-            func = edgeR_run, post = edgeR_pv,
+            func = edgeR_run, 
+            # post = edgeR_pv,
+            post = list(pv = edgeR_pv,
+                        adj_pv = edgeR_apv,
+                        lfc = edgeR_lfc,
+                        runtime = edgeR_time),
             meta = list(pkg_name = "edgeR", pkg_vers = as.character(packageVersion("edgeR"))),
             params = rlang::quos(countData = cntdat,
                                  group = coldat$condition,
                                  design = ~coldat$condition)) %>%
   addMethod(label = "edgeR_ZW_LRT", ## edgeR, ZinbWave, likelihood ratio test 
-            func = edgeRzw_run, post = edgeR_pv,
+            func = edgeRzw_run, 
+            # post = edgeR_pv,
+            post = list(pv = edgeR_pv,
+                        adj_pv = edgeR_apv,
+                        lfc = edgeR_lfc,
+                        runtime = edgeR_time),
             meta = list(pkg_name = "edgeR/zinbwave", 
                         pkg_vers = paste(as.character(packageVersion("edgeR")), 
                                          as.character(packageVersion("zinbwave")), 
@@ -687,61 +945,111 @@ bd <- bd %>%
                                  design = ~coldat$condition,
                                  weights = weights)) %>%
   addMethod(label = "edgeR_rbst_LRT", ## edgeR, robust dispersion estimate, likelihood ratio test 
-            func = edgeRrbst_run, post = edgeR_pv,
+            func = edgeRrbst_run, 
+            # post = edgeR_pv,
+            post = list(pv = edgeR_pv,
+                        adj_pv = edgeR_apv,
+                        lfc = edgeR_lfc,
+                        runtime = edgeR_time),
             meta = list(pkg_name = "edgeR", pkg_vers = as.character(packageVersion("edgeR"))),
             params = rlang::quos(countData = cntdat,
                                  group = coldat$condition,
                                  design = ~coldat$condition)) %>%
   addMethod(label = "edgeR_rbst50df_LRT", ## edgeR, robust dispersion estimate with 50 degrees of freedom, likelihood ratio test 
-            func = edgeRrbst50df_run, post = edgeR_pv,
+            func = edgeRrbst50df_run, 
+            # post = edgeR_pv,
+            post = list(pv = edgeR_pv,
+                        adj_pv = edgeR_apv,
+                        lfc = edgeR_lfc,
+                        runtime = edgeR_time),
             meta = list(pkg_name = "edgeR", pkg_vers = as.character(packageVersion("edgeR"))),
             params = rlang::quos(countData = cntdat,
                                  group = coldat$condition,
                                  design = ~coldat$condition)) %>%
   addMethod(label = "edgeR_rbstEdf_LRT", ## edgeR, robust dispersion estimate with autodetermied number of degrees of freedom, likelihood ratio test 
-            func = edgeRrbstEdf_run, post = edgeR_pv,
+            func = edgeRrbstEdf_run, 
+            # post = edgeR_pv,
+            post = list(pv = edgeR_pv,
+                        adj_pv = edgeR_apv,
+                        lfc = edgeR_lfc,
+                        runtime = edgeR_time),
             meta = list(pkg_name = "edgeR", pkg_vers = as.character(packageVersion("edgeR"))),
             params = rlang::quos(countData = cntdat,
                                  group = coldat$condition,
                                  design = ~coldat$condition)) %>%
     addMethod(label = "edgeR_rbst_QFT", ## edgeR, robust dispersion estimate, empirical Bayes quasi-likelihood F-test 
-            func = edgeRql_run, post = edgeR_pv,
+            func = edgeRql_run, 
+            # post = edgeR_pv,
+            post = list(pv = edgeR_pv,
+                        adj_pv = edgeR_apv,
+                        lfc = edgeR_lfc,
+                        runtime = edgeR_time),
             meta = list(pkg_name = "edgeR", pkg_vers = as.character(packageVersion("edgeR"))),
             params = rlang::quos(countData = cntdat,
                                  group = coldat$condition,
                                  design = ~coldat$condition)) %>%
   addMethod(label = "voom_Dt_MFT", ## limma-voom, defauls, moderated F-statistic (or is it t-stats ?) 
-            func = voom_run, post = voom_pv, 
+            func = voom_run, 
+            # post = voom_pv,
+            post = list(pv = voom_pv,
+                        adj_pv = voom_apv,
+                        lfc = voom_lfc,
+                        runtime = voom_time),
             meta = list(pkg_name = "limma-voom", pkg_vers = as.character(packageVersion("limma"))),
             params = rlang::quos(countData = cntdat,
                                  group = coldat$condition,
                                  design = ~coldat$condition)) %>%
     addMethod(label = "voom_Rb_MFT", ## limma-voom, use robust est, moderated F-statistic (or is it t-stats ?) 
-            func = voomRbst_run, post = voom_pv, 
+            func = voomRbst_run, 
+            # post = voom_pv,
+            post = list(pv = voom_pv,
+                        adj_pv = voom_apv,
+                        lfc = voom_lfc,
+                        runtime = voom_time),
             meta = list(pkg_name = "limma-voom", pkg_vers = as.character(packageVersion("limma"))),
             params = rlang::quos(countData = cntdat,
                                  group = coldat$condition,
                                  design = ~coldat$condition)) %>%
     addMethod(label = "voom_Qn_MFT", ## limma-voom, use quantile normalization, moderated F-statistic (or is it t-stats ?) 
-            func = voomQn_run, post = voom_pv, 
+            func = voomQn_run, 
+            # post = voom_pv,
+            post = list(pv = voom_pv,
+                        adj_pv = voom_apv,
+                        lfc = voom_lfc,
+                        runtime = voom_time),
             meta = list(pkg_name = "limma-voom", pkg_vers = as.character(packageVersion("limma"))),
             params = rlang::quos(countData = cntdat,
                                  group = coldat$condition,
                                  design = ~coldat$condition)) %>%
     addMethod(label = "voom_Sp_MFT", ## limma-voom, defaults as in vignette, moderated F-statistic (or is it t-stats ?) 
-            func = voomSimple_run, post = voom_pv, 
+            func = voomSimple_run, 
+            # post = voom_pv,
+            post = list(pv = voom_pv,
+                        adj_pv = voom_apv,
+                        lfc = voom_lfc,
+                        runtime = voom_time),
             meta = list(pkg_name = "limma-voom", pkg_vers = as.character(packageVersion("limma"))),
             params = rlang::quos(countData = cntdat,
                                  group = coldat$condition,
                                  design = ~coldat$condition)) %>%
     addMethod(label = "voom_LF_MFT", ## limma-voom, use voomLmFit, moderated F-statistic (or is it t-stats ?) 
-            func = voomLmFit_run, post = voom_pv, 
+            func = voomLmFit_run, 
+            # post = voom_pv,
+            post = list(pv = voom_pv,
+                        adj_pv = voom_apv,
+                        lfc = voom_lfc,
+                        runtime = voom_time),
             meta = list(pkg_name = "limma-voom", pkg_vers = as.character(packageVersion("limma"))),
             params = rlang::quos(countData = cntdat,
                                  group = coldat$condition,
                                  design = ~coldat$condition)) %>%
   addMethod(label = "voom_ZW_MFT", ## limma-voom, use ZinbWave weigths, moderated F-statistic (or is it t-stats ?) 
-            func = voomZw_run, post = voom_pv, 
+            func = voomZw_run, 
+            # post = voom_pv,
+            post = list(pv = voom_pv,
+                        adj_pv = voom_apv,
+                        lfc = voom_lfc,
+                        runtime = voom_time),
             meta = list(pkg_name = "limma-voom/zinbwave", 
                         pkg_vers = paste(as.character(packageVersion("limma")), 
                                          as.character(packageVersion("zinbwave")), 
@@ -751,7 +1059,12 @@ bd <- bd %>%
                                  design = ~coldat$condition,
                                  weights = weights)) %>%
   addMethod(label = "circMeta_Dt_PZT", ## circMeta, defaults, Poisson z-test
-            func = cMeta_run, post = cMeta_pv, 
+            func = cMeta_run, 
+            # post = cMeta_pv, 
+            post = list(pv = cMeta_pv,
+                        adj_pv = cMeta_apv,
+                        lfc = cMeta_lfc,
+                        runtime = cMeta_time),
             meta = list(pkg_name = "circMeta", pkg_vers = as.character(packageVersion("circMeta"))),
             params = rlang::quos(countData = cntdat,
                                  group = coldat$condition))
@@ -820,7 +1133,7 @@ datasetList <- datasetList[subsetIdx]
 
 ```{r}
 ## set scheduler for cluster computing
-zwcpus <- 12
+zwcpus <- 8
 bpparam <- BatchtoolsParam(workers = length(datasetList), 
                            saveregistry = F,
                            cluster = "slurm",
@@ -841,27 +1154,32 @@ datasetList <-
   bplapply(datasetList, 
            function(x, compute_weights, zwcpus) {
              
-             ## remove rows with at least 2 samples expressed
+             ## remove rows with at least 3 samples expressed
              mat <- x$counts[rowSums(x$counts > 0) >= 3, ]
              coldata <- x$colData[colnames(mat), ]
              rowdata <- x$rowData[rownames(mat), ]
              discarded.rowData <- x$rowData[!rownames(x$rowData) %in% rownames(mat), ]
              
-             ## TODO: keep track of runtime
+             ## keep track of runtime spent computing weights with ZinbWave; 
+             ## it will be sum up to the running time of methods using weights
+             tictoc::tic(msg = "Weights")
+             weights <- compute_weights(countdata = mat,
+                                        coldat = factor(coldata[, "Group"]),
+                                        BPPARAM = BiocParallel::MulticoreParam(workers = zwcpus))
+             # weights = NULL, ## only for quick testing. Uncomment above for real weights
+             time_weights <- tictoc::toc(log = F, quiet = T)
+             
              list(coldat = data.frame(condition = factor(coldata[, "Group"])), 
                   cntdat = mat, 
                   status = as.integer(rowdata[, "DE.ind"]),
-                  weights = compute_weights(countdata = mat,
-                                            coldat = factor(coldata[, "Group"]),
-                                            BPPARAM = BiocParallel::MulticoreParam(workers = zwcpus)),
-                  # weights = NULL, ## only for quick testing
+                  weights = weights,
+                  time_weights = setNames(rep(time_weights$toc - time_weights$tic, nrow(mat)), NULL),
                   discarded.rowData = discarded.rowData,
                   nGenes = nrow(mat))
              
            }, 
            compute_weights = compute_weights,
            zwcpus = zwcpus,
-           # BPPARAM = MulticoreParam(nWorkers))
            BPPARAM = bpparam)
 ```
 
@@ -874,17 +1192,56 @@ qsave(x = datasetList,
       preset = "fast")
 ```
 
+## Build bench list
+
 ```{r}
 ## override BPPARAM
-bpparam$resources$ncpus <- 1
+parallel_methods <- 4
+bpparam$resources$ncpus <- parallel_methods
 
-sbL <- bplapply(datasetList, 
-                function(x, bd) { SummarizedBenchmark::buildBench(bd, data = x, truthCols = "status") },
-                bd = bd,
-                # BPPARAM = BiocParallel::MulticoreParam(nWorkers))
-                BPPARAM = bpparam)
+sbL <- 
+  bplapply(datasetList, 
+           function(x, bd, 
+                    parallel_methods) { SummarizedBenchmark::buildBench(bd, data = x, 
+                                                                        # truthCols = "status",
+                                                                        truthCols = c(pv = "status",
+                                                                                      adj_pv = "status", 
+                                                                                      lfc = "status", # LFC(DEC) >= 0.5
+                                                                                      runtime = "time_weights"), 
+                                                                        parallel = T, 
+                                                                        BPPARAM = BiocParallel::MulticoreParam(parallel_methods)) }, 
+           bd = bd,
+           parallel_methods = parallel_methods,
+           BPPARAM = bpparam)
 # sbL
 ```
+
+```{r}
+## error handling
+# simplify2array(metadata(sbL$N03_bulk_de_02)$sessions[[1]]$results)
+# metadata(sbL$N03_bulk_de_02)$sessions[[1]]$results$DESeq2_Sc_LRT
+# metadata(sbL$N03_bulk_de_02)$sessions[[1]]$results$DESeq2_Lc_LRT
+
+show_dt <- 
+  dcast(melt(rbindlist(lapply(sbL, 
+                              function(x)data.table(as.data.frame(simplify2array(metadata(x)$sessions[[1]]$results)), 
+                                                    keep.rownames = "Assay")), 
+                       idcol = "DS"), 
+             id.vars = c("DS", "Assay"), 
+             variable.name = "Method"), 
+        formula = DS + Method ~ Assay)
+
+show_dt$DS <- factor(show_dt$DS)
+show_dt$Method <- factor(show_dt$Method)
+
+datatable(show_dt[adj_pv != "success" | 
+                    lfc != "success" | 
+                    pv != "success" | 
+                    runtime != "success"], 
+          caption = "Methods that failed",
+          filter = "top", rownames = F)
+```
+
 
 # Performance
 
@@ -893,27 +1250,103 @@ sbL <- bplapply(datasetList,
 ```
 
 ```{r}
+bpparam$resources$ncpus <- 1
+
+## precision (PPV) = 1 - FDR
+## recall = TPR
+## specificity = TNR  
+## FPR = 1 - TNR
+## FNR = 1 - TPR
+## F1 = 2 * ( (PPV * TPR) / (PPV + TPR) )
+
 sbL <- bplapply(sbL, function(x) {
   SummarizedBenchmark::addPerformanceMetric(x, 
-                                            evalMetric = c("rejections", "TPR", "TNR", "FDR", "FNR"),
-                                            assay = "status")},
-  # BPPARAM = BiocParallel::MulticoreParam(nWorkers))
-  BPPARAM = bpparam)
+                                            evalMetric = c("rejections", "TPR", "TNR", "FDR"), #, "FNR"
+                                            assay = "pv")},
+  # BPPARAM = bpparam)
+  BPPARAM = BiocParallel::MulticoreParam(nWorkers))
 
-## precision = 1 - FDR
-## recall = TPR
-## specificity = TNR
+sbL <- bplapply(sbL, function(x) {
+  SummarizedBenchmark::addPerformanceMetric(x, 
+                                            evalMetric = c("rejections", "TPR", "TNR", "FDR"), #, "FNR"
+                                            assay = "adj_pv")},
+  # BPPARAM = bpparam)
+  BPPARAM = BiocParallel::MulticoreParam(nWorkers))
+
+sbL <- bplapply(sbL, function(x) {
+  SummarizedBenchmark::addPerformanceMetric(object = x,
+                                            assay = "lfc",
+                                            evalMetric = "LFC_TPR",
+                                            evalFunction = function(query, truth, lfc_thr = 0.5) {
+                                              ## TPR = TP / (TP + FN)
+                                              is_lfc_larger  <- query >= lfc_thr
+                                              is_lfc_larger[is.na(is_lfc_larger)] <- F
+                                              TP <- sum(is_lfc_larger & truth == 1)
+                                              TP / sum(truth == 1)
+                                            })},
+  # BPPARAM = bpparam)
+  BPPARAM = BiocParallel::MulticoreParam(nWorkers))
+
+sbL <- bplapply(sbL, function(x) {
+  SummarizedBenchmark::addPerformanceMetric(object = x,
+                                            assay = "lfc",
+                                            evalMetric = "LFC_TNR", 
+                                            evalFunction = function(query, truth, lfc_thr = 0.5) {
+                                              ## TNR = TN / N, with N = TN + FP
+                                              is_lfc_lower  <- query < lfc_thr
+                                              is_lfc_lower[is.na(is_lfc_lower)] <- T
+                                              TN <- sum(is_lfc_lower & truth == 0)
+                                              TN / sum(truth == 0)
+                                            })},
+  # BPPARAM = bpparam)
+  BPPARAM = BiocParallel::MulticoreParam(nWorkers))
+
+sbL <- bplapply(sbL, function(x) {
+  SummarizedBenchmark::addPerformanceMetric(object = x,
+                                            assay = "lfc",
+                                            evalMetric = "LFC_FDR", 
+                                            evalFunction = function(query, truth, lfc_thr = 0.5) {
+                                              ## FDR = FP / (FP + TP)
+                                              is_lfc_larger  <- query >= lfc_thr
+                                              is_lfc_larger[is.na(is_lfc_larger)] <- F
+                                              FP <- sum(is_lfc_larger & truth == 0)
+                                              TP <- sum(is_lfc_larger & truth == 1)
+                                              FP / (FP + TP)
+                                            })},
+  # BPPARAM = bpparam)
+  BPPARAM = BiocParallel::MulticoreParam(nWorkers))
+
+sbL <- bplapply(sbL, function(x) {
+  SummarizedBenchmark::addPerformanceMetric(object = x,
+                                            assay = "runtime",
+                                            evalMetric = "Runtime",
+                                            evalFunction = function(query, truth, add_weight_time = FALSE) {
+                                              ifelse(add_weight_time, query[1] + truth[1], query[1])
+                                            })
+  },
+  # BPPARAM = bpparam)
+  BPPARAM = BiocParallel::MulticoreParam(nWorkers)) 
 ```
 
 ```{r}
 alpha_targets <- c(0.01, 0.05, 0.1) 
-sbL <- bplapply(sbL, function(x, alphas) {
+add_weights <- c(FALSE, TRUE)
+
+sbL <- bplapply(sbL, function(x, alphas, add_weights) {
   SummarizedBenchmark::estimatePerformanceMetrics(x, 
+                                                  rerun = T,
                                                   alpha = alphas, 
+                                                  add_weight_time = add_weights,
                                                   addColData = T)},
   alphas = alpha_targets,
-  # BPPARAM = BiocParallel::MulticoreParam(nWorkers))
-  BPPARAM = bpparam)
+  add_weights = add_weights,
+  BPPARAM = BiocParallel::MulticoreParam(nWorkers))
+  # BPPARAM = bpparam)
+
+# View(rbindlist(lapply(sbL,
+#                       function(x)data.table(as.data.frame(colData(x)),
+#                                             keep.rownames = "Met")),
+#                idcol = "DS"))
 ```
 
 ```{r}
