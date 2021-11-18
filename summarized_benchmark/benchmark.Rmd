@@ -1202,15 +1202,16 @@ bpparam$resources$ncpus <- parallel_methods
 
 sbL <- 
   bplapply(datasetList, 
-           function(x, bd, 
-                    parallel_methods) { SummarizedBenchmark::buildBench(bd, data = x, 
-                                                                        # truthCols = "status",
-                                                                        truthCols = c(pv = "status",
-                                                                                      adj_pv = "status", 
-                                                                                      lfc = "status", # LFC(DEC) >= 0.5
-                                                                                      runtime = "time_weights"), 
-                                                                        parallel = T, 
-                                                                        BPPARAM = BiocParallel::MulticoreParam(parallel_methods)) }, 
+           function(x, bd, parallel_methods) { 
+             SummarizedBenchmark::buildBench(bd, data = x, 
+                                             # truthCols = "status",
+                                             truthCols = c(pv = "status",
+                                                           adj_pv = "status", 
+                                                           lfc = "status", # LFC(DEC) >= 0.5
+                                                           runtime = "time_weights"), 
+                                             parallel = T, 
+                                             BPPARAM = BiocParallel::MulticoreParam(parallel_methods)) 
+           }, 
            bd = bd,
            parallel_methods = parallel_methods,
            BPPARAM = bpparam)
@@ -1252,83 +1253,90 @@ datatable(show_dt[adj_pv != "success" |
 
 ## Add performance 
 
+```{r}
+#' Adds performance metrics to a SummarizedBenchmark object
+#' param x the SummarizedBenchmark object
+#' returns a SummarizedBenchmark with the peformance metrics setted
+add_performance_metrics <- 
+  function(x) {
+    
+    ## Notes:
+    ## precision (PPV) = 1 - FDR
+    ## recall = TPR
+    ## specificity = TNR  
+    ## FPR = 1 - TNR
+    ## FNR = 1 - TPR
+    ## F1 = 2 * ( (PPV * TPR) / (PPV + TPR) )
+    
+    ## add the metrics on the P-values
+    x <- SummarizedBenchmark::addPerformanceMetric(x, 
+                                                   evalMetric = c("rejections", "TPR", "TNR", "FDR"), #, "FNR"
+                                                   assay = "pv")
+    
+    ## add the metrics on the adjusted P-values
+    x <- SummarizedBenchmark::addPerformanceMetric(x, 
+                                                   evalMetric = c("rejections", "TPR", "TNR", "FDR"), #, "FNR"
+                                                   assay = "adj_pv")
+    
+    ## add the metrics on the fold changes: TPR
+    x <- SummarizedBenchmark::addPerformanceMetric(object = x,
+                                                   assay = "lfc",
+                                                   evalMetric = "LFC_TPR",
+                                                   evalFunction = function(query, truth, lfc_thr = 0.5) {
+                                                     ## TPR = TP / (TP + FN)
+                                                     is_lfc_larger  <- query >= lfc_thr
+                                                     is_lfc_larger[is.na(is_lfc_larger)] <- F
+                                                     TP <- sum(is_lfc_larger & truth == 1)
+                                                     TP / sum(truth == 1)
+                                                   })
+    
+    ## add the metrics on the fold changes: TNR
+    x <- SummarizedBenchmark::addPerformanceMetric(object = x,
+                                                   assay = "lfc",
+                                                   evalMetric = "LFC_TNR", 
+                                                   evalFunction = function(query, truth, lfc_thr = 0.5) {
+                                                     ## TNR = TN / N, with N = TN + FP
+                                                     is_lfc_lower  <- query < lfc_thr
+                                                     is_lfc_lower[is.na(is_lfc_lower)] <- T
+                                                     TN <- sum(is_lfc_lower & truth == 0)
+                                                     TN / sum(truth == 0)
+                                                   })
+    
+    ## add the metrics on the fold changes: FDR
+    x <- SummarizedBenchmark::addPerformanceMetric(object = x,
+                                                   assay = "lfc",
+                                                   evalMetric = "LFC_FDR", 
+                                                   evalFunction = function(query, truth, lfc_thr = 0.5) {
+                                                     ## FDR = FP / (FP + TP)
+                                                     is_lfc_larger  <- query >= lfc_thr
+                                                     is_lfc_larger[is.na(is_lfc_larger)] <- F
+                                                     FP <- sum(is_lfc_larger & truth == 0)
+                                                     TP <- sum(is_lfc_larger & truth == 1)
+                                                     FP / (FP + TP)
+                                                   })
+    
+    ## add the Runtime metric
+    x <- SummarizedBenchmark::addPerformanceMetric(object = x,
+                                                   assay = "runtime",
+                                                   evalMetric = "Runtime",
+                                                   evalFunction = function(query, truth, add_weight_time = FALSE) {
+                                                     ifelse(add_weight_time, query[1] + truth[1], query[1])
+                                                   })
+    
+    ## return the updated SummarizedBenchmark object
+    x
+  }
+```
+
 ```{r add_performance_metrics}
+## add the performance metrics to the list of bechDesign
 bpparam$resources$ncpus <- 1
 
-## precision (PPV) = 1 - FDR
-## recall = TPR
-## specificity = TNR  
-## FPR = 1 - TNR
-## FNR = 1 - TPR
-## F1 = 2 * ( (PPV * TPR) / (PPV + TPR) )
-
-sbL <- bplapply(sbL, function(x) {
-  SummarizedBenchmark::addPerformanceMetric(x, 
-                                            evalMetric = c("rejections", "TPR", "TNR", "FDR"), #, "FNR"
-                                            assay = "pv")},
-  BPPARAM = bpparam)
-  # BPPARAM = BiocParallel::MulticoreParam(nWorkers))
-
-sbL <- bplapply(sbL, function(x) {
-  SummarizedBenchmark::addPerformanceMetric(x, 
-                                            evalMetric = c("rejections", "TPR", "TNR", "FDR"), #, "FNR"
-                                            assay = "adj_pv")},
-  BPPARAM = bpparam)
-  # BPPARAM = BiocParallel::MulticoreParam(nWorkers))
-
-sbL <- bplapply(sbL, function(x) {
-  SummarizedBenchmark::addPerformanceMetric(object = x,
-                                            assay = "lfc",
-                                            evalMetric = "LFC_TPR",
-                                            evalFunction = function(query, truth, lfc_thr = 0.5) {
-                                              ## TPR = TP / (TP + FN)
-                                              is_lfc_larger  <- query >= lfc_thr
-                                              is_lfc_larger[is.na(is_lfc_larger)] <- F
-                                              TP <- sum(is_lfc_larger & truth == 1)
-                                              TP / sum(truth == 1)
-                                            })},
-  BPPARAM = bpparam)
-  # BPPARAM = BiocParallel::MulticoreParam(nWorkers))
-
-sbL <- bplapply(sbL, function(x) {
-  SummarizedBenchmark::addPerformanceMetric(object = x,
-                                            assay = "lfc",
-                                            evalMetric = "LFC_TNR", 
-                                            evalFunction = function(query, truth, lfc_thr = 0.5) {
-                                              ## TNR = TN / N, with N = TN + FP
-                                              is_lfc_lower  <- query < lfc_thr
-                                              is_lfc_lower[is.na(is_lfc_lower)] <- T
-                                              TN <- sum(is_lfc_lower & truth == 0)
-                                              TN / sum(truth == 0)
-                                            })},
-  BPPARAM = bpparam)
-  # BPPARAM = BiocParallel::MulticoreParam(nWorkers))
-
-sbL <- bplapply(sbL, function(x) {
-  SummarizedBenchmark::addPerformanceMetric(object = x,
-                                            assay = "lfc",
-                                            evalMetric = "LFC_FDR", 
-                                            evalFunction = function(query, truth, lfc_thr = 0.5) {
-                                              ## FDR = FP / (FP + TP)
-                                              is_lfc_larger  <- query >= lfc_thr
-                                              is_lfc_larger[is.na(is_lfc_larger)] <- F
-                                              FP <- sum(is_lfc_larger & truth == 0)
-                                              TP <- sum(is_lfc_larger & truth == 1)
-                                              FP / (FP + TP)
-                                            })},
-  BPPARAM = bpparam)
-  # BPPARAM = BiocParallel::MulticoreParam(nWorkers))
-
-sbL <- bplapply(sbL, function(x) {
-  SummarizedBenchmark::addPerformanceMetric(object = x,
-                                            assay = "runtime",
-                                            evalMetric = "Runtime",
-                                            evalFunction = function(query, truth, add_weight_time = FALSE) {
-                                              ifelse(add_weight_time, query[1] + truth[1], query[1])
-                                            })
-  },
-  BPPARAM = bpparam)
-  # BPPARAM = BiocParallel::MulticoreParam(nWorkers)) 
+sbL <- 
+  bplapply(sbL, 
+           add_performance_metrics,
+           BPPARAM = bpparam)
+# BPPARAM = BiocParallel::MulticoreParam(nWorkers))
 ```
 
 ## Estimate performance
