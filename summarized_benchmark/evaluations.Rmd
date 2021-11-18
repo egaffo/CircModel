@@ -463,9 +463,30 @@ f1s <-
              variable.name = "Alpha")[, Alpha := sub("TPR.", "", Alpha)][],
         by = c(ds_id_cols, "Alpha"))[, F1 := f1(1-FDR, TPR)][]
 
+## add the number of rejections
+f1s <- 
+  merge(f1s, 
+        melt(sbAssayL[, c(ds_id_cols,
+                          grep("^rejections.[0-9]$", colnames(sbAssayL), value = T)), with = F], 
+             id.vars = ds_id_cols, 
+             value.name = "rejections",
+             variable.name = "Alpha")[, Alpha := sub("rejections.", "", Alpha)][],
+        by = c(ds_id_cols, "Alpha"))
+
+## add the number of circRNAs in the dataaset
+f1s <- 
+  merge(f1s, 
+        rbindlist(lapply(sim_ds_list, 
+                         function(x) data.table(nCircRNAs = x$nGenes)), 
+                  idcol = "Dataset"),
+        by = "Dataset")
+
+## compute mean values
 mf1s <- f1s[, .(F1 = mean(F1, na.rm = T),
                 TPR = mean(TPR, na.rm = T),
-                FDR = mean(FDR, na.rm = T)), 
+                FDR = mean(FDR, na.rm = T),
+                rejections = mean(rejections, na.rm = T),
+                nCircRNAs = mean(nCircRNAs, na.rm = T)), 
             by = .(SetSize, MZP, DsType, Method, Alpha)]
 ```
 
@@ -494,11 +515,29 @@ ggplot(mf1s, aes(x = TPR, y = 1 - FDR, color = Method, shape = Alpha)) +
   theme(legend.position = "top")
 ```
 
+```{r, fig.width=10, fig.height=7}
+ggplot(f1s, aes(x = nCircRNAs, y = F1, 
+                # shape = Alpha, 
+                color = Method)) +
+  # geom_point() +
+  geom_smooth(se = F, method = "lm", alpha = .5) +
+  # facet_grid(cols = vars(SetSize), rows = vars(paste(Alpha, MZP))) + #, scales = "free"
+  facet_wrap(facets = SetSize ~ paste(MZP, Alpha), scales = "free", ncol = 6) +
+  scale_shape_manual("Alpha", values = 2:4, labels = alpha_targets) +
+  guides(shape = guide_legend(direction = "vertical")) +
+  theme_bw() +
+  # theme(legend.position = "right")
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5),
+        legend.position = "top")
+```
+
 
 ```{r, fig.width=10, fig.height=7}
 ggplot(f1s, 
        aes(x = Method, y = F1)) +
-  geom_boxplot(aes(color = Alpha), position = "dodge", outlier.size = .7) +
+  geom_boxplot(aes(color = Alpha), 
+               # position = "dodge", 
+               outlier.size = .5) +
   ylab("F1") +
   scale_color_discrete("Alpha", labels = alpha_targets) +
   facet_grid(cols = vars(SetSize), rows = vars(paste(MZP, Alpha)), scales = "free_y") +
