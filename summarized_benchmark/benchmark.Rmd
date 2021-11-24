@@ -1,7 +1,7 @@
 ---
 title: "Benchmark De methods"
 author: "Enrico Gaffo"
-date: "28/10/2021"
+date: "`r Sys.Date()`"
 output: 
   html_document: 
     toc: yes
@@ -38,35 +38,128 @@ library(circMeta)
 ```
 
 ```{r}
-nWorkers <- multicoreWorkers() # 24
+## set the output directory
+outdir <- "benchmark_results"
+dir.create(path = outdir, recursive = T, showWarnings = F)
+```
 
-## load simulated data
-simulated_datasets_qs <- "/sharedfs01/circrna/CircModel/semi_parametric_sim/trimmed_simulated_datasets.qs"
+```{r}
+nWorkers <- multicoreWorkers()
 
-sim_ds_list <- qread(file = simulated_datasets_qs, nthreads = nWorkers)
+## load simulated preprocessed data
+datasetList_qs <- "./preprocessed_datasets/datasetList.qs"
+
+datasetList <- qread(file = datasetList_qs, nthreads = nWorkers)
 ```
 
 ```{r}
 ## separate DE and not-DE simulations
-de_ds_list <- sim_ds_list[!grepl("mock", names(sim_ds_list))]
-names(de_ds_list) <- paste0(names(de_ds_list), "_de")
-not_de_ds_list <- sim_ds_list[grepl("mock", names(sim_ds_list))]
+datasetList <- datasetList[!grepl("mock", names(datasetList))]
+## names(de_ds_list) <- paste0(names(de_ds_list), "_de")
+# not_de_ds_list <- sim_ds_list[grepl("mock", names(sim_ds_list))]
+```
+
+# Prepare dataset and input parameters
+
+## Weight functions
+
+```{r}
+compute_weights <- function(countdata, coldat, ...) {
+  
+  computeExactWeights <- function (model, x) {
+    library(zinbwave)
+    
+    mu <- getMu(model)
+    pi <- getPi(model)
+    theta <- getTheta(model)
+    theta <- matrix(rep(theta, each = ncol(x)), ncol = nrow(x))
+    nb_part <- dnbinom(t(x), size = theta, mu = mu)
+    zinb_part <- pi * ( t(x) == 0 ) + (1 - pi) *  nb_part
+    zinbwg <- ( (1 - pi) * nb_part ) / zinb_part
+    zinbwg <- t(zinbwg)
+    zinbwg[x > 0] <- 1
+    zinbwg[zinbwg < 1e-15] <- 1e-15
+    zinbwg
+  }
+  
+  library(zinbwave)
+  
+  zinbmodel <- zinbFit(Y = countdata,
+                       X = model.matrix(~ coldat), 
+                       K = 0,
+                       # epsilon = nrow(countdata), #1e10
+                       commondispersion = TRUE, 
+                       verbose = FALSE, 
+                       ...) #BPPARAM = BiocParallel::SerialParam()
+  
+  computeExactWeights(model = zinbmodel,
+                      x = countdata)
+}
+```
+
+```{r}
+# subsetIdx <- c(1:3, 31:33, 61:63, # { bulk 3, 5, 10 } x 3
+#                91:93, 121:123, 151:153) # { sice 3, 5, 10 } x 3
+# subsetIdx <- c(1:2, 31:32, 61:62, 91:92, 121:122, 151:152)
+# subsetIdx <- 1:2
+subsetIdx <- 1:length(datasetList) # all
+datasetList <- datasetList[subsetIdx]
+```
+
+```{r}
+## set scheduler for cluster computing
+zwcpus <- 8
+bpparam <- BatchtoolsParam(workers = length(datasetList), 
+                           saveregistry = F,
+                           cluster = "slurm",
+                           resources = list(ncpus = zwcpus, 
+                                            walltime = 3600, # 1h max
+                                            memory = 4096) # 4Gb, 2048 2 GByte, 8192 8 Gb
+)
+
+## Multithread, single machine
+# bpparam <- MulticoreParam(nWorkers)
+```
+
+## Compute weigths
+
+```{r prepare_datasets}
+## prepare dataset and input parameters
+datasetList <- 
+  bplapply(datasetList, 
+           function(x, compute_weights, zwcpus) {
+             
+             ## keep track of runtime spent computing weights with ZinbWave; 
+             ## it will be sum up to the running time of methods using weights
+             tictoc::tic(msg = "Weights")
+             weights <- compute_weights(countdata = x$cntdat,
+                                        coldat = x$coldat[[1]],
+                                        BPPARAM = BiocParallel::MulticoreParam(workers = zwcpus))
+             # weights = NULL, ## only for quick testing. Uncomment above for real weights
+             time_weights <- tictoc::toc(log = F, quiet = T)
+             
+             x$weights <- weights
+             x$time_weights <- setNames(rep(time_weights$toc - time_weights$tic, nrow(x$cntdat)), NULL)
+             x
+             
+           }, 
+           compute_weights = compute_weights,
+           zwcpus = zwcpus,
+           BPPARAM = bpparam)
+```
+
+```{r save_datasets}
+# ## save the processed data sets
+# datasetList_qs <- "datasetList.qs"
+# qsave(x = datasetList, 
+#       file = datasetList_qs, 
+#       nthreads = multicoreWorkers(), 
+#       preset = "fast")
 ```
 
 # Bench design
 
 ```{r}
-# simData <- de_ds_list$N03_bulk$Datasets$sim.data.list[[1]]
-# 
-# mycounts <- round(simData$counts)
-# mycoldat <- data.frame(condition = factor(simData$colData[colnames(mycounts), "Group"]))
-# # rownames(mycoldat) <- colnames(mycounts)
-# mydat <- list(coldat = mycoldat, 
-#               cntdat = mycounts,
-#               status = as.integer(simData$rowData[rownames(mycounts), "DE.ind"]))
-# 
-# bd <- BenchDesign(data = mydat)
-
 bd <- BenchDesign()
 ```
 
@@ -1077,122 +1170,6 @@ bd
 printMethods(bd)
 ```
 
-### Weight functions
-
-```{r}
-compute_weights <- function(countdata, coldat, ...) {
-  
-  computeExactWeights <- function (model, x) {
-    library(zinbwave)
-    
-    mu <- getMu(model)
-    pi <- getPi(model)
-    theta <- getTheta(model)
-    theta <- matrix(rep(theta, each = ncol(x)), ncol = nrow(x))
-    nb_part <- dnbinom(t(x), size = theta, mu = mu)
-    zinb_part <- pi * ( t(x) == 0 ) + (1 - pi) *  nb_part
-    zinbwg <- ( (1 - pi) * nb_part ) / zinb_part
-    zinbwg <- t(zinbwg)
-    zinbwg[x > 0] <- 1
-    zinbwg[zinbwg < 1e-15] <- 1e-15
-    zinbwg
-  }
-  
-  library(zinbwave)
-  
-  zinbmodel <- zinbFit(Y = countdata,
-                       X = model.matrix(~ coldat), 
-                       K = 0,
-                       # epsilon = nrow(countdata), #1e10
-                       commondispersion = TRUE, 
-                       verbose = FALSE, 
-                       ...) #BPPARAM = BiocParallel::SerialParam()
-  
-  computeExactWeights(model = zinbmodel,
-                      x = countdata)
-}
-```
-
-```{r}
-## set names to (sub)datasets and remove first level of list
-datasetList <- 
-  unlist(lapply(names(de_ds_list), 
-                function(x, y) {
-                  simData <- y[[x]]$Datasets$sim.data.list
-                  names(simData) <- paste(x, sprintf("%02d", 1:length(simData)), sep = "_")
-                  simData
-                }, 
-                y = de_ds_list), 
-         recursive = F)
-
-# subsetIdx <- c(1:3, 31:33, 61:63, # { bulk 3, 5, 10 } x 3
-#                91:93, 121:123, 151:153) # { sice 3, 5, 10 } x 3
-# subsetIdx <- c(1:2, 31:32, 61:62, 91:92, 121:122, 151:152)
-subsetIdx <- 1:length(datasetList) # all
-datasetList <- datasetList[subsetIdx]
-```
-
-```{r}
-## set scheduler for cluster computing
-zwcpus <- 8
-bpparam <- BatchtoolsParam(workers = length(datasetList), 
-                           saveregistry = F,
-                           cluster = "slurm",
-                           resources = list(ncpus = zwcpus, 
-                                            walltime = 3600, # 1h max
-                                            memory = 4096) # 4Gb, 2048 2 GByte, 8192 8 Gb
-)
-
-## Multithread, single machine
-# bpparam <- MulticoreParam(nWorkers)
-```
-
-## Prepare dataset and input parameters
-
-```{r prepare_datasets}
-## prepare dataset and input parameters
-datasetList <- 
-  bplapply(datasetList, 
-           function(x, compute_weights, zwcpus) {
-             
-             ## remove rows with at least 3 samples expressed
-             mat <- x$counts[rowSums(x$counts > 0) >= 3, ]
-             coldata <- x$colData[colnames(mat), ]
-             rowdata <- x$rowData[rownames(mat), ]
-             discarded.rowData <- x$rowData[!rownames(x$rowData) %in% rownames(mat), ]
-             
-             ## keep track of runtime spent computing weights with ZinbWave; 
-             ## it will be sum up to the running time of methods using weights
-             tictoc::tic(msg = "Weights")
-             weights <- compute_weights(countdata = mat,
-                                        coldat = factor(coldata[, "Group"]),
-                                        BPPARAM = BiocParallel::MulticoreParam(workers = zwcpus))
-             # weights = NULL, ## only for quick testing. Uncomment above for real weights
-             time_weights <- tictoc::toc(log = F, quiet = T)
-             
-             list(coldat = data.frame(condition = factor(coldata[, "Group"])), 
-                  cntdat = mat, 
-                  status = as.integer(rowdata[, "DE.ind"]),
-                  weights = weights,
-                  time_weights = setNames(rep(time_weights$toc - time_weights$tic, nrow(mat)), NULL),
-                  discarded.rowData = discarded.rowData,
-                  nGenes = nrow(mat))
-             
-           }, 
-           compute_weights = compute_weights,
-           zwcpus = zwcpus,
-           BPPARAM = bpparam)
-```
-
-```{r save_datasets}
-## save the processed data sets
-datasetList_qs <- "datasetList.qs"
-qsave(x = datasetList, 
-      file = datasetList_qs, 
-      nthreads = multicoreWorkers(), 
-      preset = "fast")
-```
-
 ## Build bench list
 
 ```{r build_benches}
@@ -1364,12 +1341,14 @@ sbL <- bplapply(sbL, function(x, alphas, add_weights) {
 
 ```{r save_performance_results}
 ## save the summarizedBenchmark estimated performance
-sumBench_perf_metrics_qs <- "sumBench_perf_metrics.qs"
+sumBench_perf_metrics_qs <- file.path(outdir, "sumBench_perf_metrics.qs")
 qsave(x = sbL, 
       file = sumBench_perf_metrics_qs, 
       nthreads = multicoreWorkers(), 
       preset = "fast")
 ```
+
+The benchmark results have been save into <a href="`r sumBench_perf_metrics_qs`">`r sumBench_perf_metrics_qs`</a>.  
 
 # Session info
 
