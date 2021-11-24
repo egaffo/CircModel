@@ -5,7 +5,8 @@ date: "`r Sys.Date()`"
 output: 
   html_document: 
     toc: yes
-    otc_float: yes
+    toc_float: yes
+    code_folding: hide
 editor_options: 
   chunk_output_type: console
 ---
@@ -19,8 +20,11 @@ library(data.table)
 library(ggplot2)
 library(pheatmap)
 library(viridis)
+library(scales)
+
 library(DT)
 
+# install.packages("devtools", Ncpus = 12)
 # library(devtools)
 # install_github("CenterForStatistics-UGent/SPsimSeq", Ncpus = 12)
 library(SPsimSeq)
@@ -39,9 +43,12 @@ Load the original data and make a basic filtering
 
 ```{r}
 # load the original data
-counts_mt <- as.matrix(data.frame(fread("../data/MS_unfiltered_CirComPara2_circbjr.csv"), 
+input_dataset_bjr_file <- "../data/MS_unfiltered_CirComPara2_circbjr.csv"
+input_dataset_meta_file <- "../data/MS_meta.csv"
+
+counts_mt <- as.matrix(data.frame(fread(input_dataset_bjr_file), 
                                   row.names = "circ_id"))
-group_dt <- fread("../data/MS_meta.csv")
+group_dt <- fread(input_dataset_meta_file)
 group_df <- data.frame(group_dt, 
                        row.names = "sample_id")
 ```
@@ -91,63 +98,6 @@ ggplot(plot_dt,
 ```{r}
 seed.num <- 2021
 set.seed(seed.num)
-```
-
-```{r}
-# SPsimSeq simulation
-SPsimSeq_simulate <- 
-  function(params_list, ...) {
-
-    seed.num <- 2021
-    set.seed(seed.num)
-
-    counts_mt <- params_list$counts_mt
-    reps_per_group <- params_list$reps_per_group
-    Ncircrnas <- params_list$Ncircrnas
-    fracDECs <- params_list$fracDECs
-    # circs_to_sim <- params_list$circs_to_sim
-    group_df <- params_list$group_df
-    model_zeros <- params_list$model_zeros
-    n.sims <- params_list$n.sims
-    cand_DE_genes <- list(nonnull.genes = params_list$cand_DE_genes,
-                          null.genes = rownames(counts_mt)[!rownames(counts_mt) %in% params_list$cand_DE_genes])
-    w <- params_list$w
-    
-    # counts_mat <- counts_mt[circs_to_sim, ]
-    counts_mat <- counts_mt
-    
-    sim_pars <- paste(n.sims, "data sets of", 
-                      Ncircrnas, "circRNAs per", 
-                      2 * reps_per_group, "samples, modelling zero probability",
-                      model_zeros)
-    
-    start_time <- Sys.time()
-    message(paste(start_time, "start SPsimSeq to simulate", 
-                  sim_pars))
-    
-    simdatasets <- 
-      SPsimSeq(n.sim = n.sims,
-               s.data = counts_mat, 
-               n.genes = Ncircrnas, 
-               tot.samples = 2 * reps_per_group, 
-               pDE = fracDECs, 
-               cand.DE.genes = cand_DE_genes,
-               group = as.integer(factor(group_df[colnames(counts_mat), ])), 
-               group.config = c(.5, .5), # fixed to equal group sizes
-               model.zero.prob = model_zeros,
-               batch = rep(1, ncol(counts_mat)),
-               batch.config = 1, 
-               w = w,
-               result.format = "list",
-               return.details = TRUE,
-               ...) 
-    
-    runtime <- difftime(Sys.time(), start_time, units = "s")
-    message(paste("SPsimSeq took", runtime, "seconds"))
-    
-    list(Datasets = simdatasets,
-         runtime = runtime)
-  }
 ```
 
 ## Library size of samples
@@ -212,7 +162,7 @@ orig_mat <- counts_mt[, sample_subset]
 # orig_mat <- orig_mat[, data.table(sample_table, keep.rownames = "Sample")[, head(.SD, 5), by = condition][, Sample]]
 
 ## keep circRNAs expressed in at least a fraction of the samples
-min_samples <- floor(ncol(orig_mat) / 4) #3
+min_samples <- floor(ncol(orig_mat) / 2) #3
 
 # ## filter out circRNAs expressed in less than min_samples samples
 # ## Also, we want at least 1 sample > 0 in each sample group
@@ -233,19 +183,75 @@ orig_mat <- orig_mat[rowSums(orig_mat > 0) >= min_samples, ]
 
 ```{r}
 ## parameters to simulate the data sets
-Ncircrnas <- 5000
+Ncircrnas <- min(nrow(orig_mat), 10000) #5000
 ```
 
 CircRNAs were divided into 10 expression quantiles.  
-`r Ncircrnas` to be simulated will be selected randomly but choosing `r Ncircrnas / 10` for each expression quantile.  
+`r Ncircrnas` to be simulated will be selected randomly but choosing `r floor(Ncircrnas / 10)` for each expression quantile.  
+
+### Check library size after a first circRNA selection 
+
+```{r}
+plot_dt <- 
+    merge(data.table(data.frame(LibSize = colSums(orig_mat)), 
+                     keep.rownames = "SampleID"), 
+          data.table(sample_table, 
+                     keep.rownames = "SampleID"), 
+          by = "SampleID")
+
+plot_dt$SampleID <- factor(plot_dt$SampleID, levels = plot_dt[order(LibSize), SampleID], ordered = T)
+
+ggplot(plot_dt, 
+       aes(x = SampleID, y = LibSize, fill = condition)) +
+    geom_col() +
+    theme(axis.text.x = element_text(angle = 30, hjust = 1),
+          legend.position = "top")
+```
+
+```{r}
+ggplot(plot_dt, 
+       aes(x = condition, y = LibSize, color = condition)) +
+    geom_boxplot(varwidth = T, notch = F) +
+    geom_point() +
+    guides(color = guide_none()) +
+    theme(legend.position = "top")
+```
+
+### Expression quantiles
+
+```{r}
+## function to sample the desired fraction of circRNAs from each quantile
+sample_circs <- function(x, N, fracDE) {
+    ## x: the set to sample from
+    ## N: the number of elements to sample from the set
+    ## fracDE: the fraction of sampled elements deemed to be differentially expressed
+    
+    if(N > length(x)){
+        warning(paste("The number of elements to be sampled", 
+                      "is larger than the set:", N, ">", length(x), "\n",
+                      "Will sample", length(x), "elements."))
+        N <- length(x)
+    }
+    
+    circs_to_sim <- sample(x, size = N)
+    nonnull_circs <- sample(circs_to_sim, size = ceiling(length(circs_to_sim) * fracDE))
+    null_circs <- circs_to_sim[! circs_to_sim %in% nonnull_circs]
+    
+    list(circs_to_sim = circs_to_sim,
+         nonnull_circs = nonnull_circs,
+         null_circs = null_circs)
+}
+
+## percentage of DECs
+fracDECs <- 0.1
+```
+
+#### By raw expression
 
 ```{r}
 ## compute the expression quantiles to select equally distributed circRNA
 ## expression among expression range
-library(edgeR)
-orig_nf <- calcNormFactors(orig_mat, method = "TMM")
-norm_orig_mat <- cpm(orig_mat, lib.size = orig_nf) #orig_mat/orig_nf
-avg_xprs_orig_mat <- apply(norm_orig_mat, 1, mean)
+avg_xprs_orig_mat <- apply(orig_mat, 1, mean)
 ## compute 10 expression quantiles
 expression_quantiles <- quantile(avg_xprs_orig_mat,
                                  seq(from = 0, to = 1, by = .1))
@@ -257,38 +263,23 @@ qt_circ_dt <-
                       breaks = expression_quantiles))
 circs_per_qt <- floor(Ncircrnas / (length(expression_quantiles) - 1))
 
-# circs_to_sim <-
-#   unlist(lapply(split(qt_circ_dt$circ_id, f = qt_circ_dt$qt),
-#                 sample, size = circs_per_qt))
-
-sample_circs <- function(x, N, fracDE) {
-  circs_to_sim <- sample(x, size = N)
-  nonnull_circs <- sample(circs_to_sim, size = ceiling(length(circs_to_sim) * fracDE))
-  null_circs <- circs_to_sim[! circs_to_sim %in% nonnull_circs]
-  list(circs_to_sim = circs_to_sim,
-       nonnull_circs = nonnull_circs,
-       null_circs = null_circs)
-}
-
-fracDECs <- 0.1
-
 circ_selection <-
   lapply(split(qt_circ_dt$circ_id, f = qt_circ_dt$qt),
          sample_circs, 
          N = circs_per_qt, 
          fracDE = fracDECs)
 
-circs_to_sim <- sapply(circ_selection, function(x) x$circs_to_sim)
-nonnull_circs <- sapply(circ_selection, function(x) x$nonnull_circs)
-null_circs <- sapply(circ_selection, function(x) x$null_circs)
+circs_to_sim <- sapply(circ_selection, function(x) x$circs_to_sim, simplify = T)
+nonnull_circs <- sapply(circ_selection, function(x) x$nonnull_circs, simplify = T)
+null_circs <- sapply(circ_selection, function(x) x$null_circs, simplify = T)
 
-circs_to_sim_names <- rownames(orig_mat)[circs_to_sim]
-nonnull_circs_names <- rownames(orig_mat)[nonnull_circs]
-null_circs_names <- rownames(orig_mat)[null_circs]
+circs_to_sim_names <- rownames(orig_mat)[unlist(circs_to_sim)]
+nonnull_circs_names <- rownames(orig_mat)[unlist(nonnull_circs)]
+null_circs_names <- rownames(orig_mat)[unlist(null_circs)]
 ```
 
-`r Ncircrnas * fracDECs` differentially expressed circRNAs will be simulated.  
-`r Ncircrnas * fracDECs / 10` DECs in each expression quantile.  
+`r length(nonnull_circs_names)` differentially expressed circRNAs will be simulated.  
+`r floor(Ncircrnas * fracDECs / 10)` DECs in each expression quantile.  
 
 ```{r}
 qt_circ_dt$dec <- F
@@ -299,19 +290,76 @@ qt_circ_dt[circs_to_sim_names, ]$sim_selected <- "Sim. selected"
 ```
 
 ```{r}
-library(scales)
 # ggplot(qt_circ_dt, aes(x = factor(as.integer(qt)), y = avg_xprs)) +
 ggplot(qt_circ_dt, aes(x = qt, y = avg_xprs)) +
   geom_boxplot(aes(fill = dec), varwidth = F) +
-  scale_y_log10("Avg CPM", label = comma) +
+  scale_y_log10("Avg BJR", label = comma) +
   facet_grid(rows = vars(sim_selected), scales = "free_y") +
   theme(legend.position = c(.1, .8), 
         axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5))
 ```
 
+#### By normalized expression
+
+```{r}
+# ## compute the expression quantiles to select equally distributed circRNA
+# ## expression among expression range
+# 
+# orig_nf <- calcNormFactors(orig_mat, method = "TMM")
+# norm_orig_mat <- cpm(orig_mat, lib.size = orig_nf) #orig_mat/orig_nf
+# avg_xprs_orig_mat <- apply(norm_orig_mat, 1, mean)
+# ## compute 10 expression quantiles
+# expression_quantiles <- quantile(avg_xprs_orig_mat,
+#                                  seq(from = 0, to = 1, by = .1))
+# ## assign the expression quantile to each circRNA
+# qt_circ_dt <-
+#   data.frame(circ_id = 1:nrow(orig_mat),
+#              avg_xprs = avg_xprs_orig_mat,
+#              qt = cut(avg_xprs_orig_mat, include.lowest = T,
+#                       breaks = expression_quantiles))
+# circs_per_qt <- floor(Ncircrnas / (length(expression_quantiles) - 1))
+# 
+# circ_selection <-
+#   lapply(split(qt_circ_dt$circ_id, f = qt_circ_dt$qt),
+#          sample_circs, 
+#          N = circs_per_qt, 
+#          fracDE = fracDECs)
+# 
+# circs_to_sim <- sapply(circ_selection, function(x) x$circs_to_sim)
+# nonnull_circs <- sapply(circ_selection, function(x) x$nonnull_circs)
+# null_circs <- sapply(circ_selection, function(x) x$null_circs)
+# 
+# circs_to_sim_names <- rownames(orig_mat)[circs_to_sim]
+# nonnull_circs_names <- rownames(orig_mat)[nonnull_circs]
+# null_circs_names <- rownames(orig_mat)[null_circs]
+```
+
+`r Ncircrnas * fracDECs` differentially expressed circRNAs will be simulated.  
+`r Ncircrnas * fracDECs / 10` DECs in each expression quantile.  
+
+```{r}
+# qt_circ_dt$dec <- F
+# qt_circ_dt[nonnull_circs_names, ]$dec <- T
+# 
+# qt_circ_dt$sim_selected <- "Sim. not selected"
+# qt_circ_dt[circs_to_sim_names, ]$sim_selected <- "Sim. selected"
+```
+
+```{r}
+# # ggplot(qt_circ_dt, aes(x = factor(as.integer(qt)), y = avg_xprs)) +
+# ggplot(qt_circ_dt, aes(x = qt, y = avg_xprs)) +
+#   geom_boxplot(aes(fill = dec), varwidth = F) +
+#   scale_y_log10("Avg CPM", label = comma) +
+#   facet_grid(rows = vars(sim_selected), scales = "free_y") +
+#   theme(legend.position = c(.1, .8), 
+#         axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5))
+```
+
+### Compose and save the source data set
+
 ```{r}
 ## further subset original matrix to the selected circRNAs
-orig_mat <- orig_mat[circs_to_sim, ]
+orig_mat <- orig_mat[unlist(circs_to_sim), ]
 ```
 
 ```{r}
@@ -329,6 +377,66 @@ The source data sets can be loaded from the <a href="`r source_dataset_qs`">`r s
 
 ## Set parameters to simulate the data sets
 
+```{r}
+# SPsimSeq simulation
+SPsimSeq_simulate <- 
+  function(params_list, ...) {
+
+    seed.num <- 2021
+    set.seed(seed.num)
+
+    counts_mt <- params_list$counts_mt
+    reps_per_group <- params_list$reps_per_group
+    Ncircrnas <- params_list$Ncircrnas
+    fracDECs <- params_list$fracDECs
+    # circs_to_sim <- params_list$circs_to_sim
+    group_df <- params_list$group_df
+    model_zeros <- params_list$model_zeros
+    n.sims <- params_list$n.sims
+    cand_DE_genes <- NULL
+    if(!is.null(params_list$cand_DE_genes)) {
+      cand_DE_genes <- list(nonnull.genes = params_list$cand_DE_genes,
+                            null.genes = rownames(counts_mt)[!rownames(counts_mt) %in%
+                                                               params_list$cand_DE_genes])
+    }
+    w <- params_list$w
+    
+    # counts_mat <- counts_mt[circs_to_sim, ]
+    counts_mat <- counts_mt
+    
+    sim_pars <- paste(n.sims, "data sets of", 
+                      Ncircrnas, "circRNAs per", 
+                      2 * reps_per_group, "samples, modelling zero probability",
+                      model_zeros)
+    
+    start_time <- Sys.time()
+    message(paste(start_time, "start SPsimSeq to simulate", 
+                  sim_pars))
+    
+    simdatasets <- 
+      SPsimSeq(n.sim = n.sims,
+               s.data = counts_mat, 
+               n.genes = Ncircrnas, 
+               tot.samples = 2 * reps_per_group, 
+               pDE = fracDECs, 
+               cand.DE.genes = cand_DE_genes,
+               group = as.integer(factor(group_df[colnames(counts_mat), ])), 
+               group.config = c(.5, .5), # fixed to equal group sizes
+               model.zero.prob = model_zeros,
+               batch = rep(1, ncol(counts_mat)),
+               batch.config = 1, 
+               w = w,
+               result.format = "list",
+               return.details = TRUE,
+               ...) 
+    
+    runtime <- difftime(Sys.time(), start_time, units = "s")
+    message(paste("SPsimSeq took", runtime, "seconds"))
+    
+    list(Datasets = simdatasets,
+         runtime = runtime)
+  }
+```
 
 ```{r}
 ## parameters to simulate the data sets
@@ -343,7 +451,7 @@ params_list <-
   list(counts_mt = orig_mat,
        Ncircrnas = Ncircrnas, 
        fracDECs = fracDECs,
-       cand_DE_genes = nonnull_circs_names,
+       cand_DE_genes = NULL, #nonnull_circs_names,
        group_df = sample_table,
        w = 0.7,
        n.sims = n.sims)
