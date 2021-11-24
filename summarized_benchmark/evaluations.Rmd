@@ -1,7 +1,7 @@
 ---
 title: "Evaluate benchmark results"
 author: "Enrico Gaffo"
-date: "28/10/2021"
+date: "`r Sys.Date()`"
 output: 
   html_document: 
     toc: yes
@@ -14,11 +14,15 @@ editor_options:
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 library(SummarizedBenchmark)
-library("magrittr")
+# library("magrittr")
 library(data.table)
 library(qs)
 library(DT)
 library(ComplexHeatmap)
+library(scales)
+library(ggplot2)
+# install.packages("ggrepel")
+library(ggrepel)
 
 library(BiocParallel)
 # library(batchtools)
@@ -30,8 +34,8 @@ output_dir <- "evaluations"
 dir.create(path = output_dir, showWarnings = F, recursive = T)
 
 ## input data
-simulated_datasets_qs <- "datasetList.qs"
-sumBench_perf_metrics_qs <- "sumBench_perf_metrics.qs"
+simulated_datasets_qs <- "preprocessed_datasets/datasetList.qs"
+sumBench_perf_metrics_qs <- "benchmark_results/sumBench_perf_metrics.qs"
 ```
 
 ```{r}
@@ -43,23 +47,32 @@ alpha_targets <- c(0.01, 0.05, 0.1)
 ## auxiliary functions
 
 simple_auc <- function(TPR, FPR){
-  # inputs already sorted, best scores first 
-  dFPR <- c(diff(FPR), 0)
-  dTPR <- c(diff(TPR), 0)
-  sum(TPR * dFPR) + sum(dTPR * dFPR)/2
+    # inputs already sorted, best scores first 
+    dFPR <- c(diff(FPR), 0)
+    dTPR <- c(diff(TPR), 0)
+    sum(TPR * dFPR) + sum(dTPR * dFPR)/2
 }
 
+## can be used to compute F1 and other F-scores, such as F0.5 (beta = 0.5)
+f.beta <- function(P, R, beta = 1) {
+    (1 + beta^2) * ( (P * R) / ( (beta^2 * P) + R) )
+}
+
+## compute F1 score from precision and recall
 f1 <- function(P, R) {
-  2 * ((P * R)/(P + R))
+    # 2 * ((P * R)/(P + R))
+    f.beta(P, R, beta = 1)
 }
 
-prec.from.f1.score <- function(recall, f1){
-  x <- (f1 * recall) / (2 * recall - f1)
-  ylimit <- 1
-  if(f1 > 1 | recall > 1){
-    ylimit <- 100  
-  }
-  ifelse(x >= 0 & x <= ylimit, x, NA)
+## return the precision given the recall and F1-score
+## Set perc.scale = T if the recall and F1 are given as percentages
+prec.from.f1.score <- function(recall, f1, perc.scale = F){
+    x <- (f1 * recall) / (2 * recall - f1)
+    ylimit <- 1
+    if(perc.scale){
+        ylimit <- 100  
+    }
+    ifelse(x >= 0 & x <= ylimit, x, NA)
 }
 ```
 
@@ -118,16 +131,87 @@ ggplot(sim_ds_fraczeros,
   theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5))
 ```
 
+## DEC expression
+
+```{r}
+sim_ds_status <- 
+  rbindlist(lapply(sim_ds_list, 
+                   function(x) data.frame(circ_id = rownames(x$cntdat), 
+                                          is.DEC = x$status)), 
+            use.names = T, idcol = "dataset")
+
+sim_ds_status[, c("SetSize", "MZP", "Purpose", "ID") := tstrsplit(dataset, "_", type.convert = F), 
+              by = dataset]
+
+sim_ds_status <-
+    merge(sim_ds_status, 
+          sim_ds_avgbjr, 
+          by = c("dataset", "SetSize", "MZP", "Purpose", "ID", "circ_id"))
+
+sim_ds_status <-
+    merge(sim_ds_status, 
+          sim_ds_fraczeros, 
+          by = c("dataset", "SetSize", "MZP", "Purpose", "ID", "circ_id"))
+```
+
+### Raw expression
+
+```{r, fig.height=10}
+ggplot(sim_ds_status, aes(x = ID, y = AvgBJR, fill = ifelse(is.DEC == 1, T, F))) +
+    # geom_boxplot(outlier.size = .5) +
+    geom_violin(draw_quantiles = c(.25, .5, .75)) +
+    scale_fill_discrete("DEC") +
+    scale_y_log10() +
+    facet_grid(rows = vars(SetSize), cols = vars(MZP)) + 
+    theme_bw() +
+    theme(legend.position = "top",
+          axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5))
+```
+
+```{r}
+ggplot(sim_ds_status, aes(x = AvgBJR, color = ifelse(is.DEC == 1, T, F))) +
+    geom_density(aes(group = paste(dataset, is.DEC)), alpha = .3) +
+    scale_color_discrete("DEC") +
+    scale_x_log10(label = comma) +
+    facet_grid(rows = vars(SetSize), cols = vars(MZP)) + 
+    theme_bw() +
+    theme(legend.position = c(.9, .9), 
+          axis.text.x = element_text(angle = 30, hjust = 1))
+```
+
+### Fraction of zeros
+
+```{r, fig.height=10}
+ggplot(sim_ds_status, aes(x = ID, y = FracZeros, fill = ifelse(is.DEC == 1, T, F))) +
+    geom_boxplot(outlier.size = .5) +
+    # geom_violin(draw_quantiles = c(.25, .5, .75)) +
+    scale_fill_discrete("DEC") +
+    scale_y_log10() +
+    facet_grid(rows = vars(SetSize), cols = vars(MZP), scales = "free_y") + 
+    theme_bw() +
+    theme(legend.position = "top",
+          axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5))
+```
+
+```{r}
+ggplot(sim_ds_status, aes(x = FracZeros, color = ifelse(is.DEC == 1, T, F))) +
+    geom_density(aes(group = paste(dataset, is.DEC)), alpha = .3) +
+    scale_color_discrete("DEC") +
+    facet_grid(rows = vars(SetSize), cols = vars(MZP)) + 
+    theme_bw() +
+    theme(legend.position = c(.9, .9), 
+          axis.text.x = element_text(angle = 30, hjust = 1))
+```
 
 # DE data sets
-
-## Method prediction overlap 
 
 ```{r read_sumbench_objs}
 ## read input: the list of the SummarizedBenchmark objects after the performance evaluation 
 sbL <- qread(file = sumBench_perf_metrics_qs, 
              nthreads = multicoreWorkers())
 ```
+
+## Method prediction overlap 
 
 ```{r}
 ## example plot
@@ -162,7 +246,8 @@ ovlp_frac <-
   rbindlist(lapply(cmL, function(x) {data.table(OvlpFrac = x$overlap_frac,
                                                 Comb = names(x$overlap_frac))}),
             idcol = "DS")
-ovlp_frac[, c("SetSize", "MZP", "Purpose", "ID") := tstrsplit(DS, "_", type.convert = F)]
+ovlp_frac[, c("SetSize", "MZP", "Purpose", "ID") := tstrsplit(DS, "_", type.convert = F), 
+              by = DS]
 
 
 mean_ovlp_frac <- ovlp_frac[, .(AvgOvlpFrac = mean(OvlpFrac)), 
@@ -461,7 +546,10 @@ f1s <-
              id.vars = ds_id_cols, 
              value.name = "TPR",
              variable.name = "Alpha")[, Alpha := sub("TPR.", "", Alpha)][],
-        by = c(ds_id_cols, "Alpha"))[, F1 := f1(1-FDR, TPR)][]
+        by = c(ds_id_cols, "Alpha"))
+
+f1s[, `:=`(F1 = f1(1 - FDR, TPR),
+           F0.5 = f.beta(1 - FDR, TPR, .5))] #(1 + .5^2) * ((1 - FDR) * TPR / (.5^2*(1 -FDR) + TPR))
 
 ## add the number of rejections
 f1s <- 
@@ -480,39 +568,109 @@ f1s <-
                          function(x) data.table(nCircRNAs = x$nGenes)), 
                   idcol = "Dataset"),
         by = "Dataset")
+```
 
+
+```{r}
+# show_dt <- copy(f1s)
+# show_dt$SetSize <- factor(show_dt$SetSize)
+# show_dt$MZP <- factor(show_dt$MZP)
+# show_dt$DsType <- factor(show_dt$DsType)
+# show_dt$Method <- factor(show_dt$Method)
+# show_dt$Alpha <- factor(show_dt$Alpha)
+# 
+# datatable(show_dt, rownames = F, filter = "top") %>%
+#   formatRound(c("F1", "TPR", "FDR"), 3)
+```
+
+```{r}
 ## compute mean values
 mf1s <- f1s[, .(F1 = mean(F1, na.rm = T),
+                sdF1 = sd(F1, na.rm = T),
+                F0.5 = mean(F0.5, na.rm = T),
+                sdF0.5 = sd(F0.5, na.rm = T),
                 TPR = mean(TPR, na.rm = T),
+                sdTPR = sd(TPR, na.rm = T),
                 FDR = mean(FDR, na.rm = T),
+                sdFDR = sd(FDR, na.rm = T),
                 rejections = mean(rejections, na.rm = T),
                 nCircRNAs = mean(nCircRNAs, na.rm = T)), 
             by = .(SetSize, MZP, DsType, Method, Alpha)]
 ```
 
+```{r}
+show_dt <- copy(mf1s)
+show_dt$SetSize <- factor(show_dt$SetSize)
+show_dt$MZP <- factor(show_dt$MZP)
+show_dt$DsType <- factor(show_dt$DsType)
+show_dt$Method <- factor(show_dt$Method)
+show_dt$Alpha <- factor(show_dt$Alpha)
+
+datatable(show_dt, rownames = F, filter = "top") %>%
+  formatRound(c("F1", "sdF1", 
+                "F0.5", "sdF0.5", 
+                "TPR", "sdTPR", 
+                "FDR", "sdFDR", 
+                "rejections", "nCircRNAs"), 3)
+```
+
+```{r}
+# https://stackoverflow.com/questions/56990018/adding-multiple-layers-to-a-ggplot-with-a-function
+# add_points <- function(x) {
+#   list(geom_point(aes(x = x - 1, y = 0), color = "red"),
+#     geom_point(aes(x = x + 1, y = 0), color = "red"))
+# }
+# p + add_points(x = 0)
+
+
+f1_curves <- function(f1s = c(.5)) {
+    
+    lapply(f1s, 
+           function(x)stat_function(fun = prec.from.f1.score,
+                                    n = 1001,
+                                    geom = "line", 
+                                    linetype = 2,
+                                    color = "grey", 
+                                    show.legend = c(shape = F),
+                                    xlim = c(0,  1), 
+                                    args = list(f1 = x)))
+}
+
+annotate_f1_curves <- function(f1s = c(.5), 
+                               vjust = .05, 
+                               pos.x = 1.01) {
+    
+    lapply(f1s, 
+           function(x, pos.x){
+               y <- prec.from.f1.score(pos.x, x) + vjust
+               annotate(geom = "text", 
+                        x = pos.x, 
+                        y = y, 
+                        label = as.character(x), 
+                        color = "grey55", 
+                        size = 3, 
+                        hjust = 1, 
+                        parse = F)
+           }, 
+           pos.x = pos.x)
+}
+```
+
+
 ```{r, fig.width=10, fig.height=10}
+f1_to_draw <- c(.1, .3, .5, .7)
+
 ggplot(mf1s, aes(x = TPR, y = 1 - FDR, color = Method, shape = Alpha)) +
-  stat_function(fun = prec.from.f1.score,
-                geom = "line", linetype = 2,
-                color = "grey", show.legend = c(shape = F),
-                xlim = c(.10,  1),
-                args = list(f1 = .25)) +
-  annotate(geom = "text", x = 1.01, y = .20, label = "0.25", 
-           color = "grey55", size = 3, hjust = 1, parse = F) +
-  stat_function(fun = prec.from.f1.score,
-                geom = "line", linetype = 2,
-                color = "grey", show.legend = c(shape = F),
-                # xlim = c(0.01,  1),
-                args = list(f1 = .10)) +
-  annotate(geom = "text", x = 1.01, y = .10, label = "0.10", 
-           color = "grey55", size = 3, hjust = 1, parse = F) +
-  geom_point() +
-  coord_fixed(xlim = c(0, .6), ylim = c(0, .6)) + #
-  scale_shape_manual("Alpha", values = 2:4, labels = alpha_targets) +
-  guides(shape = guide_legend(direction = "vertical")) +
-  facet_grid(cols = vars(SetSize), rows = vars(MZP)) + #, scales = "free"
-  theme_bw() +
-  theme(legend.position = "top")
+    f1_curves(f1_to_draw) +
+    annotate_f1_curves(f1_to_draw, pos.x = .95) +
+    geom_point() +
+    coord_fixed(clip = "off", xlim = c(0, 1), ylim = c(0, 1.01), expand = F) + 
+    scale_shape_manual("Alpha", values = 2:4, labels = alpha_targets) +
+    guides(shape = guide_legend(direction = "vertical")) +
+    facet_grid(cols = vars(SetSize), rows = vars(MZP)) + 
+    theme_bw() +
+    theme(legend.position = "top", 
+          axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5))
 ```
 
 ```{r, fig.width=10, fig.height=7}
@@ -547,18 +705,263 @@ ggplot(f1s,
 ```
 
 ```{r, fig.width=10}
-ggplot(mf1s, 
+plot_dt <- mf1s[, c("baseMethod", "Params", "Test") := tstrsplit(Method, "_")]
+plot_dt$Method <- gsub("_", " ", plot_dt$Method)
+# level_order <- plot_dt[MZP == "bulk" &
+#                            Alpha == 2 &
+#                            SetSize == "N10"][order(F1),
+#                                              .(Method),
+#                                              by = Method][, Method]
+# 
+# plot_dt$Method <-
+#     factor(plot_dt$Method,
+#            levels = level_order,
+#            ordered = T)
+
+ggplot(plot_dt, 
        aes(x = Method, y = F1)) +
-  geom_line(aes(group = Alpha, color = Alpha)) +
-  geom_point(aes(shape = Alpha, color = Alpha)) +
-  ylab("Average F1") +
+    geom_line(aes(group = Alpha, color = Alpha)) +
+    geom_point(aes(shape = Alpha, color = Alpha)) +
+    ylab("Average F1") +
+    scale_color_discrete("Alpha", labels = alpha_targets) +
+    scale_shape_discrete("Alpha", labels = alpha_targets) +
+    facet_grid(cols = vars(SetSize), 
+               rows = vars(MZP), scales = "free_y") +
+    theme_bw() +
+    theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5),
+          legend.position = "top")
+```
+
+#### MZP = bulk
+
+```{r, fig.height=10}
+plot_dt <- mf1s[MZP == "bulk"][, c("baseMethod", "Params", "Test") := tstrsplit(Method, "_")]
+plot_dt[, Params_Test := paste(Params, Test)]
+
+# level_order <- plot_dt[, max(F1), by = .(Method)][order(V1), as.character(Method)]
+# level_order <- plot_dt[Alpha == 1 &
+#                            SetSize == "N10"][order(F1),
+#                                              .(Params_Test), 
+#                                              by = baseMethod][, unique(Params_Test)]
+
+level_order <- plot_dt[Alpha == 1 &
+                           SetSize == "N10"][order(-F1),
+                                             .(Method),
+                                             by = baseMethod][, Method]
+
+plot_dt$Method <-
+    factor(plot_dt$Method,
+           levels = level_order,
+           ordered = T)
+# plot_dt$Params_Test <- 
+#     factor(plot_dt$Params_Test, 
+#            levels = level_order, 
+#            ordered = T)
+
+ggplot(plot_dt, 
+       aes(#x = Params_Test, 
+           x = Method, 
+           y = F1, 
+           # shape = Alpha, 
+           color = Alpha)) +
+    # geom_line(aes(group = Alpha)) +
+    # geom_segment(aes(xend = paste(Params, Test), yend = 0), 
+    #              position = position_dodge2(width = .7)) +
+    # geom_point(position = position_dodge(width = .7)) +
+    geom_pointrange(aes(ymin = F1 - sdF1, ymax = F1 + sdF1),
+                    position = position_dodge(width = .7)) +
+    ylab("Average F1") +
+    xlab("Method") +
+    scale_color_discrete("Alpha", labels = alpha_targets) +
+    scale_x_discrete(label = function(x){
+        gsub("_", " ", gsub("edgeR_|DESeq2_|voom_|circMeta_", "", x))
+        }) +
+    # scale_shape_discrete("Alpha", labels = alpha_targets) +
+    coord_flip(clip = "off") +
+    facet_grid(cols = vars(Alpha, SetSize), 
+               rows = vars(baseMethod), 
+               drop = T, 
+               # switch = "y", 
+               scales = "free", space = "free") +
+    theme_bw() +
+    theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5),
+          panel.spacing.y = unit(.01, "lines"),
+          legend.position = "top")
+```
+
+#### MZP = sice
+
+```{r, fig.height=10}
+plot_dt <- mf1s[MZP == "sice"][, c("baseMethod", "Params", "Test") := tstrsplit(Method, "_")]
+plot_dt[, Params_Test := paste(Params, Test)]
+
+level_order <- plot_dt[Alpha == 1 &
+                           SetSize == "N10"][order(-F1),
+                                             .(Method),
+                                             by = baseMethod][, Method]
+
+plot_dt$Method <-
+    factor(plot_dt$Method,
+           levels = level_order,
+           ordered = T)
+
+ggplot(plot_dt, 
+       aes(x = Method, 
+           y = F1, 
+           color = Alpha)) +
+    geom_pointrange(aes(ymin = F1 - sdF1, ymax = F1 + sdF1),
+                    position = position_dodge(width = .7)) +
+    ylab("Average F1") +
+    xlab("Method") +
+    scale_color_discrete("Alpha", labels = alpha_targets) +
+    scale_x_discrete(label = function(x){
+        gsub("_", " ", gsub("edgeR_|DESeq2_|voom_|circMeta_", "", x))
+        }) +
+    coord_flip(clip = "off") +
+    facet_grid(cols = vars(Alpha, SetSize), 
+               rows = vars(baseMethod), 
+               drop = T, 
+               scales = "free", space = "free") +
+    theme_bw() +
+    theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5),
+          panel.spacing.y = unit(.01, "lines"),
+          legend.position = "top")
+```
+
+### F0.5-scores 
+
+```{r, fig.width=10, fig.height=7}
+ggplot(f1s, 
+       aes(x = Method, y = F0.5)) +
+  geom_boxplot(aes(color = Alpha), 
+               # position = "dodge", 
+               outlier.size = .5) +
+  ylab(expression(F[0.5])) +
   scale_color_discrete("Alpha", labels = alpha_targets) +
-  scale_shape_discrete("Alpha", labels = alpha_targets) +
-  facet_grid(cols = vars(SetSize), rows = vars(MZP), scales = "free_y") +
+  facet_grid(cols = vars(SetSize), rows = vars(paste(MZP, Alpha)), scales = "free_y") +
   theme_bw() +
   theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5),
         legend.position = "top")
 ```
+
+```{r, fig.width=10}
+plot_dt <- mf1s[, c("baseMethod", "Params", "Test") := tstrsplit(Method, "_")]
+plot_dt$Method <- gsub("_", " ", plot_dt$Method)
+
+ggplot(plot_dt, 
+       aes(x = Method, y = F0.5)) +
+    geom_line(aes(group = Alpha, color = Alpha)) +
+    geom_point(aes(shape = Alpha, color = Alpha)) +
+    ylab(expression(Average~F[0.5])) +
+    scale_color_discrete("Alpha", labels = alpha_targets) +
+    scale_shape_discrete("Alpha", labels = alpha_targets) +
+    facet_grid(cols = vars(SetSize), 
+               rows = vars(MZP), scales = "free_y") +
+    theme_bw() +
+    theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5),
+          legend.position = "top")
+```
+
+#### MZP = bulk
+
+```{r, fig.height=10}
+plot_dt <- mf1s[MZP == "bulk"][, c("baseMethod", "Params", "Test") := tstrsplit(Method, "_")]
+plot_dt[, Params_Test := paste(Params, Test)]
+
+# level_order <- plot_dt[, max(F1), by = .(Method)][order(V1), as.character(Method)]
+# level_order <- plot_dt[Alpha == 1 &
+#                            SetSize == "N10"][order(F1),
+#                                              .(Params_Test), 
+#                                              by = baseMethod][, unique(Params_Test)]
+
+level_order <- plot_dt[Alpha == 1 &
+                           SetSize == "N10"][order(-F0.5),
+                                             .(Method),
+                                             by = baseMethod][, Method]
+
+plot_dt$Method <-
+    factor(plot_dt$Method,
+           levels = level_order,
+           ordered = T)
+# plot_dt$Params_Test <- 
+#     factor(plot_dt$Params_Test, 
+#            levels = level_order, 
+#            ordered = T)
+
+ggplot(plot_dt, 
+       aes(#x = Params_Test, 
+           x = Method, 
+           y = F0.5, 
+           # shape = Alpha, 
+           color = Alpha)) +
+    # geom_line(aes(group = Alpha)) +
+    # geom_segment(aes(xend = paste(Params, Test), yend = 0), 
+    #              position = position_dodge2(width = .7)) +
+    # geom_point(position = position_dodge(width = .7)) +
+    geom_pointrange(aes(ymin = F0.5 - sdF0.5, ymax = F0.5 + sdF0.5),
+                    position = position_dodge(width = .7)) +
+    ylab(expression(Average~F[0.5])) +
+    xlab("Method") +
+    scale_color_discrete("Alpha", labels = alpha_targets) +
+    scale_x_discrete(label = function(x){
+        gsub("_", " ", gsub("edgeR_|DESeq2_|voom_|circMeta_", "", x))
+        }) +
+    # scale_shape_discrete("Alpha", labels = alpha_targets) +
+    coord_flip(clip = "off") +
+    facet_grid(cols = vars(Alpha, SetSize), 
+               rows = vars(baseMethod), 
+               drop = T, 
+               # switch = "y", 
+               scales = "free", space = "free") +
+    theme_bw() +
+    theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5),
+          panel.spacing.y = unit(.01, "lines"),
+          legend.position = "top")
+```
+
+#### MZP = sice
+
+```{r, fig.height=10}
+plot_dt <- mf1s[MZP == "sice"][, c("baseMethod", "Params", "Test") := tstrsplit(Method, "_")]
+plot_dt[, Params_Test := paste(Params, Test)]
+
+level_order <- plot_dt[Alpha == 1 &
+                           SetSize == "N10"][order(-F0.5),
+                                             .(Method),
+                                             by = baseMethod][, Method]
+
+plot_dt$Method <-
+    factor(plot_dt$Method,
+           levels = level_order,
+           ordered = T)
+
+ggplot(plot_dt, 
+       aes(x = Method, 
+           y = F0.5, 
+           color = Alpha)) +
+    geom_pointrange(aes(ymin = F0.5 - sdF0.5, ymax = F0.5 + sdF0.5),
+                    position = position_dodge(width = .7)) +
+    ylab(expression(Average~F[0.5])) +
+    xlab("Method") +
+    scale_color_discrete("Alpha", labels = alpha_targets) +
+    scale_x_discrete(label = function(x){
+        gsub("_", " ", gsub("edgeR_|DESeq2_|voom_|circMeta_", "", x))
+        }) +
+    coord_flip(clip = "off") +
+    facet_grid(cols = vars(Alpha, SetSize), 
+               rows = vars(baseMethod), 
+               drop = T, 
+               scales = "free", space = "free") +
+    theme_bw() +
+    theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5),
+          panel.spacing.y = unit(.01, "lines"),
+          legend.position = "top")
+```
+
+
+## Save metrics
+
+### P-values
 
 ```{r}
 pval_deind_dt <- 
@@ -618,7 +1021,10 @@ eval_metrics_dt[, c("SetSize", "MZP", "DsType", "DsId") := tstrsplit(Dataset, "_
 mean_eval_metrics_dt <- 
   eval_metrics_dt[, .(AvgTPR = mean(TPR),
                       AvgFPR = mean(FPR),
-                      AvgFDR = mean(FDR)),
+                      AvgFDR = mean(FDR),
+                      sdTPR = sd(TPR),
+                      sdFPR = sd(FPR),
+                      sdFDR = sd(FDR)),
                   by = .(SetSize, MZP, DsType, Method, ID)]
 ```
 
@@ -628,7 +1034,574 @@ fwrite(eval_metrics_dt,
        sep = "\t", row.names = F)
 ```
 
+### Adjusted P-values
+
+```{r}
+adj_pval_deind_dt <- 
+  rbindlist(lapply(sbL,
+                   function(x) {
+                     melt(data.table(true_val = as.integer(groundTruths(x)[["adj_pv"]]),
+                                     assays(x)[["adj_pv"]]),
+                          id.vars = "true_val",
+                          value.name = "preds",
+                          variable.name = "Method")
+                   }),
+            idcol = "Dataset")
+
+adj_pval_deind_dt[is.na(preds), preds := 1]
+
+adj_pval_deind_dt[, c("SetSize", "MZP", "DsType", "DsId") := tstrsplit(Dataset, "_"), 
+                  by = Dataset]
+```
+
+```{r}
+fwrite(adj_pval_deind_dt, 
+       file.path(output_dir, "adj_pval_deind.csv.gz"), 
+       sep = "\t", row.names = F)
+```
+
+```{r}
+adj_eval_metrics_dt <- 
+  adj_pval_deind_dt[order(Dataset, Method, preds, 
+                      decreasing = F)][, .(ID = seq_len(length(true_val)),
+                                           Tot.DE = sum(true_val),
+                                           Tot.NDE = sum(true_val == 0),
+                                           Tot = length(true_val), 
+                                           TP = cumsum(true_val),
+                                           # TPR = cumsum(true_val)/sum(true_val),
+                                           # FPR = cumsum(true_val == 0)/sum(true_val == 0), # FP/(FP+TN)
+                                           # FDR = cumsum(true_val == 0)/sum(true_val >= 0), # FP/(FP+TP)
+                                           FP = cumsum(true_val == 0)), 
+                                       by = .(Dataset, Method)][, `:=`(TPR = TP / Tot.DE,
+                                                                       FPR = FP / Tot.NDE, # FP/(FP+TN)
+                                                                       FDR = FP / Tot)] # FP/(FP+TP)),
+
+adj_eval_metrics_dt[, c("SetSize", "MZP", "DsType", "DsId") := tstrsplit(Dataset, "_")]
+
+# ggplot(eval_metrics_dt, aes(x = SetSize, y = Nrows)) + geom_boxplot() + facet_grid(cols = vars(MZP))
+```
+
+```{r}
+adj_mean_eval_metrics_dt <- 
+  adj_eval_metrics_dt[, .(AvgTPR = mean(TPR),
+                      AvgFPR = mean(FPR),
+                      AvgFDR = mean(FDR),
+                      sdTPR = sd(TPR),
+                      sdFPR = sd(FPR),
+                      sdFDR = sd(FDR)),
+                  by = .(SetSize, MZP, DsType, Method, ID)]
+```
+
+```{r}
+fwrite(adj_eval_metrics_dt, 
+       file.path(output_dir, "adj_eval_metrics.csv.gz"), 
+       sep = "\t", row.names = F)
+```
+
 ## FDR vs TPR
+
+### ROCR single DS
+
+```{r}
+Meth <- "edgeR_rbst_LRT"
+# Meth <- "DESeq2_Dt_WaT"
+dsName <- "N05_bulk_de_01"
+dsName_split <- setNames(unlist(strsplit(x = dsName, split = "_")), 
+                         c("SetSize", "MZP", "DsType", "DsId"))
+
+x.breaks <- sort(c(.01, .05, seq(0, 1, by = .1)))
+```
+
+```{r}
+x <- adj_pval_deind_dt[Dataset == dsName & Method == Meth]
+
+library(ROCR)
+
+## the iCOBRA hack(s)
+x$preds <- 1 - x$preds
+
+rocr_pred <- ROCR::prediction(predictions = x$preds, 
+                              labels = x$true_val, 
+                              label.ordering = c(0, 1))
+rocr_perf <- ROCR::performance(rocr_pred, 
+                               measure = "tpr", 
+                               x.measure = "ppv")
+
+## transform PPV in to FDR
+rocr_perf@x.values <- lapply(rocr_perf@x.values, function(x) 1 - x)
+## the iCOBRA hack(s)
+rocr_perf@alpha.values <- lapply(rocr_perf@alpha.values, function(x) 1 - x)
+
+## plot with ROCR
+par(pin = c(3 , 3))
+plot(rocr_perf,
+     xlim = c(0, 1), ylim = c(0, 1), 
+     colorize = T,
+     colorkey = T,
+     print.cutoffs.at = seq(0, 1, by = .1), 
+     xlab = "False discovery rate",
+     main = paste(c(Meth, dsName), collapse = " "))
+```
+
+### ROCR single DS (ggplot)
+
+```{r}
+## plot with ggplot
+plot_dt <-
+    data.table(TPR = unlist(rocr_perf@y.values),
+               # FDR = 1 - unlist(rocr_perf@x.values),
+               FDR = unlist(rocr_perf@x.values), ## were PPV, see the iCOBRA hack(s) above
+               CUTOFF = unlist(rocr_perf@alpha.values))[!is.nan(FDR)] #[!is.nan(PPV)]
+
+ggplot(plot_dt,
+       aes(x = FDR, y = TPR)) +
+    geom_path(aes(color = CUTOFF)) +
+    geom_point(data = head(plot_dt[CUTOFF <= .1][order(CUTOFF, FDR, TPR, decreasing = T)], 1),
+               shape = 21, size = 3, fill = "white") +
+    geom_text_repel(data = head(plot_dt[CUTOFF <= .1][order(CUTOFF, FDR, TPR, decreasing = T)], 1),
+              aes(label = round(CUTOFF, 1))) +
+    scale_colour_gradientn(colors = rev(rainbow(7)), 
+                           limits = c(0, 1),
+                           guide = guide_colorbar(raster = T, draw.ulim = T, draw.llim = T)) +
+    coord_fixed() +
+    theme_bw() +
+    ggtitle(paste(c(Meth, dsName_split), collapse = " "))
+```
+
+### iCOBRA single DS 
+
+```{r}
+suppressPackageStartupMessages(library(iCOBRA))
+# data(cobradata_example)
+
+x <- sbL[[dsName]]
+
+cobraDat <- COBRAData(pval = setNames(as.data.frame(assays(x)[["pv"]][, Meth], #assays(x)[["pv"]] for all methods
+                                           row.names = paste0("Gene_", 
+                                                              seq_len(nrow(assays(x)[["pv"]])))), 
+                                      Meth),
+                      padj = setNames(as.data.frame(assays(x)[["adj_pv"]][, Meth], 
+                                           row.names = paste0("Gene_",
+                                                              seq_len(nrow(assays(x)[["adj_pv"]])))), 
+                                      Meth),
+                      truth = data.frame(status = rowData(x)$pv, 
+                                         row.names = paste0("Gene_", 
+                                                            seq_len(length(rowData(x)$pv)))))
+
+cobraperf <- calculate_performance(cobraDat, binary_truth = "status",
+                                   aspects = c("fdrtpr", "fdrtprcurve", "fpr", "roc"))
+# basemethods(cobraperf)
+cobraplot <- prepare_data_for_plot(cobraperf = cobraperf, facetted = T, 
+                                   incloverall = F, incltruth = T, conditionalfill = T,
+                                   keepmethods = NULL)
+
+
+plot_fdrtprcurve(cobraplot, 
+                 title = paste(c(Meth, dsName), collapse = " "))
+# plot_fpr(cobraplot)
+# plot_roc(cobraplot)
+```
+
+### iCOBRA single DS (ggplot)
+
+```{r, warning=FALSE}
+plot_dt <- data.table(cobraplot@fdrtprcurve)
+plot_points <- data.table(cobraplot@fdrtpr)
+
+ggplot(plot_dt, aes(x = FDR, y = TPR, color = method)) +
+    geom_vline(xintercept = .01, linetype = 2, color = "grey25") +
+    geom_vline(xintercept = .05, linetype = 2, color = "grey25") +
+    geom_vline(xintercept = .1, linetype = 2, color = "grey25") +
+    geom_path(size = .7) +
+    geom_point(data = plot_points[satis == "no"], 
+               size = 3,  
+               stroke = 1,
+               fill = "white", aes(shape = thr)) +
+    geom_point(data = plot_points[satis == "yes"], 
+               size = 3, 
+               stroke = 1,
+               aes(fill = method, shape = thr), 
+               color = "black",
+               show.legend = F) +
+    coord_fixed(expand = T, clip = "off", xlim = c(0, 1), ylim = c(0, 1)) +
+    scale_x_continuous(breaks = x.breaks, 
+                       labels = c("", tail(x.breaks, -1))) +
+    scale_shape_manual(values = 21:23) +
+    theme_bw() +
+    theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5), 
+          panel.grid.major.y = element_blank(), 
+          panel.grid.minor.y = element_blank(), 
+          panel.grid.major.x = element_line(linetype = 2, color = "grey75"),
+          panel.grid.minor.x = element_blank()) +
+    ggtitle(paste(c(Meth, dsName), collapse = " "))
+```
+
+### Custom single DS
+
+```{r}
+plot_dt <-
+    adj_pval_deind_dt[Dataset == dsName & Method == Meth] ## this will work also without subsetting the Dataset
+plot_dt <- 
+    plot_dt[order(Dataset, SetSize, MZP, DsType, DsId, 
+                  Method, preds, decreasing = F)][,  
+                              .(true_val, 
+                                preds,
+                                TP = cumsum(true_val == 1),
+                                FP = cumsum(true_val == 0),
+                                TN = sum(true_val == 0) - cumsum(true_val == 0),
+                                FN = sum(true_val == 1) - cumsum(true_val == 1),
+                                Tot = length(true_val),
+                                P = sum(true_val == 1)), 
+                              by = .(Dataset, SetSize, MZP, DsType, DsId, Method)]
+
+plot_dt[, `:=`(TPR = TP / (TP + FN),
+               FDR = FP / (FP + TP),
+               PPV = TP / (TP + FP))]
+```
+
+
+```{r}
+# plot_points_0.1 <- 
+#     plot_dt[preds <= .1][order(Dataset, SetSize, MZP, DsType, DsId, 
+#                                Method, preds, 
+#                                decreasing = T)][, lapply(.SD, head, 1), 
+#                                                 by = .(Dataset, SetSize, MZP, DsType, 
+#                                                        DsId, Method)]
+# plot_points_0.05 <- 
+#     plot_dt[preds <= .05][order(Dataset, SetSize, MZP, DsType, DsId, 
+#                                Method, preds, 
+#                                decreasing = T)][, lapply(.SD, head, 1), 
+#                                                 by = .(Dataset, SetSize, MZP, DsType, 
+#                                                        DsId, Method)]
+# plot_points_0.01 <- 
+#     plot_dt[preds <= .01][order(Dataset, SetSize, MZP, DsType, DsId, 
+#                                Method, preds, 
+#                                decreasing = T)][, lapply(.SD, head, 1), 
+#                                                 by = .(Dataset, SetSize, MZP, DsType, 
+#                                                        DsId, Method)]
+
+plot_points <- 
+    rbindlist(list("0.1" = plot_dt[preds <= .1][order(Dataset, SetSize, MZP, DsType, DsId, 
+                                                      Method, preds, 
+                                                      decreasing = T)][, lapply(.SD, head, 1), 
+                                                                       by = .(Dataset, SetSize, MZP, DsType, 
+                                                                              DsId, Method)],
+                   "0.05" = plot_dt[preds <= .05][order(Dataset, SetSize, MZP, DsType, DsId, 
+                                                        Method, preds, 
+                                                        decreasing = T)][, lapply(.SD, head, 1), 
+                                                                         by = .(Dataset, SetSize, MZP, DsType, 
+                                                                                DsId, Method)],
+                   "0.01" = plot_dt[preds <= .01][order(Dataset, SetSize, MZP, DsType, DsId, 
+                                                        Method, preds, 
+                                                        decreasing = T)][, lapply(.SD, head, 1), 
+                                                                         by = .(Dataset, SetSize, MZP, DsType, 
+                                                                                DsId, Method)]), 
+              idcol = "Alpha")
+
+# x.breaks <- sort(c(.01, .05, seq(0, 1, by = .1)))
+
+ggplot(plot_dt, 
+       aes(x = FDR, y = TPR, color = Method)) +
+    geom_vline(xintercept = .01, linetype = 2, color = "grey25") +
+    geom_vline(xintercept = .05, linetype = 2, color = "grey25") +
+    geom_vline(xintercept = .1, linetype = 2, color = "grey25") +
+    geom_path(size = .7) +
+    # geom_point(data = plot_points_0.1[Dataset == dsName], 
+    #            shape = 21, size = 3, show.legend = F, fill = "white") +
+    # geom_point(data = plot_points_0.05[Dataset == dsName], 
+    #            shape = 22, size = 3, show.legend = F, fill = "white") +
+    # geom_point(data = plot_points_0.01[Dataset == dsName], 
+    #            shape = 23, size = 3, show.legend = F, fill = "white") +
+    geom_point(data = plot_points[Dataset == dsName],
+               aes(shape = Alpha), 
+               size = 3, 
+               show.legend = T, 
+               fill = "white") +
+    scale_shape_manual(values = 21:23) +
+    coord_fixed(expand = T, clip = "off", xlim = c(0, 1), ylim = c(0, 1)) +
+    scale_x_continuous(breaks = x.breaks, 
+                       labels = c("", tail(x.breaks, -1))) +
+    theme_bw() +
+    theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5), 
+          panel.grid.major.y = element_blank(), 
+          panel.grid.minor.y = element_blank(), 
+          panel.grid.major.x = element_line(linetype = 2, color = "grey75"),
+          panel.grid.minor.x = element_blank()) +
+    ggtitle(paste(c(Meth, dsName_split), collapse = " "))
+```
+
+### ROCR average (single method)
+
+```{r}
+x <- adj_pval_deind_dt[Method == Meth & 
+                           SetSize == dsName_split["SetSize"] & 
+                           MZP == dsName_split["MZP"] & 
+                           DsType == dsName_split["DsType"],
+                       .(GeneID = seq_along(true_val),
+                         true_val,
+                         preds), 
+                       by = Dataset]
+
+
+x_preds <- as.matrix(data.frame(dcast(x, 
+                                      GeneID ~ Dataset, 
+                                      value.var = "preds", 
+                                      fill = 1),
+                                row.names = "GeneID"))
+## the iCOBRA hack(s)
+x_preds <- 1 - x_preds
+
+x_labels <- as.matrix(data.frame(dcast(x, 
+                                       GeneID ~ Dataset, 
+                                       value.var = "true_val", 
+                                       fill = 0),
+                                 row.names = "GeneID"))
+
+
+rocr_pred <- ROCR::prediction(predictions = x_preds,
+                              labels = x_labels)
+rocr_perf <- ROCR::performance(rocr_pred, 
+                               measure = "tpr", 
+                               x.measure = "ppv")
+
+## the iCOBRA hack(s)
+rocr_perf@alpha.values <- lapply(rocr_perf@alpha.values, function(x) 1 - x)
+
+## transform PPV in to FDR to fool the ROCR plot
+rocr_perf@x.values <- lapply(rocr_perf@x.values, function(x) 1 - x)
+
+par(pin = c(3, 3))
+plot(rocr_perf, 
+     # asp = 1, 
+     xlim = c(0.0, 1.0), ylim = c(0, 1),
+     colorize = T,
+     # spread.estimate = "stderror",
+     colorkey = T,
+     print.cutoffs.at = seq(0, 1, by = .1),
+     add = F,
+     avg = "threshold", 
+     xlab = "Average false discovery rate",
+     main = paste(c(Meth, head(dsName_split, -1)), collapse = " "))
+```
+
+### Custom average (single method)
+
+```{r}
+## to compute the average PPV (or FDR) and average TPR across
+## simulation replicates, see the ".combine.performance.objects"
+## function of the ROCR package at
+# https://github.com/ipa-tys/ROCR/blob/master/R/performance.R
+
+# .performance.plot.threshold.avg
+# https://github.com/ipa-tys/ROCR/blob/master/R/performance_plots.R
+
+get_avg_meas <- function(y, meas.a = "tpr", meas.b = "fdr") {
+    
+    x.measure <- meas.b
+    
+    y_preds <- as.matrix(data.frame(dcast(y, 
+                                          GeneID ~ Dataset, 
+                                          value.var = "preds", 
+                                          fill = 1),
+                                    row.names = "GeneID"))
+    
+    if(meas.b == "fdr"){
+        ## the iCOBRA hack(s)
+        y_preds <- 1 - y_preds
+        x.measure <- "ppv"
+    }
+    
+    y_labels <- as.matrix(data.frame(dcast(y, 
+                                           GeneID ~ Dataset, 
+                                           value.var = "true_val", 
+                                           fill = 0),
+                                     row.names = "GeneID"))
+    
+    rocr_pred <- ROCR::prediction(predictions = y_preds,
+                                  labels = y_labels)
+    
+    rocr_perf <- ROCR::performance(rocr_pred,
+                                   measure = meas.a, 
+                                   x.measure = x.measure)
+    
+    if(meas.b == "fdr"){
+        ## the iCOBRA hack(s)
+        rocr_perf@alpha.values <- lapply(rocr_perf@alpha.values, function(x) 1 - x)
+    }
+    
+    a.vals <- unlist(rocr_perf@alpha.values)
+    # alpha.values <- rev(seq(min(a.vals[!is.infinite(a.vals)]),
+    #                         max(a.vals[!is.infinite(a.vals)]),
+    #                         length = max( sapply(rocr_perf@alpha.values, length))))
+    alpha.values <- seq(min(a.vals[!is.infinite(a.vals)]),
+                        max(a.vals[!is.infinite(a.vals)]),
+                        length = max( sapply(rocr_perf@alpha.values, length)))
+    
+    perf.sampled <- rocr_perf
+    idx_to_skip <- c()
+    for (i in 1:length(perf.sampled@y.values)) {
+        
+        if(length(rocr_perf@x.values[[i]]) - 
+           sum(is.nan(rocr_perf@x.values[[i]])) >= 2){
+            
+            perf.sampled@x.values[[i]] <-
+                stats::approxfun(rocr_perf@alpha.values[[i]], 
+                                 rocr_perf@x.values[[i]],
+                                 rule = 2, 
+                                 ties = mean)(alpha.values)
+            perf.sampled@y.values[[i]] <-
+                stats::approxfun(rocr_perf@alpha.values[[i]], 
+                                 rocr_perf@y.values[[i]],
+                                 rule = 2, 
+                                 ties = mean)(alpha.values)
+        }else{
+            idx_to_skip <- c(idx_to_skip, i)
+        }
+    }
+    
+    ## compute average curve
+    perf.avg <- perf.sampled
+    ds_to_keep <- !seq_len(length(perf.avg@x.values)) %in% idx_to_skip
+    
+    perf.avg@x.values <- 
+        list( rowMeans( data.frame( perf.avg@x.values[ds_to_keep]), na.rm = T))
+    perf.avg@y.values <- 
+        list(rowMeans( data.frame( perf.avg@y.values[ds_to_keep]), na.rm = T))
+    perf.avg@alpha.values <- list( alpha.values )
+    
+    if(meas.b == "fdr"){
+        res <- list(FDR = 1 - unlist(perf.avg@x.values))
+    }else{
+        res <- list(PPV = unlist(perf.avg@x.values))
+    }
+    
+    c(res, 
+      list(TPR = unlist(perf.avg@y.values),
+           Cutoff = unlist(perf.avg@alpha.values)))
+}
+```
+
+```{r}
+## x must be from the ROCR average section
+plot_dt <- as.data.table(get_avg_meas(x))
+
+ggplot(plot_dt, 
+       aes(x = FDR, y = TPR, color = Cutoff)) +
+    geom_vline(xintercept = .01, linetype = 2, color = "grey25") +
+    geom_vline(xintercept = .05, linetype = 2, color = "grey25") +
+    geom_vline(xintercept = .1, linetype = 2, color = "grey25") +
+    geom_path(size = .7) +
+    # facet_grid(rows = vars(SetSize),
+    #            cols = vars(MZP)) +
+    scale_x_continuous(breaks = x.breaks, 
+                       labels = c("", tail(x.breaks, -1))) +
+    scale_colour_gradientn(colors = rev(rainbow(7)), 
+                           limits = c(0, 1),
+                           guide = guide_colorbar(raster = T, draw.ulim = T, draw.llim = T)) +
+    # guides(color = guide_legend(ncol = 1)) +
+    coord_fixed(xlim = c(0, 1), ylim = c(0, 1)) +
+    theme_bw() +
+    theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5), 
+          panel.grid.major.y = element_blank(), 
+          panel.grid.minor.y = element_blank(), 
+          panel.grid.major.x = element_line(linetype = 2, color = "grey75"),
+          panel.grid.minor.x = element_blank()) +
+    ggtitle(paste(c(Meth, head(dsName_split, -1)), collapse = " "))
+```
+
+### Custom average (all methods) {.tabset}
+
+```{r}
+# mzp <- "bulk"
+# setSize <- "N10"
+# dsType <- "de"
+# 
+# Meth <- "edgeR_rbst_LRT"
+# y <- adj_pval_deind_dt[Method == Meth & 
+#                            MZP == mzp & 
+#                            SetSize == setSize &
+#                            DsType == dsType][order(Dataset, preds, decreasing = F),
+#                            .(GeneID = seq_along(true_val),
+#                              true_val,
+#                              preds = 1-preds), ## this is needed to have an iCOBRA-like plot
+#                            by = Dataset]
+# 
+# edgeR_rbst_LRT_avg_tprfdr <- as.data.table(get_avg_meas(y))
+# 
+# Meth <- "circMeta_Dt_PZT"
+# y <- adj_pval_deind_dt[Method == Meth & MZP == mzp & 
+#                            SetSize == setSize][order(Dataset, preds, decreasing = F),
+#                            .(GeneID = seq_along(true_val),
+#                              true_val,
+#                              preds = 1-preds),
+#                            by = Dataset]
+# 
+# circMeta_Dt_PZT_avg_tprfdr <- as.data.table(get_avg_meas(y))
+# plot_dt <- rbindlist(list(edgeR_rbst_LRT = edgeR_rbst_LRT_avg_tprfdr,
+#                           circMeta_Dt_PZT = circMeta_Dt_PZT_avg_tprfdr),
+#                      idcol = "Method")[order(Cutoff, decreasing = T)]
+
+plot_dt <-
+    rbindlist(lapply(split(adj_pval_deind_dt, 
+             by = c("SetSize", "MZP", "DsType", "Method")), 
+       function(x){
+           # message(paste(unique(x$SetSize), unique(x$MZP), unique(x$Method)))
+           as.data.table(get_avg_meas(x[, .(GeneID = seq_along(true_val),
+                                            true_val,
+                                            preds),
+                                        by = Dataset]))
+       }), idcol = "DS_meth")
+plot_dt[, c("SetSize", "MZP", "DsType", "Method") := tstrsplit(DS_meth, "\\."), 
+        by = DS_meth]
+```
+
+#### Bulk
+
+```{r, fig.height=7.5, fig.width=5}
+ggplot(plot_dt[MZP == "bulk"], 
+       aes(x = FDR, y = TPR, color = Method)) +
+    geom_vline(xintercept = .01, linetype = 2, color = "grey25") +
+    geom_vline(xintercept = .05, linetype = 2, color = "grey25") +
+    geom_vline(xintercept = .1, linetype = 2, color = "grey25") +
+    geom_path() + #size = .7
+    facet_grid(rows = vars(SetSize),
+               cols = vars(MZP)) +
+    scale_x_continuous(breaks = x.breaks, 
+                       labels = c("", tail(x.breaks, -1))) +
+    guides(color = guide_legend(ncol = 1)) +
+    coord_fixed() +
+    theme_bw() +
+    theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5), 
+          panel.grid.major.y = element_blank(), 
+          panel.grid.minor.y = element_blank(), 
+          panel.grid.major.x = element_line(linetype = 2, color = "grey75"),
+          panel.grid.minor.x = element_blank())
+```
+
+#### Sice
+
+```{r, fig.height=7.5, fig.width=5}
+ggplot(plot_dt[MZP == "sice"], 
+       aes(x = FDR, y = TPR, color = Method)) +
+    geom_vline(xintercept = .01, linetype = 2, color = "grey25") +
+    geom_vline(xintercept = .05, linetype = 2, color = "grey25") +
+    geom_vline(xintercept = .1, linetype = 2, color = "grey25") +
+    geom_path() + #size = .7
+    facet_grid(rows = vars(SetSize),
+               cols = vars(MZP)) +
+    scale_x_continuous(breaks = x.breaks, 
+                       labels = c("", tail(x.breaks, -1))) +
+    guides(color = guide_legend(ncol = 1)) +
+    coord_fixed() +
+    theme_bw() +
+    theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5), 
+          panel.grid.major.y = element_blank(), 
+          panel.grid.minor.y = element_blank(), 
+          panel.grid.major.x = element_line(linetype = 2, color = "grey75"),
+          panel.grid.minor.x = element_blank())
+```
+
+### Old
 
 ```{r, fig.width=10, fig.height=7}
 ggplot(mean_eval_metrics_dt[DsType == "de"], 
@@ -641,26 +1614,52 @@ ggplot(mean_eval_metrics_dt[DsType == "de"],
   theme_bw() +
   theme(legend.position = "top",
         axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5)) +
-  ggtitle("DE simulations")
+  ggtitle("P-values")
 ```
 
 ```{r, fig.width=10, fig.height=7}
-ggplot(mean_eval_metrics_dt[DsType == "de"], 
+plot_dt <- mean_eval_metrics_dt[DsType == "de"]
+
+# plot_dt2 <- 
+#     adj_pval_deind_dt[preds <= .1, 
+#                       .(TPR = sum(true_val == 1) / length(true_val)), 
+#                       by = .(SetSize, MZP, DsType, Method, 
+#                              DsId)][, .(TPR = mean(TPR)), 
+#                                     by = .(SetSize, MZP, DsType, Method)]
+
+ggplot(plot_dt, 
        aes(x = AvgFDR, y = AvgTPR, color = Method)) +
   geom_abline(linetype = "dashed") +
-  geom_vline(xintercept = 0.01, linetype = "dashed") +
-  geom_vline(xintercept = 0.05, linetype = "dashed") +
-  geom_vline(xintercept = 0.10, linetype = "dashed") +
+  geom_vline(xintercept = 0.01, linetype = "dashed", color = "grey55") +
+  geom_vline(xintercept = 0.05, linetype = "dashed", color = "grey55") +
+  geom_vline(xintercept = 0.10, linetype = "dashed", color = "grey55") +
   geom_line() +
-  # geom_point(data = mf1s[DsType == "de", .(SetSize, MZP, Method, Alpha, AvgFDR = FDR, AvgTPR = TPR)], 
-  #            aes(shape = Alpha)) +
+  # geom_point(data = plot_dt2,
+  #            aes(x = .1, y = TPR)) +
   facet_grid(cols = vars(SetSize),
              rows = vars(MZP)) +
-  coord_fixed(expand = T, xlim = c(0, .2), ylim = c(0, .4)) +
+  coord_fixed(expand = T, 
+              xlim = c(0, .2), 
+              ylim = c(0, .8)) +
   theme_bw() +
   theme(legend.position = "right",
         axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5))
 ```
+
+```{r, fig.width=10, fig.height=7}
+ggplot(adj_mean_eval_metrics_dt[DsType == "de"], 
+       aes(x = AvgFDR, y = AvgTPR, color = Method)) +
+  geom_abline(linetype = "dashed") +
+  geom_line() +
+  facet_grid(cols = vars(SetSize),
+             rows = vars(MZP)) +
+  coord_fixed(expand = T, xlim = c(0, 1), ylim = c(0, 1)) +
+  theme_bw() +
+  theme(legend.position = "top",
+        axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5)) +
+  ggtitle("Adjusted P-values")
+```
+
 
 ### AUC
 
@@ -697,9 +1696,9 @@ ggplot(auROCcs, aes(x = Method, y = AUC)) +
 ```{r, fig.width=10}
 ggplot(mean_auROCcs, aes(x = Method, y = AUC)) +
   geom_line(aes(group = paste(SetSize, MZP, DsType))) +
-  geom_point(shape = 21, fill = "red") +
-  # geom_pointrange(aes(ymin = AUC - sdAUC, ymax = AUC + sdAUC),
-  #                 shape = 21, fill = "red") +
+  # geom_point(shape = 21, fill = "red") +
+  geom_pointrange(aes(ymin = AUC - sdAUC, ymax = AUC + sdAUC),
+                  shape = 21, fill = "red") +
   ylab("Average AUC (FDR, TPR)") +
   facet_grid(cols = vars(SetSize),
              rows = vars(MZP), 
@@ -730,18 +1729,43 @@ ggplot(mean_eval_metrics_dt[DsType == "de"],
              rows = vars(MZP)) +
   coord_equal(expand = T) +
   theme_bw() +
-  theme(legend.position = "top") +
-  ggtitle("DE simulations")
+  theme(legend.position = "top",
+        axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5)) +
+  ggtitle("P-values")
+```
+
+```{r}
+ggplot(adj_mean_eval_metrics_dt[DsType == "de"], 
+       aes(x = AvgFPR, y = AvgTPR, color = Method)) +
+  geom_abline(linetype = "dashed") +
+  geom_line() +
+  facet_grid(cols = vars(SetSize),
+             rows = vars(MZP)) +
+  coord_equal(expand = T) +
+  theme_bw() +
+  theme(legend.position = "top",
+        axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5)) +
+  ggtitle("Adjusted P-values")
 ```
 
 ### AUC
 
 ```{r}
-auROCcs <- eval_metrics_dt[, .(AUC = simple_auc(TPR, FPR)), 
-             by = .(Dataset, SetSize, MZP, DsType, Method)]
+# auROCcs <- eval_metrics_dt[, .(AUC = simple_auc(TPR, FPR)), 
+#              by = .(Dataset, SetSize, MZP, DsType, Method)]
+# 
+# mean_auROCcs <- auROCcs[, .(AUC = mean(AUC)), 
+#                             by = .(SetSize, MZP, DsType, Method)]
 
-mean_auROCcs <- auROCcs[, .(AUC = mean(AUC)), 
-                            by = .(SetSize, MZP, DsType, Method)]
+auROCcs <- eval_metrics_dt[, .(AUC = simple_auc(TPR, FPR)),
+                           by = .(Dataset, SetSize, MZP, DsType,
+                                  Method = as.character(Method))]
+
+mean_auROCcs <- auROCcs[, .(AUC = mean(AUC, na.rm = T),
+                            sdAUC = sd(AUC, na.rm = T),
+                            seAUC = sqrt(var(AUC, na.rm = T)/length(AUC))),
+                            by = .(SetSize, MZP, DsType,
+                                   Method = as.character(Method))]
 ```
 
 ```{r}
@@ -765,9 +1789,9 @@ ggplot(auROCcs, aes(x = Method, y = AUC)) +
 ```{r, fig.width=10}
 ggplot(mean_auROCcs, aes(x = Method, y = AUC)) +
   geom_line(aes(group = paste(SetSize, MZP, DsType))) +
-  geom_point(shape = 21, fill = "red") +
-  # geom_pointrange(aes(ymin = AUC - sdAUC, ymax = AUC + sdAUC),
-  #                 shape = 21, fill = "red") +
+  # geom_point(shape = 21, fill = "red") +
+  geom_pointrange(aes(ymin = AUC - sdAUC, ymax = AUC + sdAUC),
+                  shape = 21, fill = "red") +
   ylab("Average AUC (FDR, TPR)") +
   facet_grid(cols = vars(SetSize),
              rows = vars(MZP), 
@@ -784,7 +1808,7 @@ show_dt$DsType <- factor(show_dt$DsType)
 show_dt$Method <- factor(show_dt$Method)
 
 datatable(show_dt, rownames = F, filter = "top") %>%
-  formatRound("AUC", 3)
+  formatRound(c("AUC", "sdAUC", "seAUC"), 3)
 ```
 
 # Session info
