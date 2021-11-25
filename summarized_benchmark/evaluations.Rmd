@@ -1980,9 +1980,10 @@ datatable(show_dt, rownames = F, filter = "top") %>%
 # auROCcs <- eval_metrics_dt[, .(AUC = simple_auc(TPR, FPR)),
 #                            by = .(Dataset, SetSize, MZP, DsType,
 #                                   Method = as.character(Method))]
-auROCcs <- adj_eval_metrics_dt[, .(AUC = simple_auc(TPR, FPR)),
-                           by = .(Dataset, SetSize, MZP, DsType,
-                                  Method = as.character(Method))]
+auROCcs <- adj_eval_metrics_dt[order(TPR, FPR), 
+                               .(AUC = simple_auc(TPR, FPR)),
+                               by = .(Dataset, SetSize, MZP, DsType,
+                                      Method = as.character(Method))]
 
 mean_auROCcs <- auROCcs[, .(AUC = mean(AUC, na.rm = T),
                             sdAUC = sd(AUC, na.rm = T),
@@ -2036,6 +2037,70 @@ show_dt$Method <- factor(show_dt$Method)
 
 datatable(show_dt, rownames = F, filter = "top") %>%
   formatRound(c("AUC", "sdAUC", "seAUC"), 3)
+```
+
+# Running times
+
+```{r, fig.width=10}
+plot_dt <- sbAssayL[, Seconds := ifelse(grepl("_ZW_", Method), Runtime.2, Runtime.1)]
+
+method_names <- sort(unique(plot_dt$Method))
+method_colors <- setNames(hue_pal()(length(method_names)), method_names)
+
+plot_dt$Method <- factor(plot_dt$Method, 
+                         levels = plot_dt[, .(Mtime = mean(Seconds)), 
+                                          by = Method][order(Mtime), unique(Method)], 
+                         ordered = T)
+
+ggplot(plot_dt, 
+       aes(x = Method, y = Seconds, color = Method)) +
+  geom_boxplot(outlier.size = .5) +
+  facet_grid(cols = vars(SetSize),
+             rows = vars(MZP)) +
+  scale_color_manual(values = method_colors, guide = "none") +
+  # scale_y_log10(label = comma) +
+  scale_y_log10("Runtime (mm:ss)", 
+                breaks = c(0.1, 1, 10, 60, 600),
+                # labels = c("0.1s", "1s", "10s", "1m", "10m", "1h")) +
+                labels = c("00:00.1", "00:01", "00:10", "01:00", "10:00")) +
+  # scale_y_time() +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5, 
+                                   color = method_colors[levels(plot_dt$Method)]))
+```
+
+```{r, fig.width=10, fig.height=7}
+plot_dt <- 
+  merge(mf1s, 
+        sbAssayL[, .(mTime = mean(Seconds)), by = .(SetSize, MZP, Method)],
+        by = c("SetSize", "MZP", "Method"))
+
+
+ggplot(plot_dt, aes(x = F1, y = mTime, color = Method, shape = Alpha)) +
+  geom_point() +
+  facet_grid(cols = vars(SetSize),
+             rows = vars(MZP, Alpha), 
+             scales = "free") +
+  scale_y_log10("Runtime (mm:ss)", 
+                breaks = c(0.1, 1, 10, 60, 600),
+                # labels = c("0.1s", "1s", "10s", "1m", "10m", "1h")) +
+                labels = c("00:00.1", "00:01", "00:10", "01:00", "10:00")) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5))
+```
+
+```{r, fig.width=10, fig.height=7}
+ggplot(plot_dt, aes(x = F0.5, y = mTime, color = Method, shape = baseMethod)) +
+  geom_point() +
+  facet_grid(cols = vars(SetSize),
+             rows = vars(MZP, Alpha), 
+             scales = "free") +
+  scale_y_log10("Runtime (mm:ss)", 
+                breaks = c(0.1, 1, 10, 60, 600),
+                # labels = c("0.1s", "1s", "10s", "1m", "10m", "1h")) +
+                labels = c("00:00.1", "00:01", "00:10", "01:00", "10:00")) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5))
 ```
 
 # Session info
