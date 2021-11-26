@@ -25,6 +25,8 @@ library(ggplot2)
 library(ggrepel)
 
 library(BiocParallel)
+
+library(ROCR)
 ```
 
 ```{r}
@@ -480,7 +482,7 @@ ggplot(plot_dt[grep(tpr_pattern, variable)], ## get P-values TPRs
         legend.position = "top")
 ```
 
-### Precision (TPR)
+### Precision (1-FDR)
 
 ```{r}
 pval_fdr_pattern <- "^FDR.[0-9]$"
@@ -1019,7 +1021,6 @@ Mean performance metrics on the adjusted P-values have been saved into the file 
 
 ```{r}
 x.breaks <- sort(c(.01, .05, seq(0, 1, by = .1)))
-library(ROCR)
 ```
 
 ```{r}
@@ -1116,63 +1117,167 @@ get_avg_meas <- function(y, meas.a = "tpr", meas.b = "fdr") {
 ### Custom average (all methods) Bulk
 
 ```{r}
-plot_dt <-
+fdrtpr_curve <-
     rbindlist(lapply(split(adj_pval_deind_dt, 
              by = c("SetSize", "MZP", "DsType", "Method")), 
        function(x){
-           as.data.table(get_avg_meas(x[, .(GeneID = seq_along(true_val),
-                                            true_val,
-                                            preds),
-                                        by = Dataset]))
-       }), idcol = "DS_meth")
-plot_dt[, c("SetSize", "MZP", "DsType", "Method") := tstrsplit(DS_meth, "\\."), 
+           as.data.table(get_avg_meas(x[, .(Dataset, true_val,
+                                            preds)]))
+       }), 
+       idcol = "DS_meth")
+
+fdrtpr_curve[, c("SetSize", "MZP", "DsType", "Method") := tstrsplit(DS_meth, "\\."), 
         by = DS_meth]
+
+alpha_fdrtpr_curve <- 
+    rbindlist(list("0.1" = fdrtpr_curve[order(Cutoff)][Cutoff <= .1, 
+                                          lapply(.SD, tail, 1), 
+                                          by = DS_meth],
+                   "0.05" = fdrtpr_curve[order(Cutoff)][Cutoff <= .05, 
+                                          lapply(.SD, tail, 1), 
+                                          by = DS_meth],
+                   "0.01" = fdrtpr_curve[order(Cutoff)][Cutoff <= .01, 
+                                          lapply(.SD, tail, 1), 
+                                          by = DS_meth]), 
+              idcol = "Alpha")
 ```
 
-```{r, fig.height=7.5, fig.width=5}
-ggplot(plot_dt[MZP == "bulk"], 
+```{r, fig.height=7, fig.width=13}
+ggplot(fdrtpr_curve[MZP == "bulk"], 
        aes(x = FDR, y = TPR, color = Method)) +
     geom_vline(xintercept = .01, linetype = 2, color = "grey25") +
     geom_vline(xintercept = .05, linetype = 2, color = "grey25") +
     geom_vline(xintercept = .1, linetype = 2, color = "grey25") +
-    geom_path() + #size = .7
-    facet_grid(rows = vars(SetSize),
-               cols = vars(MZP)) +
+    geom_path() + 
+    geom_point(data = alpha_fdrtpr_curve[MZP == "bulk" & (Cutoff > FDR)], 
+               size = 3, aes(shape = Alpha, fill = Method)) +
+    geom_point(data = alpha_fdrtpr_curve[MZP == "bulk" & (Cutoff <= FDR)], 
+               size = 3, aes(shape = Alpha), fill = "white") +
+    scale_shape_manual("P-adj \U2264", values = 21:23) +
+    facet_grid(cols = vars(SetSize),
+               rows = vars(MZP)) +
     scale_x_continuous(breaks = x.breaks, 
                        labels = c("", tail(x.breaks, -1))) +
-    guides(color = guide_legend(ncol = 1)) +
-    coord_fixed() +
+    guides(color = guide_legend(nrow = 3, title.position = "top"),
+           shape = guide_legend(nrow = 3, title.position = "top")) +
+    coord_fixed(xlim = c(0, 1), ylim = c(0, 1)) +
     labs(y = "Average TPR", x = "Average FDR") +
     theme_bw() +
     theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5), 
           panel.grid.major.y = element_blank(), 
           panel.grid.minor.y = element_blank(), 
           panel.grid.major.x = element_line(linetype = 2, color = "grey75"),
-          panel.grid.minor.x = element_blank())
+          panel.grid.minor.x = element_blank(),
+          legend.position = "top")
 ```
+
+White fill points when P-adj > empirical FDR   
 
 ### Custom average (all methods) Sice
 
-```{r, fig.height=7.5, fig.width=5}
-ggplot(plot_dt[MZP == "sice"], 
+```{r, fig.height=7, fig.width=13}
+ggplot(fdrtpr_curve[MZP == "sice"], 
        aes(x = FDR, y = TPR, color = Method)) +
     geom_vline(xintercept = .01, linetype = 2, color = "grey25") +
     geom_vline(xintercept = .05, linetype = 2, color = "grey25") +
     geom_vline(xintercept = .1, linetype = 2, color = "grey25") +
-    geom_path() + #size = .7
-    facet_grid(rows = vars(SetSize),
-               cols = vars(MZP)) +
+    geom_path() + 
+    geom_point(data = alpha_fdrtpr_curve[MZP == "sice" & (Cutoff > FDR)], 
+               size = 3, aes(shape = Alpha, fill = Method)) +
+    geom_point(data = alpha_fdrtpr_curve[MZP == "sice" & (Cutoff <= FDR)], 
+               size = 3, aes(shape = Alpha), fill = "white") +
+    scale_shape_manual("P-adj \U2264", values = 21:23) +
+    facet_grid(cols = vars(SetSize),
+               rows = vars(MZP)) +
     scale_x_continuous(breaks = x.breaks, 
                        labels = c("", tail(x.breaks, -1))) +
-    guides(color = guide_legend(ncol = 1)) +
-    coord_fixed() +
+    guides(color = guide_legend(nrow = 3, title.position = "top"),
+           shape = guide_legend(nrow = 3, title.position = "top")) +
+    coord_fixed(xlim = c(0, 1), ylim = c(0, 1)) +
     labs(y = "Average TPR", x = "Average FDR") +
     theme_bw() +
     theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5), 
           panel.grid.major.y = element_blank(), 
           panel.grid.minor.y = element_blank(), 
           panel.grid.major.x = element_line(linetype = 2, color = "grey75"),
-          panel.grid.minor.x = element_blank())
+          panel.grid.minor.x = element_blank(),
+          legend.position = "top")
+```
+
+## Precision-recall curve {.tabset}
+
+### Custom average (all methods) Bulk
+
+```{r}
+pr_curve <-
+    rbindlist(lapply(split(adj_pval_deind_dt, 
+             by = c("SetSize", "MZP", "DsType", "Method")), 
+       function(x){
+           as.data.table(get_avg_meas(x[, .(Dataset, true_val, 
+                                            preds = 1 - preds)][order(preds)], 
+                                      meas.a = "tpr", 
+                                      meas.b = "ppv"))
+       }), 
+       idcol = "DS_meth")[, Cutoff := 1 - Cutoff]
+
+pr_curve[, c("SetSize", "MZP", "DsType", "Method") := tstrsplit(DS_meth, "\\."), 
+        by = DS_meth]
+
+alpha_pr_curve <- 
+    rbindlist(list("0.1" = pr_curve[order(Cutoff)][Cutoff <= .1, 
+                                          lapply(.SD, tail, 1), 
+                                          by = DS_meth],
+                   "0.05" = pr_curve[order(Cutoff)][Cutoff <= .05, 
+                                          lapply(.SD, tail, 1), 
+                                          by = DS_meth],
+                   "0.01" = pr_curve[order(Cutoff)][Cutoff <= .01, 
+                                          lapply(.SD, tail, 1), 
+                                          by = DS_meth]), 
+              idcol = "Alpha")
+```
+
+```{r, fig.height=7, fig.width=13}
+ggplot(pr_curve[MZP == "bulk"], 
+       aes(x = TPR, y = PPV, color = Method)) +
+    geom_line() +
+    geom_point(data = alpha_pr_curve[MZP == "bulk" & (Cutoff > (1 - PPV))], 
+               size = 3, aes(shape = Alpha, fill = Method)) +
+    geom_point(data = alpha_pr_curve[MZP == "bulk" & (Cutoff <= (1 - PPV))], 
+               size = 3, aes(shape = Alpha), fill = "white") +
+    scale_shape_manual("P-adj \U2264", values = 21:23) +
+    facet_grid(cols = vars(SetSize),
+               rows = vars(MZP)) +
+    guides(color = guide_legend(nrow = 3, title.position = "top"),
+           shape = guide_legend(nrow = 3, title.position = "top")) +
+    coord_fixed(xlim = c(0, 1), ylim = c(0, 1)) +
+    labs(x = "Average TPR", y = "Average PPV") +
+    theme_bw() +
+    theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5),
+          legend.position = "top")
+```
+
+White fill points when P-adj > empirical FDR   
+
+### Custom average (all methods) Sice
+
+```{r, fig.height=7, fig.width=13}
+ggplot(pr_curve[MZP == "sice"], 
+       aes(x = TPR, y = PPV, color = Method)) +
+    geom_line() +
+    geom_point(data = alpha_pr_curve[MZP == "sice" & (Cutoff > (1 - PPV))], 
+               size = 3, aes(shape = Alpha, fill = Method)) +
+    geom_point(data = alpha_pr_curve[MZP == "sice" & (Cutoff <= (1 - PPV))], 
+               size = 3, aes(shape = Alpha), fill = "white") +
+    scale_shape_manual("P-adj \U2264", values = 21:23) +
+    facet_grid(cols = vars(SetSize),
+               rows = vars(MZP)) +
+    guides(color = guide_legend(nrow = 3, title.position = "top"),
+           shape = guide_legend(nrow = 3, title.position = "top")) +
+    coord_fixed(xlim = c(0, 1), ylim = c(0, 1)) +
+    labs(y = "Average PPV", x = "Average TPR") +
+    theme_bw() +
+    theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5),
+          legend.position = "top")
 ```
 
 ## ROC (FPR vs TPR) {.tabset}
@@ -1408,7 +1513,7 @@ plot_dt <-
         by = c("SetSize", "MZP", "Method"))
 
 
-ggplot(plot_dt, aes(x = F1, y = mTime, color = Method, shape = Alpha)) +
+ggplot(plot_dt, aes(x = F1, y = mTime, color = Method, shape = baseMethod)) +
   geom_point() +
   facet_grid(cols = vars(SetSize),
              rows = vars(MZP, Alpha), 
