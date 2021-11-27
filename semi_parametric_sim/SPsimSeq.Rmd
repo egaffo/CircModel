@@ -1,0 +1,340 @@
+---
+title: "Simulations with SPsimSeq"
+author: "Enrico Gaffo"
+date: "13/10/2021"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+# load required libraries
+library(data.table)
+library(ggplot2)
+
+# library(devtools)
+# install_github("CenterForStatistics-UGent/SPsimSeq", Ncpus = 12)
+library(SPsimSeq)
+
+# if (!requireNamespace("BiocManager", quietly = TRUE))
+#     install.packages("BiocManager")
+# BiocManager::install("countsimQC", Ncpus = 12)
+library(countsimQC)
+
+# if (!requireNamespace("BiocManager", quietly = TRUE))
+#     install.packages("BiocManager")
+# BiocManager::install("SummarizedBenchmark", Ncpus = 12)
+library(SummarizedBenchmark)
+```
+
+# Simulate one bulk RNA-seq dataset
+
+```{r}
+# load the data
+counts_mt <- as.matrix(data.frame(fread("data/MS_unfiltered_CirComPara2_circbjr.csv"), 
+                                  row.names = "circ_id"))
+group_dt <- fread("data/MS_meta.csv")
+group_df <- data.frame(group_dt, 
+                       row.names = "sample_id")
+```
+
+MS data have `r nrow(counts_mt)` circRNAs.  
+
+Samples partitioned between conditions  
+```{r}
+cond_parts <- group_dt[, .N, by = condition][, Frac := N/sum(N)][]
+cond_parts
+```
+
+
+```{r}
+# remove genes with insufficient expression (important step to avoid bugs)
+counts_mt <- counts_mt[rowSums(counts_mt > 0) >= 3, ]
+```
+
+MS filtered data have `r nrow(counts_mt)` circRNAs (BJR > 0 in 3 or more samples).  
+
+```{r}
+# MYCN.status <- zhang.data$MYCN.status+1
+# subset an equivalent size of the source dataset
+seed.num <- 25081988
+set.seed(seed.num)
+
+Ncircrnas <- 5000 # number of circRNAs to simulate
+fracDECs <- 0.1 # fraction of differentially expressed circRNAs
+counts_mt2 <- counts_mt[sample(nrow(counts_mt), Ncircrnas), ]
+
+# zhang.counts2 <- zhang.counts$counts
+# MYCN.status <- zhang.counts$MYCN.status
+
+# SPsimSeq simulation
+SPsimSeq.sim <- SPsimSeq(n.sim = 1,
+                         s.data = counts_mt2, 
+                         group = as.integer(factor(group_df[colnames(counts_mt2), ])), 
+                         batch = rep(1, ncol(counts_mt2)),
+                         n.genes = Ncircrnas, 
+                         group.config = cond_parts$Frac, #c(0.47, 0.53),
+                         batch.config = 1, 
+                         tot.samples = ncol(counts_mt2), 
+                         pDE = fracDECs, 
+                         lfc.thrld = 0.5, # minimum absolute log-fold-change for selecting candidate DEC
+                         t.thrld = 2.5, # minimum absolute t-test statistic for the log-fold-changes of genes for selecting candidate DECs
+                         # ll.thrld = 5, 
+                         w = 0.5,
+                         # seed = seed.num,
+                         model.zero.prob = FALSE) 
+
+## TODO: save simulated datasets
+```
+
+## Assess simulated data is similar to real data
+
+```{r}
+## prepare the list of dataset
+
+library(DESeq2)
+real_dds <- 
+  DESeqDataSetFromMatrix(countData = counts_mt,
+                         colData = group_df[colnames(counts_mt), , drop = F],
+                         design = ~ condition)
+
+spsimseq_bulk_dds <- 
+  DESeqDataSetFromMatrix(countData = counts(SPsimSeq.sim[[1]]),
+                         colData = colData(SPsimSeq.sim[[1]]), 
+                         design = ~ Group)
+
+datasets_list <- 
+  list("Real" = real_dds, 
+       "SPsimSeq bulk" = spsimseq_bulk_dds)
+
+```
+
+```{r}
+## analyse with countsimQC
+
+report_dir <- "countsimQCReport"
+dir.create(report_dir, showWarnings = F, recursive = T)
+countsimQCReport(ddsList = datasets_list, 
+                 outputFile = "MS_sim_report.html",
+                 outputDir = "./", #report_dir, 
+                 outputFormat = "html_document", 
+                 showCode = FALSE, 
+                 forceOverwrite = TRUE,
+                 savePlots = TRUE, 
+                 description = "Quality report of the simulations from the MS dataset", 
+                 # maxNForCorr = 25, 
+                 maxNForDisp = Inf, 
+                 calculateStatistics = TRUE, 
+                 # subsampleSize = 25,
+                 kfrac = 0.01, 
+                 kmin = 5, 
+                 permutationPvalues = FALSE, 
+                 nPermutations = NULL)
+```
+
+```{r}
+
+```
+
+
+### Real
+
+```{r}
+library(DESeq2)
+des <- DESeqDataSetFromMatrix(countData = counts_mt2,
+                              colData = group_df[colnames(counts_mt2), , drop = F],
+                              design = ~ condition)
+
+des <- DESeq(des,
+             fitType = "glmGamPoi",
+             sfType = "poscounts",
+             minReplicatesForReplace = Inf,
+             minmu = 1e-06)
+
+# des <- estimateSizeFactors(des)
+log_des <- log2(counts(des, normalized = T) + 1)
+
+pca_obj <- prcomp(x = t(log_des), center = T, scale. = T)
+
+pca_df <- data.frame(pca_obj$x[, 1:2], colData(des))
+
+
+ggplot(pca_df, aes(x = PC1, y = PC2, color = condition)) +
+    geom_point()
+
+# vst_obj <- varianceStabilizingTransformation(des, blind = F)
+#
+# # plotPCA(vst_obj[order(-rowVars(assay(vst_obj)))[1:nrow(des) * fracDECs], ], intgroup = "Group")
+#
+# pca_obj <- prcomp(x = t(assay(vst_obj)), center = T, scale. = F)
+#
+# pca_df <- data.frame(pca_obj$x[, 1:2], colData(des))
+#
+# ggplot(pca_df, aes(x = PC1, y = PC2, color = condition)) +
+#     geom_point()
+```
+
+### Simulated
+
+```{r}
+library(DESeq2)
+SPsimSeq.sim1 <- SPsimSeq.sim[[1]]
+
+des <- DESeqDataSetFromMatrix(countData = counts(SPsimSeq.sim1),
+                              colData = colData(SPsimSeq.sim1), 
+                              design = ~ Group)
+
+# des <- estimateSizeFactors(des)
+des <- DESeq(des, 
+             fitType = "glmGamPoi", 
+             sfType = "poscounts", 
+             minReplicatesForReplace = Inf, 
+             minmu = 1e-06)
+
+log_des <- log2(counts(des, normalized = T) + 1)
+
+pca_obj <- prcomp(x = t(log_des), center = T, scale. = F)
+
+pca_df <- data.frame(pca_obj$x[, 1:2], colData(des))
+
+library(ggplot2)
+ggplot(pca_df, aes(x = PC1, y = PC2, color = Group)) +
+    geom_point()
+
+vst_obj <- varianceStabilizingTransformation(des, blind = F)
+
+# plotPCA(vst_obj[order(-rowVars(assay(vst_obj)))[1:nrow(des) * fracDECs], ], intgroup = "Group")
+
+pca_obj <- prcomp(x = t(assay(vst_obj)), center = T, scale. = F)
+
+pca_df <- data.frame(pca_obj$x[, 1:2], colData(des))
+
+ggplot(pca_df, aes(x = PC1, y = PC2, color = Group)) +
+    geom_point()
+```
+
+## Performance
+
+### DESeq2
+
+```{r}
+## indicators for DECs
+gs_decs <- rowData(SPsimSeq.sim1)
+
+alpha_sig <- .1
+# res <- results(des, alpha = alpha_sig, independentFiltering = F, cooksCutoff = F)
+res <- results(des, alpha = alpha_sig, independentFiltering = T, cooksCutoff = T)
+
+res_DESeq2_dt <- 
+  merge(data.table(data.frame(res), keep.rownames = "geneID")[, pred.DE := ifelse(padj <= alpha_sig, T, F)][],
+      data.table(data.frame(gs_decs), keep.rownames = "geneID"),
+      by = "geneID")
+
+res_DESeq2_dt[is.na(pred.DE), pred.DE := F]
+
+res_DESeq2_dt[, .N, by = .(DE.ind, pred.DE)][order(DE.ind, pred.DE)]
+```
+
+### EdgeR
+
+```{r}
+library(edgeR)
+y <- DGEList(counts(SPsimSeq.sim1), group = colData(SPsimSeq.sim1)$Group)
+y <- calcNormFactors(y)
+design_mm <- model.matrix(~ Group, colData(SPsimSeq.sim1))
+y <- estimateDisp(y, design_mm)
+fit <- glmFit(y, design_mm)
+res_edgeR <- glmLRT(fit, coef = 2)
+
+res_edgeR$table$padj <- p.adjust(res_edgeR$table$PValue, method = "BH")
+
+
+res_edgeR_dt <- 
+  merge(data.table(data.frame(res_edgeR$table), keep.rownames = "geneID")[, pred.DE := ifelse(padj <= alpha_sig, T, F)][],
+      data.table(data.frame(gs_decs), keep.rownames = "geneID"),
+      by = "geneID")
+
+res_edgeR_dt[is.na(pred.DE), pred.DE := F]
+
+res_edgeR_dt[, .N, by = .(DE.ind, pred.DE)][order(DE.ind, pred.DE)]
+```
+
+### Voom
+
+```{r}
+library(limma)
+voom_run <- function(countData, group, design) {
+    y <- DGEList(countData, group = group)
+    y <- calcNormFactors(y)
+    des <- model.matrix(design)
+    y <- voom(y, des)
+    eBayes(lmFit(y, des))
+}
+voom_pv <- function(x) { x$p.value[, 2] }
+voom_lfc <- function(x) { x$coefficients[, 2] }
+
+res_voom <- 
+  voom_run(countData = counts(SPsimSeq.sim1), 
+           group = colData(SPsimSeq.sim1)$Group,
+           design = ~ colData(SPsimSeq.sim1)$Group)
+
+res_voom$padj <- p.adjust(res_voom$p.value[, 2], method = "BH")
+
+res_voom_dt <- 
+  merge(data.table(data.frame(padj = res_voom$padj), 
+                   keep.rownames = "geneID")[, pred.DE := ifelse(padj <= alpha_sig, T, F)][],
+      data.table(data.frame(gs_decs), keep.rownames = "geneID"),
+      by = "geneID")
+
+res_voom_dt[is.na(pred.DE), pred.DE := F]
+
+res_voom_dt[, .N, by = .(DE.ind, pred.DE)][order(DE.ind, pred.DE)]
+```
+
+
+# Simulate one single cell RNA-seq dataset
+
+```{r}
+# load required libraries
+library(SingleCellExperiment)
+library(SPsimSeq)
+# load the NGP nutlin data (availabl with the package)
+data("scNGP.data")
+# filter genes with sufficient expression (important step to avoid bugs)
+scNGP.data2 <- scNGP.data[rowSums(counts(scNGP.data) > 0)>=5, ]
+treatment <- ifelse(scNGP.data2$characteristics..treatment=="nutlin",2,1)
+scNGP.data2 <- scNGP.data2[sample(nrow(scNGP.data2), 5000), ]
+# simulate data (we simulate here only a single data, n.sim = 1)
+sim.data.SPsim <- SPsimSeq(n.sim = 1, s.data = scNGP.data2, batch = NULL,
+                           group = treatment, n.genes = 5000, batch.config = 1,
+                           group.config = prop.table(table(treatment)),
+                           tot.samples = ncol(scNGP.data2), w = 0.5,
+                           pDE = 0.1, lfc.thrld=0.5, t.thrld=2.5, ll.thrld=5,
+                           model.zero.prob = TRUE, result.format = "SCE",
+                           seed=25081988)
+```
+
+# Simulate one single cell RNA-seq dataset (UMI-counts)
+
+```{r}
+# load the Zhang data (availabl with the package)
+data("PBMC.data")
+# filter genes with sufficient expression (important step to avoid bugs)
+PBMCdat <- PBMC.10x.data[rowSums(counts(PBMC.10x.data) > 0)>=10, ]
+PBMCdat2 <- PBMCdat[sample(nrow(PBMCdat), 5000), ]
+# simulate data (we simulate here only a single data, n.sim = 1)
+sim.data.SPsim <-
+    SPsimSeq(n.sim = 1, s.data = PBMCdat2, batch = NULL,
+             group = NULL, n.genes = 5000, batch.config = 1,
+             group.config = 1, tot.samples = ncol(PBMCdat2), pDE = 0,
+             model.zero.prob = TRUE, result.format = "SCE", seed = 25081988)
+```
+
+# Benchmark
+
+```{r}
+
+```
+
