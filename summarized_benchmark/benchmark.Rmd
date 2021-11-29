@@ -7,6 +7,9 @@ output:
     toc: yes
     toc_float: yes
     code_folding: hide
+params:
+  outdir: "MS_benchmark_results"
+  inputData: "./MS_prep_ds/datasetList.qs"
 editor_options: 
   chunk_output_type: console
 ---
@@ -39,7 +42,8 @@ library(circMeta)
 
 ```{r}
 ## set the output directory
-outdir <- "benchmark_results"
+# outdir <- "benchmark_results"
+outdir <- params$outdir
 dir.create(path = outdir, recursive = T, showWarnings = F)
 ```
 
@@ -47,9 +51,9 @@ dir.create(path = outdir, recursive = T, showWarnings = F)
 nWorkers <- multicoreWorkers()
 
 ## load simulated preprocessed data
-datasetList_qs <- "./preprocessed_datasets/datasetList.qs"
-
-datasetList <- qread(file = datasetList_qs, nthreads = nWorkers)
+# inputData <- "./preprocessed_datasets/datasetList.qs"
+inputData <- params$inputData
+datasetList <- qread(file = inputData, nthreads = nWorkers)
 ```
 
 ```{r}
@@ -150,9 +154,9 @@ datasetList <-
 
 ```{r save_datasets}
 # ## save the processed data sets
-# datasetList_qs <- "datasetList.qs"
+# inputData <- "datasetList.qs"
 # qsave(x = datasetList, 
-#       file = datasetList_qs, 
+#       file = inputData, 
 #       nthreads = multicoreWorkers(), 
 #       preset = "fast")
 ```
