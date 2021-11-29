@@ -7,6 +7,11 @@ output:
     toc: yes
     toc_float: yes
     code_folding: hide
+params:
+  output_dir: "DM1_evaluations"
+  simulated_datasets_qs: "DM1_prep_ds/datasetList.qs"
+  sumBench_perf_metrics_qs: "DM1_benchmark_results/sumBench_perf_metrics.qs"
+  sice: FALSE
 editor_options: 
   chunk_output_type: console
 ---
@@ -31,12 +36,12 @@ library(ROCR)
 
 ```{r}
 ## output file path
-output_dir <- "evaluations"
+output_dir <- params$output_dir #"evaluations"
 dir.create(path = output_dir, showWarnings = F, recursive = T)
 
 ## input data
-simulated_datasets_qs <- "preprocessed_datasets/datasetList.qs"
-sumBench_perf_metrics_qs <- "benchmark_results/sumBench_perf_metrics.qs"
+simulated_datasets_qs <- params$simulated_datasets_qs #"preprocessed_datasets/datasetList.qs"
+sumBench_perf_metrics_qs <- params$sumBench_perf_metrics_qs #"benchmark_results/sumBench_perf_metrics.qs"
 ```
 
 ```{r}
@@ -214,17 +219,20 @@ sbL <- qread(file = sumBench_perf_metrics_qs,
 ## Method prediction overlap {.tabset}
 
 ```{r}
-cmL <- lapply(sbL, function(x) {
-  
-  pv_mat <- assays(x)[["pv"]] <= 0.1
-  pv_mat[is.na(pv_mat)] <- F
-  
-  cm <- ComplexHeatmap::make_comb_mat(pv_mat, min_set_size = 0)
-  
-  list(overlap_frac = ComplexHeatmap::comb_size(cm) / nrow(assays(x)[["pv"]]),
-       cm = cm,
-       set_names = ComplexHeatmap::set_name(cm))
-})
+cmL <- lapply(sbL, 
+              function(x, alpha_thr = 0.1) {
+                  
+                  pv_mat <- assays(x)[["adj_pv"]] <= alpha_thr
+                  pv_mat[is.na(pv_mat)] <- F
+                  
+                  cm <- ComplexHeatmap::make_comb_mat(pv_mat, min_set_size = 0)
+                  
+                  list(overlap_frac = ComplexHeatmap::comb_size(cm) / nrow(assays(x)[["adj_pv"]]),
+                       cm = cm,
+                       set_names = ComplexHeatmap::set_name(cm))
+              },
+              alpha_thr = 0.1
+)
 
 set_names <- 
   dcast(rbindlist(lapply(cmL, function(x) {data.table(Method = x$set_names,
@@ -377,25 +385,31 @@ plot_common_pred_upset(setsize = "N10", mzp = "bulk", purpose = "de", ## N10_bul
 ### Sice N03
 
 ```{r, fig.height=5.5, fig.width=6.5}
-plot_common_pred_upset(setsize = "N03", mzp = "sice", purpose = "de", 
-                       selected_comb_sizes_dt, mean_setSize, 
-                       ovlp_frac, setSize)
+if(params$sice){
+    plot_common_pred_upset(setsize = "N03", mzp = "sice", purpose = "de", 
+                           selected_comb_sizes_dt, mean_setSize, 
+                           ovlp_frac, setSize)
+}
 ```
 
 ### Sice N05
 
 ```{r, fig.height=5.5, fig.width=6.5}
-plot_common_pred_upset(setsize = "N05", mzp = "sice", purpose = "de", 
+if(params$sice){
+    plot_common_pred_upset(setsize = "N05", mzp = "sice", purpose = "de", 
                        selected_comb_sizes_dt, mean_setSize, 
                        ovlp_frac, setSize)
+}
 ```
 
 ### Sice N10
 
 ```{r, fig.height=5.5, fig.width=6.5}
-plot_common_pred_upset(setsize = "N10", mzp = "sice", purpose = "de", 
+if(params$sice){
+    plot_common_pred_upset(setsize = "N10", mzp = "sice", purpose = "de", 
                        selected_comb_sizes_dt, mean_setSize, 
                        ovlp_frac, setSize)
+}
 ```
 
 ```{r}
@@ -733,40 +747,42 @@ ggplot(plot_dt,
 ##### Sice pointrange
 
 ```{r, fig.height=8}
-plot_dt <- mf1s[MZP == "sice"][, c("baseMethod", "Params", "Test") := tstrsplit(Method, "_")]
-plot_dt[, Params_Test := paste(Params, Test)]
-
-level_order <- plot_dt[grepl("^3", Alpha) &
-                           SetSize == "N10"][order(-F1),
-                                             .(Method),
-                                             by = baseMethod][, Method]
-
-plot_dt$Method <-
-    factor(plot_dt$Method,
-           levels = level_order,
-           ordered = T)
-
-ggplot(plot_dt, 
-       aes(x = Method, 
-           y = F1, 
-           color = Alpha)) +
-    geom_pointrange(aes(ymin = F1 - sdF1, ymax = F1 + sdF1),
-                    position = position_dodge(width = .7)) +
-    ylab("Average F1") +
-    xlab("Method") +
-    scale_color_discrete(Alpha_plot_label, labels = alpha_targets) +
-    scale_x_discrete(label = function(x){
-        gsub("_", " ", gsub("edgeR_|DESeq2_|voom_|circMeta_", "", x))
+if(params$sice){
+    plot_dt <- mf1s[MZP == "sice"][, c("baseMethod", "Params", "Test") := tstrsplit(Method, "_")]
+    plot_dt[, Params_Test := paste(Params, Test)]
+    
+    level_order <- plot_dt[grepl("^3", Alpha) &
+                               SetSize == "N10"][order(-F1),
+                                                 .(Method),
+                                                 by = baseMethod][, Method]
+    
+    plot_dt$Method <-
+        factor(plot_dt$Method,
+               levels = level_order,
+               ordered = T)
+    
+    ggplot(plot_dt, 
+           aes(x = Method, 
+               y = F1, 
+               color = Alpha)) +
+        geom_pointrange(aes(ymin = F1 - sdF1, ymax = F1 + sdF1),
+                        position = position_dodge(width = .7)) +
+        ylab("Average F1") +
+        xlab("Method") +
+        scale_color_discrete(Alpha_plot_label, labels = alpha_targets) +
+        scale_x_discrete(label = function(x){
+            gsub("_", " ", gsub("edgeR_|DESeq2_|voom_|circMeta_", "", x))
         }) +
-    coord_flip(clip = "off") +
-    facet_grid(cols = vars(Alpha, SetSize), 
-               rows = vars(baseMethod), 
-               drop = T, 
-               scales = "free", space = "free") +
-    theme_bw() +
-    theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5),
-          panel.spacing.y = unit(.01, "lines"),
-          legend.position = "top")
+        coord_flip(clip = "off") +
+        facet_grid(cols = vars(Alpha, SetSize), 
+                   rows = vars(baseMethod), 
+                   drop = T, 
+                   scales = "free", space = "free") +
+        theme_bw() +
+        theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5),
+              panel.spacing.y = unit(.01, "lines"),
+              legend.position = "top")
+}
 ```
 
 #### F0.5 {.tabset} 
@@ -848,40 +864,42 @@ ggplot(plot_dt,
 ##### Sice pointrange
 
 ```{r, fig.height=8}
-plot_dt <- mf1s[MZP == "sice"][, c("baseMethod", "Params", "Test") := tstrsplit(Method, "_")]
-plot_dt[, Params_Test := paste(Params, Test)]
-
-level_order <- plot_dt[grepl("^3", Alpha) &
-                           SetSize == "N10"][order(-F0.5),
-                                             .(Method),
-                                             by = baseMethod][, Method]
-
-plot_dt$Method <-
-    factor(plot_dt$Method,
-           levels = level_order,
-           ordered = T)
-
-ggplot(plot_dt, 
-       aes(x = Method, 
-           y = F0.5, 
-           color = Alpha)) +
-    geom_pointrange(aes(ymin = F0.5 - sdF0.5, ymax = F0.5 + sdF0.5),
-                    position = position_dodge(width = .7)) +
-    ylab(expression(Average~F[0.5])) +
-    xlab("Method") +
-    scale_color_discrete(Alpha_plot_label, labels = alpha_targets) +
-    scale_x_discrete(label = function(x){
-        gsub("_", " ", gsub("edgeR_|DESeq2_|voom_|circMeta_", "", x))
+if(params$sice){
+    plot_dt <- mf1s[MZP == "sice"][, c("baseMethod", "Params", "Test") := tstrsplit(Method, "_")]
+    plot_dt[, Params_Test := paste(Params, Test)]
+    
+    level_order <- plot_dt[grepl("^3", Alpha) &
+                               SetSize == "N10"][order(-F0.5),
+                                                 .(Method),
+                                                 by = baseMethod][, Method]
+    
+    plot_dt$Method <-
+        factor(plot_dt$Method,
+               levels = level_order,
+               ordered = T)
+    
+    ggplot(plot_dt, 
+           aes(x = Method, 
+               y = F0.5, 
+               color = Alpha)) +
+        geom_pointrange(aes(ymin = F0.5 - sdF0.5, ymax = F0.5 + sdF0.5),
+                        position = position_dodge(width = .7)) +
+        ylab(expression(Average~F[0.5])) +
+        xlab("Method") +
+        scale_color_discrete(Alpha_plot_label, labels = alpha_targets) +
+        scale_x_discrete(label = function(x){
+            gsub("_", " ", gsub("edgeR_|DESeq2_|voom_|circMeta_", "", x))
         }) +
-    coord_flip(clip = "off") +
-    facet_grid(cols = vars(Alpha, SetSize), 
-               rows = vars(baseMethod), 
-               drop = T, 
-               scales = "free", space = "free") +
-    theme_bw() +
-    theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5),
-          panel.spacing.y = unit(.01, "lines"),
-          legend.position = "top")
+        coord_flip(clip = "off") +
+        facet_grid(cols = vars(Alpha, SetSize), 
+                   rows = vars(baseMethod), 
+                   drop = T, 
+                   scales = "free", space = "free") +
+        theme_bw() +
+        theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5),
+              panel.spacing.y = unit(.01, "lines"),
+              legend.position = "top")
+}
 ```
 
 
@@ -1142,7 +1160,7 @@ alpha_fdrtpr_curve <-
               idcol = "Alpha")
 ```
 
-```{r, fig.height=7, fig.width=13}
+```{r, fig.height=7, fig.width=12}
 ggplot(fdrtpr_curve[MZP == "bulk"], 
        aes(x = FDR, y = TPR, color = Method)) +
     geom_vline(xintercept = .01, linetype = 2, color = "grey25") +
@@ -1150,7 +1168,7 @@ ggplot(fdrtpr_curve[MZP == "bulk"],
     geom_vline(xintercept = .1, linetype = 2, color = "grey25") +
     geom_path() + 
     geom_point(data = alpha_fdrtpr_curve[MZP == "bulk" & (Cutoff > FDR)], 
-               size = 3, aes(shape = Alpha, fill = Method)) +
+               size = 3, aes(shape = Alpha, fill = Method), show.legend = F) +
     geom_point(data = alpha_fdrtpr_curve[MZP == "bulk" & (Cutoff <= FDR)], 
                size = 3, aes(shape = Alpha), fill = "white") +
     scale_shape_manual("P-adj \U2264", values = 21:23) +
@@ -1175,33 +1193,35 @@ White fill points when P-adj > empirical FDR
 
 ### Custom average (all methods) Sice
 
-```{r, fig.height=7, fig.width=13}
-ggplot(fdrtpr_curve[MZP == "sice"], 
-       aes(x = FDR, y = TPR, color = Method)) +
-    geom_vline(xintercept = .01, linetype = 2, color = "grey25") +
-    geom_vline(xintercept = .05, linetype = 2, color = "grey25") +
-    geom_vline(xintercept = .1, linetype = 2, color = "grey25") +
-    geom_path() + 
-    geom_point(data = alpha_fdrtpr_curve[MZP == "sice" & (Cutoff > FDR)], 
-               size = 3, aes(shape = Alpha, fill = Method)) +
-    geom_point(data = alpha_fdrtpr_curve[MZP == "sice" & (Cutoff <= FDR)], 
-               size = 3, aes(shape = Alpha), fill = "white") +
-    scale_shape_manual("P-adj \U2264", values = 21:23) +
-    facet_grid(cols = vars(SetSize),
-               rows = vars(MZP)) +
-    scale_x_continuous(breaks = x.breaks, 
-                       labels = c("", tail(x.breaks, -1))) +
-    guides(color = guide_legend(nrow = 3, title.position = "top"),
-           shape = guide_legend(nrow = 3, title.position = "top")) +
-    coord_fixed(xlim = c(0, 1), ylim = c(0, 1)) +
-    labs(y = "Average TPR", x = "Average FDR") +
-    theme_bw() +
-    theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5), 
-          panel.grid.major.y = element_blank(), 
-          panel.grid.minor.y = element_blank(), 
-          panel.grid.major.x = element_line(linetype = 2, color = "grey75"),
-          panel.grid.minor.x = element_blank(),
-          legend.position = "top")
+```{r, fig.height=7, fig.width=12}
+if(params$sice){
+    ggplot(fdrtpr_curve[MZP == "sice"], 
+           aes(x = FDR, y = TPR, color = Method)) +
+        geom_vline(xintercept = .01, linetype = 2, color = "grey25") +
+        geom_vline(xintercept = .05, linetype = 2, color = "grey25") +
+        geom_vline(xintercept = .1, linetype = 2, color = "grey25") +
+        geom_path() + 
+        geom_point(data = alpha_fdrtpr_curve[MZP == "sice" & (Cutoff > FDR)], 
+                   size = 3, aes(shape = Alpha, fill = Method), show.legend = F) +
+        geom_point(data = alpha_fdrtpr_curve[MZP == "sice" & (Cutoff <= FDR)], 
+                   size = 3, aes(shape = Alpha), fill = "white") +
+        scale_shape_manual("P-adj \U2264", values = 21:23) +
+        facet_grid(cols = vars(SetSize),
+                   rows = vars(MZP)) +
+        scale_x_continuous(breaks = x.breaks, 
+                           labels = c("", tail(x.breaks, -1))) +
+        guides(color = guide_legend(nrow = 3, title.position = "top"),
+               shape = guide_legend(nrow = 3, title.position = "top")) +
+        coord_fixed(xlim = c(0, 1), ylim = c(0, 1)) +
+        labs(y = "Average TPR", x = "Average FDR") +
+        theme_bw() +
+        theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5), 
+              panel.grid.major.y = element_blank(), 
+              panel.grid.minor.y = element_blank(), 
+              panel.grid.major.x = element_line(linetype = 2, color = "grey75"),
+              panel.grid.minor.x = element_blank(),
+              legend.position = "top")
+}
 ```
 
 ## Precision-recall curve {.tabset}
@@ -1236,12 +1256,12 @@ alpha_pr_curve <-
               idcol = "Alpha")
 ```
 
-```{r, fig.height=7, fig.width=13}
+```{r, fig.height=7, fig.width=12}
 ggplot(pr_curve[MZP == "bulk"], 
        aes(x = TPR, y = PPV, color = Method)) +
     geom_line() +
     geom_point(data = alpha_pr_curve[MZP == "bulk" & (Cutoff > (1 - PPV))], 
-               size = 3, aes(shape = Alpha, fill = Method)) +
+               size = 3, aes(shape = Alpha, fill = Method), show.legend = F) +
     geom_point(data = alpha_pr_curve[MZP == "bulk" & (Cutoff <= (1 - PPV))], 
                size = 3, aes(shape = Alpha), fill = "white") +
     scale_shape_manual("P-adj \U2264", values = 21:23) +
@@ -1260,27 +1280,50 @@ White fill points when P-adj > empirical FDR
 
 ### Custom average (all methods) Sice
 
-```{r, fig.height=7, fig.width=13}
-ggplot(pr_curve[MZP == "sice"], 
-       aes(x = TPR, y = PPV, color = Method)) +
-    geom_line() +
-    geom_point(data = alpha_pr_curve[MZP == "sice" & (Cutoff > (1 - PPV))], 
-               size = 3, aes(shape = Alpha, fill = Method)) +
-    geom_point(data = alpha_pr_curve[MZP == "sice" & (Cutoff <= (1 - PPV))], 
-               size = 3, aes(shape = Alpha), fill = "white") +
-    scale_shape_manual("P-adj \U2264", values = 21:23) +
-    facet_grid(cols = vars(SetSize),
-               rows = vars(MZP)) +
-    guides(color = guide_legend(nrow = 3, title.position = "top"),
-           shape = guide_legend(nrow = 3, title.position = "top")) +
-    coord_fixed(xlim = c(0, 1), ylim = c(0, 1)) +
-    labs(y = "Average PPV", x = "Average TPR") +
-    theme_bw() +
-    theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5),
-          legend.position = "top")
+```{r, fig.height=7, fig.width=12}
+if(params$sice){
+    ggplot(pr_curve[MZP == "sice"], 
+           aes(x = TPR, y = PPV, color = Method)) +
+        geom_line() +
+        geom_point(data = alpha_pr_curve[MZP == "sice" & (Cutoff > (1 - PPV))], 
+                   size = 3, aes(shape = Alpha, fill = Method)) +
+        geom_point(data = alpha_pr_curve[MZP == "sice" & (Cutoff <= (1 - PPV))], 
+                   size = 3, aes(shape = Alpha), fill = "white") +
+        scale_shape_manual("P-adj \U2264", values = 21:23) +
+        facet_grid(cols = vars(SetSize),
+                   rows = vars(MZP)) +
+        guides(color = guide_legend(nrow = 3, title.position = "top"),
+               shape = guide_legend(nrow = 3, title.position = "top")) +
+        coord_fixed(xlim = c(0, 1), ylim = c(0, 1)) +
+        labs(y = "Average PPV", x = "Average TPR") +
+        theme_bw() +
+        theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5),
+              legend.position = "top")
+}
 ```
 
 ## ROC (FPR vs TPR) {.tabset}
+
+```{r}
+get_auc <- function(y) {
+    
+    y_preds <- lapply(split(y[, .(Dataset, preds)], 
+                            by = "Dataset", 
+                            keep.by = F, 
+                            drop = T), 
+                      function(x)x$preds)
+    y_labels <- lapply(split(y[, .(Dataset, true_val)], 
+                             by = "Dataset", 
+                             keep.by = F, 
+                             drop = T), 
+                       function(x)x$true_val)
+    
+    rocr_pred <- ROCR::prediction(predictions = y_preds,
+                                  labels = y_labels)
+    
+    ROCR::performance(rocr_pred, measure = "auc")@y.values
+}
+```
 
 ### P-values ROCR bulk
 
@@ -1317,17 +1360,94 @@ ggplot(plot_dt[MZP == "bulk"],
 ### P-values ROCR sice
 
 ```{r, fig.height=7.5, fig.width=5}
-ggplot(plot_dt[MZP == "sice"], 
-       aes(x = PPV, y = TPR, color = Method)) +
-    geom_abline(slope = 1, linetype = 2) +
-    geom_line() + 
-    facet_grid(rows = vars(SetSize),
-               cols = vars(MZP)) +
-    guides(color = guide_legend(ncol = 1)) +
-    coord_fixed() +
-    labs(y = "Average TPR", x = "Average FPR") +
+if(params$sice){
+    ggplot(plot_dt[MZP == "sice"], 
+           aes(x = PPV, y = TPR, color = Method)) +
+        geom_abline(slope = 1, linetype = 2) +
+        geom_line() + 
+        facet_grid(rows = vars(SetSize),
+                   cols = vars(MZP)) +
+        guides(color = guide_legend(ncol = 1)) +
+        coord_fixed() +
+        labs(y = "Average TPR", x = "Average FPR") +
+        theme_bw() +
+        theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5))
+}
+```
+
+```{r}
+## AUC values
+auROCcs <-
+    rbindlist(lapply(split(pval_deind_dt, 
+             by = c("SetSize", "MZP", "DsType", "Method")), 
+       function(x){
+           as.data.table(get_auc(x[, .(Dataset, true_val, preds = 1 - preds)]))
+       }), idcol = "DS_meth")
+auROCcs[, c("SetSize", "MZP", "DsType", "Method") := tstrsplit(DS_meth, "\\."), 
+        by = DS_meth]
+
+auROCcs <- melt(auROCcs, 
+               id.vars = c("DS_meth", "SetSize", "MZP", "DsType", "Method"),
+               variable.name = "DsId", 
+               value.name = "AUC")
+
+mean_auROCcs <- auROCcs[, .(AUC = mean(AUC, na.rm = T),
+                            sdAUC = sd(AUC, na.rm = T),
+                            seAUC = sqrt(var(AUC, na.rm = T)/length(AUC))),
+                            by = .(SetSize, MZP, DsType,
+                                   Method = as.character(Method))]
+```
+
+```{r}
+auROCcs_file <- file.path(output_dir, "pval_ROC_AUC.csv")
+fwrite(auROCcs, 
+       auROCcs_file, 
+       sep = "\t", row.names = F)
+```
+
+ROC AUC values have been saved into <a href="`r auROCcs_file`">`r auROCcs_file`</a>. 
+
+```{r, fig.width=10}
+plot_dt <- auROCcs
+mean_plot_dt <- mean_auROCcs
+ggplot(plot_dt, aes(x = Method, y = AUC)) +
+    geom_boxplot() +
+    geom_point(data = mean_plot_dt, 
+             shape = 21, fill = "red") +
+    facet_grid(cols = vars(SetSize),
+               rows = vars(MZP), 
+               scales = "free_y") +
     theme_bw() +
     theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5))
+```
+
+### AUC ROCR pointrange
+
+```{r, fig.width=10}
+ggplot(mean_plot_dt, aes(x = Method, y = AUC)) +
+  geom_line(aes(group = paste(SetSize, MZP, DsType))) +
+  # geom_point(shape = 21, fill = "red") +
+  geom_pointrange(aes(ymin = AUC - sdAUC, ymax = AUC + sdAUC),
+                  shape = 21, fill = "red") +
+  ylab("Average AUC (FDR, TPR)") +
+  facet_grid(cols = vars(SetSize),
+             rows = vars(MZP), 
+             scales = "free_y") +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5))
+```
+
+### AUC ROCR table
+
+```{r}
+show_dt <- copy(mean_plot_dt)
+show_dt$SetSize <- factor(show_dt$SetSize)
+show_dt$MZP <- factor(show_dt$MZP)
+show_dt$DsType <- factor(show_dt$DsType)
+show_dt$Method <- factor(show_dt$Method)
+
+datatable(show_dt, rownames = F, filter = "top") %>%
+  formatRound(c("AUC", "sdAUC", "seAUC"), 3)
 ```
 
 ### Adjusted P-values ROCR bulk
@@ -1368,41 +1488,22 @@ ggplot(plot_dt[MZP == "bulk"],
 ### Adjusted P-values ROCR sice
 
 ```{r, fig.height=7.5, fig.width=5}
-ggplot(plot_dt[MZP == "sice"], 
-       aes(x = PPV, y = TPR, color = Method)) +
-    geom_abline(slope = 1, linetype = "dashed") +
-    geom_line() + 
-    facet_grid(rows = vars(SetSize),
-               cols = vars(MZP)) +
-    guides(color = guide_legend(ncol = 1)) +
-    coord_fixed() +
-    labs(y = "Average TPR", x = "Average FPR") +
-    theme_bw() +
-    theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5))
+if(params$sice){
+    ggplot(plot_dt[MZP == "sice"], 
+           aes(x = PPV, y = TPR, color = Method)) +
+        geom_abline(slope = 1, linetype = "dashed") +
+        geom_line() + 
+        facet_grid(rows = vars(SetSize),
+                   cols = vars(MZP)) +
+        guides(color = guide_legend(ncol = 1)) +
+        coord_fixed() +
+        labs(y = "Average TPR", x = "Average FPR") +
+        theme_bw() +
+        theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5))
+}
 ```
 
 ### AUC ROCR boxplot
-
-```{r}
-get_auc <- function(y) {
-    
-    y_preds <- lapply(split(y[, .(Dataset, preds)], 
-                            by = "Dataset", 
-                            keep.by = F, 
-                            drop = T), 
-                      function(x)x$preds)
-    y_labels <- lapply(split(y[, .(Dataset, true_val)], 
-                             by = "Dataset", 
-                             keep.by = F, 
-                             drop = T), 
-                       function(x)x$true_val)
-    
-    rocr_pred <- ROCR::prediction(predictions = y_preds,
-                                  labels = y_labels)
-    
-    ROCR::performance(rocr_pred, measure = "auc")@y.values
-}
-```
 
 ```{r}
 ## AUC values
@@ -1428,7 +1529,7 @@ mean_auROCcs <- auROCcs[, .(AUC = mean(AUC, na.rm = T),
 ```
 
 ```{r}
-auROCcs_file <- file.path(output_dir, "ROC_AUC.csv")
+auROCcs_file <- file.path(output_dir, "padj_ROC_AUC.csv")
 fwrite(auROCcs, 
        auROCcs_file, 
        sep = "\t", row.names = F)
