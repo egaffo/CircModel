@@ -7,6 +7,9 @@ output:
     toc: yes
     toc_float: yes
     code_folding: hide
+params:
+  simulated_datasets_qs: "MS_prep_ds/datasetList.qs"
+  outdir: "MS_processed_ds_stats"
 editor_options: 
   chunk_output_type: console
 ---
@@ -24,11 +27,13 @@ library(ggplot2)
 
 ```{r}
 nPermutations <- 500 # 1000 
+outdir <- params$outdir
+dir.create(outdir, recursive = T, showWarnings = F)
 ```
 
 
 ```{r}
-simulated_datasets_qs <- "preprocessed_datasets/datasetList.qs"
+simulated_datasets_qs <- params$simulated_datasets_qs #"preprocessed_datasets/datasetList.qs"
 ## to read the data
 sim_ds_list <- qread(file = simulated_datasets_qs, nthreads = multicoreWorkers())
 ```
@@ -63,7 +68,7 @@ de_ds_stats <- rbindlist(list(Expression = expression_stats,
                               LibsizeVsFracZero = libsizeVsFracZero_stats), 
                          use.names = T, idcol = "Measure", fill = T)
 
-fwrite(de_ds_stats, file = "de_ds_stats.csv", sep = "\t", row.names = F)
+fwrite(de_ds_stats, file = file.path(outdir, "de_ds_stats.csv"), sep = "\t", row.names = F)
 ```
 
 ## Not DE datasets
@@ -84,7 +89,7 @@ not_de_ds_stats <- rbindlist(list(Expression = expression_stats,
                                   LibsizeVsFracZero = libsizeVsFracZero_stats), 
                              use.names = T, idcol = "Measure", fill = T)
 
-fwrite(not_de_ds_stats, file = "not_de_ds_stats.csv", sep = "\t", row.names = F)
+fwrite(not_de_ds_stats, file = file.path(outdir, "not_de_ds_stats.csv"), sep = "\t", row.names = F)
 ```
 
 # Session info
