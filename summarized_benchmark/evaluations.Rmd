@@ -212,14 +212,15 @@ ggplot(sim_ds_status, aes(x = FracZeros, color = ifelse(is.DEC == 1, T, F))) +
 
 ```{r read_sumbench_objs}
 ## read input: the list of the SummarizedBenchmark objects after the performance evaluation 
-sbL <- qread(file = sumBench_perf_metrics_qs, 
+sbL_all <- qread(file = sumBench_perf_metrics_qs, 
              nthreads = multicoreWorkers())
+sbL <- sbL_all[grepl("_de", names(sbL_all))]
 ```
 
 ## Method prediction overlap {.tabset}
 
 ```{r}
-cmL <- lapply(sbL, 
+cmL <- lapply(sbL,  
               function(x, alpha_thr = 0.1) {
                   
                   pv_mat <- assays(x)[["adj_pv"]] <= alpha_thr
@@ -1144,6 +1145,9 @@ fdrtpr_curve <-
        }), 
        idcol = "DS_meth")
 
+# fdrtpr_curve[is.na(FDR), FDR := 1]
+# fdrtpr_curve[is.na(TPR), TPR := 0]
+
 fdrtpr_curve[, c("SetSize", "MZP", "DsType", "Method") := tstrsplit(DS_meth, "\\."), 
         by = DS_meth]
 
@@ -1161,7 +1165,7 @@ alpha_fdrtpr_curve <-
 ```
 
 ```{r, fig.height=7, fig.width=12}
-ggplot(fdrtpr_curve[MZP == "bulk"], 
+ggplot(fdrtpr_curve[MZP == "bulk"][order(Cutoff)], 
        aes(x = FDR, y = TPR, color = Method)) +
     geom_vline(xintercept = .01, linetype = 2, color = "grey25") +
     geom_vline(xintercept = .05, linetype = 2, color = "grey25") +
@@ -1195,7 +1199,7 @@ White fill points when P-adj > empirical FDR
 
 ```{r, fig.height=7, fig.width=12}
 if(params$sice){
-    ggplot(fdrtpr_curve[MZP == "sice"], 
+    ggplot(fdrtpr_curve[MZP == "sice"][order(Cutoff)], 
            aes(x = FDR, y = TPR, color = Method)) +
         geom_vline(xintercept = .01, linetype = 2, color = "grey25") +
         geom_vline(xintercept = .05, linetype = 2, color = "grey25") +
@@ -1257,7 +1261,7 @@ alpha_pr_curve <-
 ```
 
 ```{r, fig.height=7, fig.width=12}
-ggplot(pr_curve[MZP == "bulk"], 
+ggplot(pr_curve[MZP == "bulk"][order(Cutoff)], 
        aes(x = TPR, y = PPV, color = Method)) +
     geom_line() +
     geom_point(data = alpha_pr_curve[MZP == "bulk" & (Cutoff > (1 - PPV))], 
@@ -1282,7 +1286,7 @@ White fill points when P-adj > empirical FDR
 
 ```{r, fig.height=7, fig.width=12}
 if(params$sice){
-    ggplot(pr_curve[MZP == "sice"], 
+    ggplot(pr_curve[MZP == "sice"][order(Cutoff)], 
            aes(x = TPR, y = PPV, color = Method)) +
         geom_line() +
         geom_point(data = alpha_pr_curve[MZP == "sice" & (Cutoff > (1 - PPV))], 
@@ -1344,7 +1348,7 @@ plot_dt[, c("SetSize", "MZP", "DsType", "Method") := tstrsplit(DS_meth, "\\."),
 ```
 
 ```{r, fig.height=7.5, fig.width=5}
-ggplot(plot_dt[MZP == "bulk"], 
+ggplot(plot_dt[MZP == "bulk"][order(Cutoff)], 
        aes(x = PPV, y = TPR, color = Method)) +
     geom_abline(slope = 1, linetype = 2) +
     geom_line() + 
@@ -1361,7 +1365,7 @@ ggplot(plot_dt[MZP == "bulk"],
 
 ```{r, fig.height=7.5, fig.width=5}
 if(params$sice){
-    ggplot(plot_dt[MZP == "sice"], 
+    ggplot(plot_dt[MZP == "sice"][order(Cutoff)], 
            aes(x = PPV, y = TPR, color = Method)) +
         geom_abline(slope = 1, linetype = 2) +
         geom_line() + 
@@ -1464,7 +1468,7 @@ plot_dt <-
                                         by = Dataset], 
                                       meas.a = "tpr", 
                                       meas.b = "fpr"))
-       }), idcol = "DS_meth")
+       }), idcol = "DS_meth")[order(Cutoff)]
 plot_dt[, c("SetSize", "MZP", "DsType", "Method") := tstrsplit(DS_meth, "\\."), 
         by = DS_meth]
 ```
@@ -1637,6 +1641,91 @@ ggplot(plot_dt, aes(x = F0.5, y = mTime, color = Method, shape = baseMethod)) +
                 labels = c("00:00.1", "00:01", "00:10", "01:00", "10:00")) +
   theme_bw() +
   theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5))
+```
+
+# Mock data set
+
+```{r}
+sbL <- sbL_all[grepl("_mock", names(sbL_all))]
+```
+
+## Performance {.tabset}
+
+```{r}
+## FPR = 1 - TNR
+sbAssayL <- 
+  rbindlist(lapply(sbL, 
+                   function(x){
+                     data.table(as.data.frame(colData(x)), 
+                                keep.rownames = "Method")
+                     }), 
+            idcol = "Dataset")
+
+sbAssayL[, c("SetSize", "MZP", "DsType", "DsId") := tstrsplit(Dataset, "_")]
+
+setnafill(x = sbAssayL, 
+          type = "const", 
+          fill = 0, 
+          nan = NA, 
+          cols = grep("TNR", colnames(sbAssayL), value = T))
+```
+
+```{r}
+value_cols <- 
+  c(grep("rejections", colnames(sbAssayL), value = T),
+    # grep("TPR", colnames(sbAssayL), value = T),
+    # grep("FDR", colnames(sbAssayL), value = T),
+    grep("TNR", colnames(sbAssayL), value = T))
+
+mSbAssayL <- 
+  sbAssayL[, lapply(.SD, mean, na.rm = T), 
+           .SDcols = value_cols,
+           by = .(SetSize, MZP, DsType, Method)]
+```
+
+```{r}
+show_dt <- copy(mSbAssayL)
+show_dt$SetSize <- factor(show_dt$SetSize)
+show_dt$MZP <- factor(show_dt$MZP)
+show_dt$DsType <- factor(show_dt$DsType)
+show_dt$Method <- factor(show_dt$Method)
+
+datatable(show_dt, 
+          caption = paste("Alphas:", paste(alpha_targets, collapse = "/")),
+          rownames = F, 
+          filter = "top") %>%
+  formatRound(value_cols, 3)
+```
+
+```{r}
+plot_dt <- melt(mSbAssayL, id.vars = c("SetSize", "MZP", "DsType", "Method"))
+```
+
+### FPR
+
+```{r}
+# pval_tpr_pattern <- "^TPR.[0-9]$"
+padj_tnr_pattern <- "^TNR.[0-9].[0-9]$"
+tnr_pattern <- padj_tnr_pattern #pval_tpr_pattern
+Alpha_plot_label <- "P-value \U2264"
+if(tnr_pattern == padj_tnr_pattern){
+  Alpha_plot_label <- "P-adj \U2264"
+}
+```
+
+```{r, fig.width=10}
+## Avg FPR = 1 - TNR
+ggplot(plot_dt[grep(tnr_pattern, variable)], 
+       aes(x = Method, y = 1 - value)) +
+  geom_line(aes(group = variable, color = variable)) +
+  geom_point(aes(shape = variable, color = variable)) +
+  ylab("Average FPR") +
+  scale_color_discrete(Alpha_plot_label, labels = alpha_targets) +
+  scale_shape_discrete(Alpha_plot_label, labels = alpha_targets) +
+  facet_grid(cols = vars(SetSize), rows = vars(MZP), scales = "free_y") +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5),
+        legend.position = "top")
 ```
 
 # Session info
