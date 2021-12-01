@@ -8,8 +8,8 @@ output:
     toc_float: yes
     code_folding: hide
 params:
-  outdir: "MS_benchmark_results"
-  inputData: "./MS_prep_ds/datasetList.qs"
+  outdir: "DM1_benchmark_results"
+  inputData: "./DM1_prep_ds/datasetList.qs"
 editor_options: 
   chunk_output_type: console
 ---
@@ -38,6 +38,9 @@ library(batchtools)
 # library(devtools)
 # install_github("lichen-lab/circMeta", Ncpus = multicoreWorkers())
 library(circMeta)
+# library(lncDIFF)
+# library(ShrinkBayes)
+# library(samr)
 ```
 
 ```{r}
@@ -58,7 +61,7 @@ datasetList <- qread(file = inputData, nthreads = nWorkers)
 
 ```{r}
 ## separate DE and not-DE simulations
-datasetList <- datasetList[!grepl("mock", names(datasetList))]
+# datasetList <- datasetList[!grepl("mock", names(datasetList))]
 ## names(de_ds_list) <- paste0(names(de_ds_list), "_de")
 # not_de_ds_list <- sim_ds_list[grepl("mock", names(sim_ds_list))]
 ```
@@ -117,8 +120,8 @@ bpparam <- BatchtoolsParam(workers = length(datasetList),
                            saveregistry = F,
                            cluster = "slurm",
                            resources = list(ncpus = zwcpus, 
-                                            walltime = 3600, # 1h max
-                                            memory = 4096) # 4Gb, 2048 2 GByte, 8192 8 Gb
+                                            walltime = 7200, # 2h max
+                                            memory = 8192) # 4Gb, 2048 2GByte, 8192 8Gb
 )
 
 ## Multithread, single machine
@@ -449,12 +452,14 @@ edgeRrbst_run <- function(countData, group, design) {
   tictoc::tic()
   
   y <- edgeR::DGEList(countData, group = group)
-  y <- edgeR::calcNormFactors(y)
+  y <- edgeR::calcNormFactors(y) # method = "TMMwsp" for zero counts?
   # des <- model.matrix(design)
   des <- model.matrix(~group, data = y$samples)
   y <- edgeR::estimateGLMRobustDisp(y, des) #maxit = 6
-  fit <- edgeR::glmQLFit(y = y, dispersion = y$tagwise.dispersion, 
-                 robust = TRUE, design = des)
+  fit <- edgeR::glmQLFit(y = y, 
+                         dispersion = y$tagwise.dispersion, 
+                         robust = TRUE, 
+                         design = des)
   res <- edgeR::glmLRT(fit, coef = 2)
   
   runtime <- tictoc::toc(log = F, quiet = T)
@@ -469,12 +474,14 @@ edgeRrbst50df_run <- function(countData, group, design) {
   tictoc::tic()
   
   y <- edgeR::DGEList(countData, group = group)
-  y <- edgeR::calcNormFactors(y)
+  y <- edgeR::calcNormFactors(y) # method = "TMMwsp" for zero counts?
   # des <- model.matrix(design)
   des <- model.matrix(~group, data = y$samples)
   y <- edgeR::estimateGLMRobustDisp(y = y, des, prior.df = 50) #maxit = 6
-  fit <- edgeR::glmQLFit(y = y, dispersion = y$tagwise.dispersion, 
-                 robust = TRUE, design = des)
+  fit <- edgeR::glmQLFit(y = y, 
+                         dispersion = y$tagwise.dispersion, 
+                         robust = TRUE, 
+                         design = des)
   res <- edgeR::glmLRT(fit, coef = 2)
   
   runtime <- tictoc::toc(log = F, quiet = T)
@@ -489,12 +496,14 @@ edgeRrbstEdf_run <- function(countData, group, design) {
   tictoc::tic()
   
   y <- edgeR::DGEList(countData, group = group)
-  y <- edgeR::calcNormFactors(y)
+  y <- edgeR::calcNormFactors(y) # method = "TMMwsp" for zero counts?
   # des <- model.matrix(design)
   des <- model.matrix(~group, data = y$samples)
   y <- edgeR::estimateDisp(y, des) #maxit = 6
-  fit <- edgeR::glmQLFit(y = y, dispersion = y$tagwise.dispersion, 
-                 robust = TRUE, design = des)
+  fit <- edgeR::glmQLFit(y = y, 
+                         dispersion = y$tagwise.dispersion, 
+                         robust = TRUE, 
+                         design = des)
   res <- edgeR::glmLRT(fit, coef = 2)
   
   runtime <- tictoc::toc(log = F, quiet = T)
@@ -510,7 +519,7 @@ edgeRzw_run <- function(countData, group, design, weights) {
   
   y <- edgeR::DGEList(countData, group = group)
   y$weights <- weights
-  y <- edgeR::calcNormFactors(y)
+  y <- edgeR::calcNormFactors(y) # method = "TMMwsp" for zero counts?
   # des <- model.matrix(design)
   des <- model.matrix(~group, data = y$samples)
   y <- edgeR::estimateGLMRobustDisp(y, des) # estimateDisp(y, des)?
@@ -530,7 +539,7 @@ edgeRql_run <- function(countData, group, design, weights) {
   tictoc::tic()
   
   y <- edgeR::DGEList(countData, group = group)
-  y <- edgeR::calcNormFactors(y)
+  y <- edgeR::calcNormFactors(y) # method = "TMMwsp" for zero counts?
   # des <- model.matrix(design)
   des <- model.matrix(~group, data = y$samples)
   y <- edgeR::estimateDisp(y = y, design = des, robust = TRUE)
@@ -588,10 +597,11 @@ voomRbst_run <- function(countData, group, design) {
   tictoc::tic()
   
   y <- edgeR::DGEList(countData, group = group)
-  y <- edgeR::calcNormFactors(y)
+  y <- edgeR::calcNormFactors(y) # method = "TMMwsp" for zero counts?
   des <- model.matrix(design)
   y <- limma::voom(y, des)
-  res <- limma::eBayes(limma::lmFit(y, des), robust = T)
+  res <- limma::eBayes(limma::lmFit(y, des), 
+                       robust = T)
   
   runtime <- tictoc::toc(log = F, quiet = T)
   
@@ -608,6 +618,7 @@ voomQn_run <- function(countData, group, design) {
   voom.data <- limma::voom(countData, 
                            design = des, 
                            normalize.method = 'quantile')
+  #"none", "scale", "quantile" or "cyclicloess
   res <- limma::eBayes(limma::lmFit(voom.data, design = des))
   
   runtime <- tictoc::toc(log = F, quiet = T)
@@ -635,7 +646,11 @@ voomSimple_run <- function(countData, group, design) {
 
 
 ## voomLmFit is more robust to zero counts than calling voom, 
-## duplicateCorrelation and lmFit separately and provides more rigorous error rate control.
+## duplicateCorrelation and lmFit separately and provides more 
+## rigorous error rate control.
+## ?limma::voom
+## Note that edgeR::voomLmFit is now recommended over voom for 
+## sparse counts with a medium to high proportion of zeros.
 voomLmFit_run <- function(countData, group, design) {
   
   tictoc::tic()
@@ -749,6 +764,42 @@ cMeta_run <- function(countData, group, sf = TRUE) {
        runtime = runtime$toc - runtime$tic)
 }
 
+cMetaLc_run <- function(countData, group, sf = TRUE) {
+  
+  tictoc::tic()
+  
+  groupVar <- group 
+  names(groupVar) <- colnames(countData)
+  countData <- apply(countData, 2, function(x) {storage.mode(x) <- 'integer'; x})
+  m = rowMeans(countData)
+
+  sfs = colSums(countData)
+  sfs = sfs / min(sfs)
+  if(sf) countData = sweep(countData, 2, sfs, FUN='/')
+  n0 = sum(groupVar == levels(groupVar)[1]) 
+  n1 = sum(groupVar == levels(groupVar)[2]) # assume 2 levels factor groups
+  m0 = rowMeans(countData[, groupVar == levels(groupVar)[1]])
+  m1 = rowMeans(countData[, groupVar == levels(groupVar)[2]])
+  n  = nrow(countData)
+  pval = rep(1, n)
+  for(i in 1:n){
+    z = ( sqrt(m1[i]) - sqrt(m0[i]) ) / (1 / 2 * sqrt(1 / n1 + 1 / n0))
+    pval[i] = 2 * pnorm(-abs(z))
+  }
+  
+  # fdr = p.adjust(pval, method = 'fdr')
+  lfc <- log( (m1 + 1) / (m0 + 1), 2)
+  
+  names(pval) <- rownames(countData)
+  res <- data.frame(p.value = pval, 
+                    logFC = lfc)
+  
+  runtime <- tictoc::toc(log = F, quiet = T)
+  
+  list(res = res, 
+       runtime = runtime$toc - runtime$tic)
+}
+
 ## post functions
 cMeta_pv <- function(x) { 
   res <- x$res$p.value
@@ -765,6 +816,194 @@ cMeta_apv <- function(x) {
 cMeta_lfc <- function(x) { x$res$logFC }
 
 cMeta_time <- function(x) { rep(as.numeric(x$runtime), nrow(x$res)) }
+```
+
+### lncDIFF
+
+```{r}
+lncdiff_run <- function(countData, group) {
+  
+  tictoc::tic()
+      
+  res <- lncDIFF::lncDIFF(edata = countData, 
+                          group = as.character(group), 
+                          covariate = NULL, 
+                          link.function = 'log', 
+                          CompareGroups = NULL,
+                          simulated.pvalue = FALSE, 
+                          permutation = 100)
+  
+  runtime <- tictoc::toc(log = F, quiet = T)
+  
+  list(res = res, 
+       runtime = runtime$toc - runtime$tic)
+  
+}
+
+lncdiff_pv <- function(x) {
+  x$res$DE.results$Pvalue
+}
+
+
+lncdiff_apv <- function(x) {
+  p.adjust(x$res$DE.results$Pvalue, method = "BH")
+}
+
+lncdiff_lfc <- function(x) {
+  x$res$DE.results$Log2.Fold.Change
+}
+
+lncdiff_time <- function(x) { rep(as.numeric(x$runtime), length(x$res$DE.results$Pvalue)) }
+```
+
+### SAMseq
+
+```{r}
+samseq_run <- function(countData, group) {
+  
+  library(samr)
+  
+  tictoc::tic()
+  
+  condition.12 <- rep(1, length(group))
+  condition.12[which(group == levels(factor(group))[2])] <- 2
+  
+  SAMseq.test <- samr::SAMseq(countData, 
+                              condition.12, 
+                              resp.type = 'Two class unpaired', 
+                              geneid = rownames(countData), 
+                              genenames = rownames(countData), 
+                              nperms = 100, 
+                              nresamp = 20,
+                              fdr.output = 1)
+  pv <- samr.pvalues.from.perms(tt = SAMseq.test$samr.obj$tt, 
+                                ttstar = SAMseq.test$samr.obj$ttstar)
+  
+  SAMseq.result <- rbind(SAMseq.test$siggenes.table$genes.up,
+                         SAMseq.test$siggenes.table$genes.lo)
+  
+  SAMseq.statistic <- rep(0, nrow(countData))
+  
+  SAMseq.statistic[match(SAMseq.result[, 1], 
+                         rownames(countData))] <- as.numeric(SAMseq.result[, 3])
+  
+  SAMseq.FDR <- rep(1, nrow(countData))
+  
+  SAMseq.FDR[match(SAMseq.result[, 1], 
+                   rownames(countData))] <- as.numeric(SAMseq.result[, 5]) / 100
+  
+  SAMseq.FC <- rep(NA, nrow(countData))
+  
+  SAMseq.FC[match(SAMseq.result[, 1], 
+                   rownames(countData))] <- as.numeric(SAMseq.result[, 4])
+  
+  SAMseq.score <- 1 - SAMseq.FDR
+  
+  res <- data.frame('statistic' = SAMseq.statistic, 
+                    'Pvalue' = pv,
+                    'FDR' = SAMseq.FDR, 
+                    'FC' = SAMseq.FC,
+                    'score' = SAMseq.score)
+  
+  runtime <- tictoc::toc(log = F, quiet = T)
+  
+  list(res = res, 
+       runtime = runtime$toc - runtime$tic)
+}
+
+samseq_pv <- function(x) {
+  x$res$Pvalue
+}
+
+
+samseq_apv <- function(x) {
+  # p.adjust(x$res$Pvalue, "BH")
+  x$res$FDR
+}
+
+samseq_lfc <- function(x) {
+  log2(x$res$FC)
+}
+
+samseq_time <- function(x) { rep(as.numeric(x$runtime), nrow(x$res)) }
+```
+
+### ShrinkBayes
+
+```{r}
+shrinkBayes_run <- 
+    function(countData, groups) {
+      
+      ## TODO: complete this function
+        
+      tictoc::tic()
+      
+      ## https://github.com/markvdwiel/ShrinkBayes/blob/master/inst/doc/ShrinkBayes.pdf
+      # library(edgeR)
+      DGE <- edgeR::DGEList(countData, group = groups)
+      libsize <- colSums(countData, na.rm = T)
+      DGEnorm <- edgeR::calcNormFactors(DGE, method = "TMMwsp")
+      normfac0 <- DGEnorm$samples[,3]
+      rellibsize <- libsize / exp(mean(log(libsize)))
+      normfac <- normfac0 * rellibsize
+      myoffsets <- log(normfac)
+      form <- ~ 1 + groups + offset(myoffsets)
+      # form0 <- ~ 1 + offset(myoffsets)
+      
+      library(INLA)
+      library(ShrinkBayes)
+      SBmir <- ShrinkBayes::ShrinkBayesWrap(countData, form, ncpus = 1)
+      # shrinksimul <- ShrinkSeq(form = form,
+      #                          dat = countData,
+      #                          shrinkfixed = "g",
+      #                          fams = "zinb")
+      
+      # form0 <- y ~ 1
+      # shrinksimul <- ShrinkSeq(form = form, 
+      #                          dat = physeq@otu_table@.Data, 
+      #                          shrinkfixed = "g", 
+      #                          fams = "zinb")
+      # fitall <- FitAllShrink(form, 
+      #                        dat = norm.counts, 
+      #                        fams = "zinb",
+      #                        shrinksimul = shrinksimul)
+      # fitall0 <- FitAllShrink(form0, 
+      #                         dat = norm.counts, 
+      #                         fams = "zinb",
+      #                         shrinksimul = shrinksimul)  
+      # npprior <- MixtureUpdatePrior(fitall = fitall, 
+      #                               fitall0 = fitall0, 
+      #                               shrinkpara="g", 
+      #                               ncpus = mc.cores)
+      # nppostshr <- MixtureUpdatePosterior(fitall, npprior, fitall0)
+      # lfdr <- SummaryWrap(nppostshr)
+      # fdr <- BFDR(lfdr)
+      # pGlobal <- as.vector(fdr)
+      # rm(list = c("ptm", "g", "form", "form0", "shrinksimul", 
+      #             "fitall", "fitall0", "npprior" ,"nppostshr", "lfdr", "fdr"))
+      # 
+      # pValMat <- as.matrix(pGlobal)
+      # colnames(pValMat) <- c("adjP")
+      # statInfo <- NULL
+      
+      res <- list("pValMat" = pValMat, "statInfo" = statInfo)
+      # res <- data.frame(p.value = pval, 
+      #               logFC = lfc)
+      
+      runtime <- tictoc::toc(log = F, quiet = T)
+      
+      list(res = res, 
+           runtime = runtime$toc - runtime$tic)
+    }
+
+#TODO
+shrinkBayes_pv <- function(x) {}
+
+shrinkBayes_apv <- function(x) {}
+
+shrinkBayes_lfc <- function(x) {}
+
+shrinkBayes_time <- function(x) { x$runtime }
 ```
 
 ### Other
@@ -854,22 +1093,6 @@ cMeta_time <- function(x) { rep(as.numeric(x$runtime), nrow(x$res)) }
 #     baySeq.score <- 1 - baySeq.FDR
 #     data.frame('FDR' = baySeq.FDR, 'score' = baySeq.score, 'posterior.DE' = baySeq.posteriors.DE)
 # }
-
-# SAMseq <- function(countData, group, design) {
-#     library(samr)
-#   condition.12 <- rep(1, length(sample.annotations(cdata)$condition))
-#   condition.12[which(sample.annotations(cdata)$condition == levels(factor(sample.annotations(cdata)$condition))[2])] <- 2
-#   SAMseq.test <- samr::SAMseq(count.matrix(cdata), condition.12, resp.type = 'Two class unpaired', geneid = rownames(count.matrix(cdata)), genenames = rownames(count.matrix(cdata)), nperms = 100, nresamp = 20, 
-#                               fdr.output = 1)
-#   SAMseq.result <- rbind(SAMseq.test$siggenes.table$genes.up, SAMseq.test$siggenes.table$genes.lo)
-#   SAMseq.statistic <- rep(0, nrow(count.matrix(cdata)))
-#   SAMseq.statistic[match(SAMseq.result[, 1], rownames(count.matrix(cdata)))] <- as.numeric(SAMseq.result[, 3])
-#   SAMseq.FDR <- rep(1, nrow(count.matrix(cdata)))
-#   SAMseq.FDR[match(SAMseq.result[, 1], rownames(count.matrix(cdata)))] <- as.numeric(SAMseq.result[, 5])/100
-#   SAMseq.score <- 1 - SAMseq.FDR
-#   result.table <- data.frame('statistic' = SAMseq.statistic, 'FDR' = SAMseq.FDR, 'score' = SAMseq.score)
-# }
-
 
 # DeSingle_run <- function(countData, group, design) {
 #   #Load library and the test data for DEsingle
@@ -1158,12 +1381,38 @@ bd <- bd %>%
                                  weights = weights)) %>%
   addMethod(label = "circMeta_Dt_PZT", ## circMeta, defaults, Poisson z-test
             func = cMeta_run, 
-            # post = cMeta_pv, 
             post = list(pv = cMeta_pv,
                         adj_pv = cMeta_apv,
                         lfc = cMeta_lfc,
                         runtime = cMeta_time),
             meta = list(pkg_name = "circMeta", pkg_vers = as.character(packageVersion("circMeta"))),
+            params = rlang::quos(countData = cntdat,
+                                 group = coldat$condition)) %>%
+  addMethod(label = "circMeta_Lc_PZT", ## circMeta, sqrt of counts, Poisson z-test
+            func = cMetaLc_run, 
+            post = list(pv = cMeta_pv,
+                        adj_pv = cMeta_apv,
+                        lfc = cMeta_lfc,
+                        runtime = cMeta_time),
+            meta = list(pkg_name = "circMeta", pkg_vers = as.character(packageVersion("circMeta"))),
+            params = rlang::quos(countData = cntdat,
+                                 group = coldat$condition)) %>%
+  addMethod(label = "lncDIFF_Dt_LRT", ## lncDIFF, defaults, test?
+            func = lncdiff_run, 
+            post = list(pv = lncdiff_pv,
+                        adj_pv = lncdiff_apv,
+                        lfc = lncdiff_lfc,
+                        runtime = lncdiff_time),
+            meta = list(pkg_name = "lncDIFF", pkg_vers = as.character(packageVersion("lncDIFF"))),
+            params = rlang::quos(countData = cntdat,
+                                 group = coldat$condition)) %>%
+  addMethod(label = "SAMseq_Dt_TT", ## lncDIFF, defaults, test?
+            func = samseq_run, 
+            post = list(pv = samseq_pv,
+                        adj_pv = samseq_apv,
+                        lfc = samseq_lfc,
+                        runtime = samseq_time),
+            meta = list(pkg_name = "samr", pkg_vers = as.character(packageVersion("samr"))),
             params = rlang::quos(countData = cntdat,
                                  group = coldat$condition))
 
