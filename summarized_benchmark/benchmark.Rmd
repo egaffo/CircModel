@@ -818,316 +818,6 @@ cMeta_lfc <- function(x) { x$res$logFC }
 cMeta_time <- function(x) { rep(as.numeric(x$runtime), nrow(x$res)) }
 ```
 
-### lncDIFF
-
-```{r}
-lncdiff_run <- function(countData, group) {
-  
-  tictoc::tic()
-      
-  res <- lncDIFF::lncDIFF(edata = countData, 
-                          group = as.character(group), 
-                          covariate = NULL, 
-                          link.function = 'log', 
-                          CompareGroups = NULL,
-                          simulated.pvalue = FALSE, 
-                          permutation = 100)
-  
-  runtime <- tictoc::toc(log = F, quiet = T)
-  
-  list(res = res, 
-       runtime = runtime$toc - runtime$tic)
-  
-}
-
-lncdiff_pv <- function(x) {
-  x$res$DE.results$Pvalue
-}
-
-
-lncdiff_apv <- function(x) {
-  p.adjust(x$res$DE.results$Pvalue, method = "BH")
-}
-
-lncdiff_lfc <- function(x) {
-  x$res$DE.results$Log2.Fold.Change
-}
-
-lncdiff_time <- function(x) { rep(as.numeric(x$runtime), length(x$res$DE.results$Pvalue)) }
-```
-
-### SAMseq
-
-```{r}
-samseq_run <- function(countData, group) {
-  
-  library(samr)
-  
-  tictoc::tic()
-  
-  condition.12 <- rep(1, length(group))
-  condition.12[which(group == levels(factor(group))[2])] <- 2
-  
-  SAMseq.test <- samr::SAMseq(countData, 
-                              condition.12, 
-                              resp.type = 'Two class unpaired', 
-                              geneid = rownames(countData), 
-                              genenames = rownames(countData), 
-                              nperms = 100, 
-                              nresamp = 20,
-                              fdr.output = 1)
-  pv <- samr.pvalues.from.perms(tt = SAMseq.test$samr.obj$tt, 
-                                ttstar = SAMseq.test$samr.obj$ttstar)
-  
-  SAMseq.result <- rbind(SAMseq.test$siggenes.table$genes.up,
-                         SAMseq.test$siggenes.table$genes.lo)
-  
-  SAMseq.statistic <- rep(0, nrow(countData))
-  
-  SAMseq.statistic[match(SAMseq.result[, 1], 
-                         rownames(countData))] <- as.numeric(SAMseq.result[, 3])
-  
-  SAMseq.FDR <- rep(1, nrow(countData))
-  
-  SAMseq.FDR[match(SAMseq.result[, 1], 
-                   rownames(countData))] <- as.numeric(SAMseq.result[, 5]) / 100
-  
-  SAMseq.FC <- rep(NA, nrow(countData))
-  
-  SAMseq.FC[match(SAMseq.result[, 1], 
-                   rownames(countData))] <- as.numeric(SAMseq.result[, 4])
-  
-  SAMseq.score <- 1 - SAMseq.FDR
-  
-  res <- data.frame('statistic' = SAMseq.statistic, 
-                    'Pvalue' = pv,
-                    'FDR' = SAMseq.FDR, 
-                    'FC' = SAMseq.FC,
-                    'score' = SAMseq.score)
-  
-  runtime <- tictoc::toc(log = F, quiet = T)
-  
-  list(res = res, 
-       runtime = runtime$toc - runtime$tic)
-}
-
-samseq_pv <- function(x) {
-  x$res$Pvalue
-}
-
-
-samseq_apv <- function(x) {
-  # p.adjust(x$res$Pvalue, "BH")
-  x$res$FDR
-}
-
-samseq_lfc <- function(x) {
-  log2(x$res$FC)
-}
-
-samseq_time <- function(x) { rep(as.numeric(x$runtime), nrow(x$res)) }
-```
-
-### ShrinkBayes
-
-```{r}
-shrinkBayes_run <- 
-    function(countData, groups) {
-      
-      ## TODO: complete this function
-        
-      tictoc::tic()
-      
-      ## https://github.com/markvdwiel/ShrinkBayes/blob/master/inst/doc/ShrinkBayes.pdf
-      # library(edgeR)
-      DGE <- edgeR::DGEList(countData, group = groups)
-      libsize <- colSums(countData, na.rm = T)
-      DGEnorm <- edgeR::calcNormFactors(DGE, method = "TMMwsp")
-      normfac0 <- DGEnorm$samples[,3]
-      rellibsize <- libsize / exp(mean(log(libsize)))
-      normfac <- normfac0 * rellibsize
-      myoffsets <- log(normfac)
-      form <- ~ 1 + groups + offset(myoffsets)
-      # form0 <- ~ 1 + offset(myoffsets)
-      
-      library(INLA)
-      library(ShrinkBayes)
-      SBmir <- ShrinkBayes::ShrinkBayesWrap(countData, form, ncpus = 1)
-      # shrinksimul <- ShrinkSeq(form = form,
-      #                          dat = countData,
-      #                          shrinkfixed = "g",
-      #                          fams = "zinb")
-      
-      # form0 <- y ~ 1
-      # shrinksimul <- ShrinkSeq(form = form, 
-      #                          dat = physeq@otu_table@.Data, 
-      #                          shrinkfixed = "g", 
-      #                          fams = "zinb")
-      # fitall <- FitAllShrink(form, 
-      #                        dat = norm.counts, 
-      #                        fams = "zinb",
-      #                        shrinksimul = shrinksimul)
-      # fitall0 <- FitAllShrink(form0, 
-      #                         dat = norm.counts, 
-      #                         fams = "zinb",
-      #                         shrinksimul = shrinksimul)  
-      # npprior <- MixtureUpdatePrior(fitall = fitall, 
-      #                               fitall0 = fitall0, 
-      #                               shrinkpara="g", 
-      #                               ncpus = mc.cores)
-      # nppostshr <- MixtureUpdatePosterior(fitall, npprior, fitall0)
-      # lfdr <- SummaryWrap(nppostshr)
-      # fdr <- BFDR(lfdr)
-      # pGlobal <- as.vector(fdr)
-      # rm(list = c("ptm", "g", "form", "form0", "shrinksimul", 
-      #             "fitall", "fitall0", "npprior" ,"nppostshr", "lfdr", "fdr"))
-      # 
-      # pValMat <- as.matrix(pGlobal)
-      # colnames(pValMat) <- c("adjP")
-      # statInfo <- NULL
-      
-      res <- list("pValMat" = pValMat, "statInfo" = statInfo)
-      # res <- data.frame(p.value = pval, 
-      #               logFC = lfc)
-      
-      runtime <- tictoc::toc(log = F, quiet = T)
-      
-      list(res = res, 
-           runtime = runtime$toc - runtime$tic)
-    }
-
-#TODO
-shrinkBayes_pv <- function(x) {}
-
-shrinkBayes_apv <- function(x) {}
-
-shrinkBayes_lfc <- function(x) {}
-
-shrinkBayes_time <- function(x) { x$runtime }
-```
-
-### Other
-
-```{r}
-# poissonSeq <- function(countData, group, design) {
-#     library(PoissonSeq)
-#     dat = list(n = count.matrix(cdata), 
-#                y=sample.annotations(cdata)$condition, 
-#                pair = FALSE, 
-#                type = 'twoclass', 
-#                gname=rownames(count.matrix(cdata)))
-#     PS.test = PoissonSeq::PS.Main(dat)
-#     PS.nc = PS.test$nc
-#     PS.gname = rownames(PS.test)
-#     PS.tt = PS.test$tt
-#     PS.pvalue = PS.test$pval
-#     PS.FDR = PS.test$fdr
-#     PS.logfc =  PS.test$log.fc
-#     result.table = data.frame('nc' = PS.nc, 
-#     'Genename' = PS.gname, 
-#     'tt' = PS.tt, 
-#     'pvalue' = PS.pvalue, 
-#     'FDR'=PS.FDR, 'log.fc' = PS.logfc)
-# }
-
-# ROTS <- function(countData, group, design) {
-#     library(ROTS)
-#     log=F
-#     transformation<-T
-#     normalize<-T
-#     if(normalize&&transformation){
-#     if(transformation){
-#       log=TRUE
-#       nf <- edgeR::calcNormFactors(count.matrix(cdata), method = 'TMM' )
-#       voom.data <- limma::voom(count.matrix(cdata),
-#                                design = model.matrix(~factor(sample.annotations(cdata)$condition)),
-#                                lib.size = colSums(count.matrix(cdata)) * nf)
-#       Exp <- voom.data$E
-#     }else{
-#       edgeR.dgelist <- edgeR::DGEList(counts = count.matrix(cdata),
-#                                       group = factor(sample.annotations(cdata)$condition))
-#       edgeR.dgelist <- edgeR::calcNormFactors(edgeR.dgelist, method = 'TMM')
-#       Factors <- edgeR.dgelist$samples$lib.size * edgeR.dgelist$samples$norm.factors
-#       Exp <- t(t(edgeR.dgelist$counts)/Factors) * mean(Factors)
-#     }
-#   }else{
-#     Exp <- count.matrix(cdata)
-#   }
-# 
-# 
-#   results <- ROTS::ROTS(data = Exp,
-#                         groups = as.numeric(as.character(factor(sample.annotations(cdata)$condition))),
-#                         K = NULL, B = 1000, log = log)
-#   rots.pvalues <- results$pvalue
-#   rots.logFC <- results$logfc
-#   rots.FDR <- results$FDR
-#   result.table <- data.frame('pvalue' = rots.pvalues, 'logFC' = rots.logFC, 'FDR' = rots.FDR)
-# }
-
-# baySeq <- function(countData, group, design) {
-#     
-#     baySeq.cd <- new('countData',
-#                      data = countData,
-#                      replicates = group,
-#                      groups = list(NDE = rep(1, length(design)),
-#                                    DE = design))
-#     
-#     libsizes(baySeq.cd) <- baySeq::getLibsizes(baySeq.cd, estimationType = "edgeR")
-#     
-#     baySeq.cd <- baySeq::getPriors.NB(baySeq.cd,
-#                                       # samplesize = sample.size,
-#                                       equalDispersions = TRUE,
-#                                       estimation = "QL",
-#                                       cl = NULL)
-#     baySeq.cd <- baySeq::getLikelihoods.NB(baySeq.cd,
-#                                            # prs = c(0.5, 0.5), 
-#                                            pET = "BIC", 
-#                                            cl = NULL)
-#     baySeq.cd@annotation <- data.frame(rowID = rownames(baySeq.cd@data),
-#                                        row.names = rownames(baySeq.cd@data))
-#     baySeq.posteriors.DE <- exp(baySeq.cd@posteriors)[, 'DE']
-#     baySeq.FDR <- baySeq::topCounts(baySeq.cd, group = 'DE',
-#                                     FDR = 1)$FDR.DE[match(rownames(countData),
-#                                                           rownames(baySeq::topCounts(baySeq.cd,
-#                                                                                      group = 'DE', FDR = 1)))]
-#     baySeq.score <- 1 - baySeq.FDR
-#     data.frame('FDR' = baySeq.FDR, 'score' = baySeq.score, 'posterior.DE' = baySeq.posteriors.DE)
-# }
-
-# DeSingle_run <- function(countData, group, design) {
-#   #Load library and the test data for DEsingle
-#   library(DEsingle)
-#   library(SingleCellExperiment)
-#   data(TestData)
-#   
-#   # Convert the test data in DEsingle to SingleCellExperiment data representation
-#   sce <- SingleCellExperiment(assays = list(counts = countData))
-#   
-#   # Detecting the DE genes with SingleCellExperiment input sce
-#   results <- DEsingle(counts = sce, group = group)
-#   
-#   # Dividing the DE genes into 3 categories at threshold of FDR < 0.05
-#   results.classified <- DEtype(results = results, threshold = 0.05)
-#   
-#   # Dividing the DE genes into 3 categories at threshold of FDR < 0.05
-#   # results.classified <- DEtype(results = results, threshold = 1)
-#   
-#   # results$emdall
-#   pValMat <- as.matrix(results$pvalue)
-#   colnames(pValMat) <- c("adjP")
-#   statInfo <- cbind("foldChange" = results$foldChange)
-#   list("pValMat" = pValMat, "statInfo" = statInfo)
-# }# END - function: DeSingle
-
-# #TODO
-# _apv <- function(x) {}
-# 
-# _lfc <- function(x) {}
-# 
-# _time <- function(x) {}
-```
-
-
 ## Add memthods to the bench
 
 ```{r}
@@ -1396,25 +1086,25 @@ bd <- bd %>%
                         runtime = cMeta_time),
             meta = list(pkg_name = "circMeta", pkg_vers = as.character(packageVersion("circMeta"))),
             params = rlang::quos(countData = cntdat,
-                                 group = coldat$condition)) %>%
-  addMethod(label = "lncDIFF_Dt_LRT", ## lncDIFF, defaults, test?
-            func = lncdiff_run, 
-            post = list(pv = lncdiff_pv,
-                        adj_pv = lncdiff_apv,
-                        lfc = lncdiff_lfc,
-                        runtime = lncdiff_time),
-            meta = list(pkg_name = "lncDIFF", pkg_vers = as.character(packageVersion("lncDIFF"))),
-            params = rlang::quos(countData = cntdat,
-                                 group = coldat$condition)) %>%
-  addMethod(label = "SAMseq_Dt_TT", ## lncDIFF, defaults, test?
-            func = samseq_run, 
-            post = list(pv = samseq_pv,
-                        adj_pv = samseq_apv,
-                        lfc = samseq_lfc,
-                        runtime = samseq_time),
-            meta = list(pkg_name = "samr", pkg_vers = as.character(packageVersion("samr"))),
-            params = rlang::quos(countData = cntdat,
-                                 group = coldat$condition))
+                                 group = coldat$condition)) #%>%
+  # addMethod(label = "lncDIFF_Dt_LRT", ## lncDIFF, defaults, test?
+  #           func = lncdiff_run, 
+  #           post = list(pv = lncdiff_pv,
+  #                       adj_pv = lncdiff_apv,
+  #                       lfc = lncdiff_lfc,
+  #                       runtime = lncdiff_time),
+  #           meta = list(pkg_name = "lncDIFF", pkg_vers = as.character(packageVersion("lncDIFF"))),
+  #           params = rlang::quos(countData = cntdat,
+  #                                group = coldat$condition)) %>%
+  # addMethod(label = "SAMseq_Dt_TT", ## lncDIFF, defaults, test?
+  #           func = samseq_run, 
+  #           post = list(pv = samseq_pv,
+  #                       adj_pv = samseq_apv,
+  #                       lfc = samseq_lfc,
+  #                       runtime = samseq_time),
+  #           meta = list(pkg_name = "samr", pkg_vers = as.character(packageVersion("samr"))),
+  #           params = rlang::quos(countData = cntdat,
+  #                                group = coldat$condition))
 
 bd
 ```
@@ -1434,11 +1124,11 @@ sbL <-
   bplapply(datasetList, 
            function(x, bd, parallel_methods) { 
              SummarizedBenchmark::buildBench(bd, data = x, 
-                                             # truthCols = "status",
                                              truthCols = c(pv = "status",
                                                            adj_pv = "status", 
                                                            lfc = "status", # LFC(DEC) >= 0.5
                                                            runtime = "time_weights"), 
+                                             keepData = T,
                                              parallel = T, 
                                              BPPARAM = BiocParallel::MulticoreParam(parallel_methods)) 
            }, 
@@ -1450,10 +1140,6 @@ sbL <-
 
 ```{r}
 ## error handling
-# simplify2array(metadata(sbL$N03_bulk_de_02)$sessions[[1]]$results)
-# metadata(sbL$N03_bulk_de_02)$sessions[[1]]$results$DESeq2_Sc_LRT
-# metadata(sbL$N03_bulk_de_02)$sessions[[1]]$results$DESeq2_Lc_LRT
-
 show_dt <- 
   dcast(melt(rbindlist(lapply(sbL, 
                               function(x)data.table(as.data.frame(simplify2array(metadata(x)$sessions[[1]]$results)), 
@@ -1474,6 +1160,16 @@ datatable(show_dt[adj_pv != "success" |
           filter = "top", rownames = F)
 ```
 
+```{r}
+## save the summarizedBenchmark builds
+sumBenchs_qs <- file.path(outdir, "sumBenchs.qs")
+qsave(x = sbL, 
+      file = sumBenchs_qs, 
+      nthreads = multicoreWorkers(), 
+      preset = "fast")
+```
+
+The built SummarizedBenchmark objects have been save into <a href="`r sumBenchs_qs`">`r sumBenchs_qs`</a>.  
 
 # Performance
 
