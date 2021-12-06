@@ -91,8 +91,12 @@ library(patchwork)
 # install.packages("ggdendro")
 library(ggdendro)
 library(ggplot2)
+library(scales)
 
 avg_jaccard_dists_l <- split(avg_jaccard_dists, by = c("DS", "SetSize"), flatten = F, keep.by = F)
+
+method_names <- sort(unique(avg_jaccard_dists_l$DM1$N10$Method))
+method_colors <- setNames(hue_pal()(length(method_names)), method_names)
 
 # x <- avg_jaccard_dists_l$DM1$N10
 # ggdendrogram(hclust(as.dist(data.frame(dcast(x, Method ~ Method2, value.var = "AvgJDist"), row.names = "Method"))))
@@ -114,13 +118,14 @@ ggd_l <-
                                    position = "top") +
                 scale_y_reverse(name = "Jaccard distance", expand = c(0, 0.01)) +
                 coord_flip() +
-                theme_minimal()
+                theme_minimal() +
+                theme(axis.text.y = element_text(color = method_colors[label(ddata)$label]))
         })
         
     })
 ```
 
-```{r, fig.height=15, fig.width=10}
+```{r, fig.height=16, fig.width=10}
 gg_rows <- lapply(setNames(ds_names, nm = ds_names), 
                   function(x, ggd_l){
                       ggd_l[[x]]$N03 + ggtitle(paste(x, "N03")) +
