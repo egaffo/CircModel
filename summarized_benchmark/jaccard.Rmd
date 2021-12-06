@@ -86,7 +86,7 @@ avg_jaccard_dists <-
                                                     Method, Method2)]
 ```
 
-```{r}
+```{r, warning=FALSE}
 library(patchwork)
 # install.packages("ggdendro")
 library(ggdendro)
@@ -99,7 +99,10 @@ method_names <- sort(unique(avg_jaccard_dists_l$DM1$N10$Method))
 method_colors <- setNames(hue_pal()(length(method_names)), method_names)
 
 # x <- avg_jaccard_dists_l$DM1$N10
-# ggdendrogram(hclust(as.dist(data.frame(dcast(x, Method ~ Method2, value.var = "AvgJDist"), row.names = "Method"))))
+# ggdendrogram(hclust(as.dist(data.frame(dcast(setSize, 
+#                                              Method ~ Method2, 
+#                                              value.var = "AvgJDist"), 
+#                                        row.names = "Method"))))
 
 ggd_l <- 
     lapply(avg_jaccard_dists_l, function(ds){
@@ -119,7 +122,11 @@ ggd_l <-
                 scale_y_reverse(name = "Jaccard distance", expand = c(0, 0.01)) +
                 coord_flip() +
                 theme_minimal() +
-                theme(axis.text.y = element_text(color = method_colors[label(ddata)$label]))
+                theme(axis.text.y = element_text(color = method_colors[label(ddata)$label]),
+                      panel.grid.major.x = element_blank(),
+                      panel.grid.minor.x = element_blank(),
+                      panel.grid.major.y = element_blank(),
+                      panel.grid.minor.y = element_blank())
         })
         
     })
@@ -137,7 +144,124 @@ gg_rows <- lapply(setNames(ds_names, nm = ds_names),
 gg_rows$DM1 / gg_rows$IPF / gg_rows$MS / gg_rows$IDC
 ```
 
-            
+## Average Jaccard per set size
+
+```{r, warning=FALSE}
+plots <- 
+    lapply(split(avg_jaccard_dists[, .(AvgJDist = mean(AvgJDist)), 
+                                   by = .(SetSize, MZP, DsType, Method, Method2)], 
+                 by = c("SetSize"), flatten = F, keep.by = F), 
+           function(setSize){
+               ddata <- 
+                   dendro_data(as.dendrogram(hclust(as.dist(data.frame(dcast(setSize, 
+                                                                             Method ~ Method2, 
+                                                                             value.var = "AvgJDist"), 
+                                                                       row.names = "Method")))), 
+                               type = "rectangle")
+               
+               ggplot(segment(ddata), aes(x = x, y = y)) +
+                   geom_segment(aes(xend = xend, yend = yend)) +
+                   scale_x_continuous(name = NULL, breaks = label(ddata)$x, 
+                                      labels = label(ddata)$label, 
+                                      position = "top") +
+                   scale_y_reverse(name = "Jaccard distance", expand = c(0, 0.01)) +
+                   coord_flip() +
+                   theme_minimal() +
+                   theme(axis.text.y = element_text(color = method_colors[label(ddata)$label]),
+                         panel.grid.major.x = element_blank(),
+                         panel.grid.minor.x = element_blank(),
+                         panel.grid.major.y = element_blank(),
+                         panel.grid.minor.y = element_blank())
+           })
+
+plots$N03  + 
+    ggtitle("N03") + 
+    theme(axis.text.x = element_text(angle = -35, hjust = .5, vjust = -1)) +
+    plots$N05 + 
+    ggtitle("N05") + 
+    theme(axis.text.x = element_text(angle = -35, hjust = .5, vjust = -1)) +
+    plots$N10 + 
+    ggtitle("N10") + 
+    theme(axis.text.x = element_text(angle = -35, hjust = .5, vjust = -1))
+```
+
+## Average Jaccard per data set
+
+```{r, warning=FALSE, fig.height=10}
+plots <- 
+    lapply(split(avg_jaccard_dists[, .(AvgJDist = mean(AvgJDist)), 
+                                   by = .(DS, MZP, DsType, Method, Method2)], 
+                 by = c("DS"), flatten = F, keep.by = F), 
+           function(setSize){
+               ddata <- 
+                   dendro_data(as.dendrogram(hclust(as.dist(data.frame(dcast(setSize, 
+                                                                             Method ~ Method2, 
+                                                                             value.var = "AvgJDist"), 
+                                                                       row.names = "Method")))), 
+                               type = "rectangle")
+               
+               ggplot(segment(ddata), aes(x = x, y = y)) +
+                   geom_segment(aes(xend = xend, yend = yend)) +
+                   scale_x_continuous(name = NULL, breaks = label(ddata)$x, 
+                                      labels = label(ddata)$label, 
+                                      position = "top") +
+                   scale_y_reverse(name = "Jaccard distance", expand = c(0, 0.01)) +
+                   coord_flip() +
+                   theme_minimal() +
+                   theme(axis.text.y = element_text(color = method_colors[label(ddata)$label]),
+                         panel.grid.major.x = element_blank(),
+                         panel.grid.minor.x = element_blank(),
+                         panel.grid.major.y = element_blank(),
+                         panel.grid.minor.y = element_blank())
+           })
+
+plots$DM1  + 
+    ggtitle("DM1") + 
+    theme(axis.text.x = element_text(angle = -35, hjust = .5, vjust = -1)) +
+    plots$IPF + 
+    ggtitle("IPF") + 
+    theme(axis.text.x = element_text(angle = -35, hjust = .5, vjust = -1)) +
+    plots$IDC + 
+    ggtitle("IDC") + 
+    theme(axis.text.x = element_text(angle = -35, hjust = .5, vjust = -1)) +
+    plots$MS + 
+    ggtitle("MS") + 
+    theme(axis.text.x = element_text(angle = -35, hjust = .5, vjust = -1))
+```
+
+## Overall average
+
+```{r, warning=FALSE, fig.width=2.5}
+plot <- avg_jaccard_dists[, .(AvgJDist = mean(AvgJDist)), 
+                          by = .(Method, Method2)]
+
+ddata <- 
+    dendro_data(as.dendrogram(hclust(as.dist(data.frame(dcast(plot, 
+                                                              Method ~ Method2, 
+                                                              value.var = "AvgJDist"), 
+                                                        row.names = "Method")
+                                             ), 
+                                     method = "complete")
+                              ), 
+                type = "rectangle")
+
+ggplot(segment(ddata), aes(x = x, y = y)) +
+    geom_segment(aes(xend = xend, yend = yend)) +
+    scale_x_continuous(name = NULL, breaks = label(ddata)$x, 
+                       labels = label(ddata)$label, 
+                       position = "top") +
+    scale_y_reverse(name = "Jaccard distance", expand = c(0, 0.01)) +
+    coord_flip() +
+    theme_minimal() + 
+    ggtitle("Overall average") + 
+    theme(axis.text.y = element_text(color = method_colors[label(ddata)$label]),
+          axis.text.x = element_text(angle = -35, hjust = .5, vjust = -1),
+          panel.grid.major.x = element_blank(),
+          panel.grid.minor.x = element_blank(),
+          panel.grid.major.y = element_blank(),
+          panel.grid.minor.y = element_blank())
+```
+
 # Session info
 
 ```{r}
