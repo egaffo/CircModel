@@ -9,10 +9,18 @@ output:
     code_folding: hide
 editor_options: 
   chunk_output_type: console
+params:
+  outdir: "DM1_sims"
+  input_dataset_bjr_file: "../data/DM1_unfiltered_CirComPara2_circbjr.csv"
+  input_dataset_meta_file: "../data/DM1_meta.csv"
 ---
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
+
+# params <- list(input_dataset_bjr_file = "../data/DM1_unfiltered_CirComPara2_circbjr.csv", 
+#                input_dataset_meta_file = "../data/DM1_meta.csv", 
+#                outdir = "DM1_sims")
 
 # load required libraries
 library(data.table)
@@ -35,6 +43,8 @@ library(BiocParallel)
 
 # install.packages("qs", Ncpus = 24)
 library(qs)
+
+dir.create(path = params$outdir, showWarnings = F, recursive = T)
 ```
 
 # The source data set
@@ -43,17 +53,17 @@ Load the original data and make a basic filtering
 
 ```{r}
 # load the original data
-input_dataset_bjr_file <- "../data/MS_unfiltered_CirComPara2_circbjr.csv"
-input_dataset_meta_file <- "../data/MS_meta.csv"
+# input_dataset_bjr_file <- "../data/ALZ_unfiltered_CirComPara2_circbjr.csv"
+# input_dataset_meta_file <- "../data/ALZ_meta.csv"
 
-counts_mt <- as.matrix(data.frame(fread(input_dataset_bjr_file), 
+counts_mt <- as.matrix(data.frame(fread(params$input_dataset_bjr_file), 
                                   row.names = "circ_id"))
-group_dt <- fread(input_dataset_meta_file)
+group_dt <- fread(params$input_dataset_meta_file)
 group_df <- data.frame(group_dt, 
                        row.names = "sample_id")
 ```
 
-MS data have `r nrow(counts_mt)` circRNAs.  
+Data have `r nrow(counts_mt)` circRNAs.  
 
 Samples partitioned between conditions  
 
@@ -68,7 +78,7 @@ min_samples <- 3
 counts_mt <- counts_mt[rowSums(counts_mt > 0) >= min_samples, ]
 ```
 
-MS filtered data have `r nrow(counts_mt)` circRNAs (BJR > 0 in at least `r min_samples` samples).  
+Filtered data have `r nrow(counts_mt)` circRNAs (BJR > 0 in at least `r min_samples` samples).  
 
 ```{r}
 lib_sizes <- apply(counts_mt, 2, sum)[rownames(group_df)]
@@ -153,7 +163,7 @@ Select samples of similar library size from the original data set
 
 ```{r}
 ## subset original matrix using samples of similar library size
-sample_subset <- sample_libsize_clust_dt[LibGroup == 2, Sample]
+sample_subset <- sample_libsize_clust_dt[!LibGroup %in% c(3, 4), Sample]
 ## subset sample metadata 
 sample_table <- group_df[sample_subset, "condition", drop = F]
 
@@ -217,156 +227,21 @@ ggplot(plot_dt,
     theme(legend.position = "top")
 ```
 
-### Expression quantiles
-
 ```{r}
-## function to sample the desired fraction of circRNAs from each quantile
-sample_circs <- function(x, N, fracDE) {
-    ## x: the set to sample from
-    ## N: the number of elements to sample from the set
-    ## fracDE: the fraction of sampled elements deemed to be differentially expressed
-    
-    if(N > length(x)){
-        warning(paste("The number of elements to be sampled", 
-                      "is larger than the set:", N, ">", length(x), "\n",
-                      "Will sample", length(x), "elements."))
-        N <- length(x)
-    }
-    
-    circs_to_sim <- sample(x, size = N)
-    nonnull_circs <- sample(circs_to_sim, size = ceiling(length(circs_to_sim) * fracDE))
-    null_circs <- circs_to_sim[! circs_to_sim %in% nonnull_circs]
-    
-    list(circs_to_sim = circs_to_sim,
-         nonnull_circs = nonnull_circs,
-         null_circs = null_circs)
-}
-
 ## percentage of DECs
 fracDECs <- 0.1
 ```
 
-#### By raw expression
+`r floor(Ncircrnas * fracDECs)` differentially expressed circRNAs will be simulated.  
 
-```{r}
-## compute the expression quantiles to select equally distributed circRNA
-## expression among expression range
-avg_xprs_orig_mat <- apply(orig_mat, 1, mean)
-## compute 10 expression quantiles
-expression_quantiles <- quantile(avg_xprs_orig_mat,
-                                 seq(from = 0, to = 1, by = .1))
-## assign the expression quantile to each circRNA
-qt_circ_dt <-
-  data.frame(circ_id = 1:nrow(orig_mat),
-             avg_xprs = avg_xprs_orig_mat,
-             qt = cut(avg_xprs_orig_mat, include.lowest = T,
-                      breaks = expression_quantiles))
-circs_per_qt <- floor(Ncircrnas / (length(expression_quantiles) - 1))
 
-circ_selection <-
-  lapply(split(qt_circ_dt$circ_id, f = qt_circ_dt$qt),
-         sample_circs, 
-         N = circs_per_qt, 
-         fracDE = fracDECs)
-
-circs_to_sim <- sapply(circ_selection, function(x) x$circs_to_sim, simplify = T)
-nonnull_circs <- sapply(circ_selection, function(x) x$nonnull_circs, simplify = T)
-null_circs <- sapply(circ_selection, function(x) x$null_circs, simplify = T)
-
-circs_to_sim_names <- rownames(orig_mat)[unlist(circs_to_sim)]
-nonnull_circs_names <- rownames(orig_mat)[unlist(nonnull_circs)]
-null_circs_names <- rownames(orig_mat)[unlist(null_circs)]
-```
-
-`r length(nonnull_circs_names)` differentially expressed circRNAs will be simulated.  
-`r floor(Ncircrnas * fracDECs / 10)` DECs in each expression quantile.  
-
-```{r}
-qt_circ_dt$dec <- F
-qt_circ_dt[nonnull_circs_names, ]$dec <- T
-
-qt_circ_dt$sim_selected <- "Sim. not selected"
-qt_circ_dt[circs_to_sim_names, ]$sim_selected <- "Sim. selected"
-```
-
-```{r}
-# ggplot(qt_circ_dt, aes(x = factor(as.integer(qt)), y = avg_xprs)) +
-ggplot(qt_circ_dt, aes(x = qt, y = avg_xprs)) +
-  geom_boxplot(aes(fill = dec), varwidth = F) +
-  scale_y_log10("Avg BJR", label = comma) +
-  facet_grid(rows = vars(sim_selected), scales = "free_y") +
-  theme(legend.position = c(.1, .8), 
-        axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5))
-```
-
-#### By normalized expression
-
-```{r}
-# ## compute the expression quantiles to select equally distributed circRNA
-# ## expression among expression range
-# 
-# orig_nf <- calcNormFactors(orig_mat, method = "TMM")
-# norm_orig_mat <- cpm(orig_mat, lib.size = orig_nf) #orig_mat/orig_nf
-# avg_xprs_orig_mat <- apply(norm_orig_mat, 1, mean)
-# ## compute 10 expression quantiles
-# expression_quantiles <- quantile(avg_xprs_orig_mat,
-#                                  seq(from = 0, to = 1, by = .1))
-# ## assign the expression quantile to each circRNA
-# qt_circ_dt <-
-#   data.frame(circ_id = 1:nrow(orig_mat),
-#              avg_xprs = avg_xprs_orig_mat,
-#              qt = cut(avg_xprs_orig_mat, include.lowest = T,
-#                       breaks = expression_quantiles))
-# circs_per_qt <- floor(Ncircrnas / (length(expression_quantiles) - 1))
-# 
-# circ_selection <-
-#   lapply(split(qt_circ_dt$circ_id, f = qt_circ_dt$qt),
-#          sample_circs, 
-#          N = circs_per_qt, 
-#          fracDE = fracDECs)
-# 
-# circs_to_sim <- sapply(circ_selection, function(x) x$circs_to_sim)
-# nonnull_circs <- sapply(circ_selection, function(x) x$nonnull_circs)
-# null_circs <- sapply(circ_selection, function(x) x$null_circs)
-# 
-# circs_to_sim_names <- rownames(orig_mat)[circs_to_sim]
-# nonnull_circs_names <- rownames(orig_mat)[nonnull_circs]
-# null_circs_names <- rownames(orig_mat)[null_circs]
-```
-
-`r Ncircrnas * fracDECs` differentially expressed circRNAs will be simulated.  
-`r Ncircrnas * fracDECs / 10` DECs in each expression quantile.  
-
-```{r}
-# qt_circ_dt$dec <- F
-# qt_circ_dt[nonnull_circs_names, ]$dec <- T
-# 
-# qt_circ_dt$sim_selected <- "Sim. not selected"
-# qt_circ_dt[circs_to_sim_names, ]$sim_selected <- "Sim. selected"
-```
-
-```{r}
-# # ggplot(qt_circ_dt, aes(x = factor(as.integer(qt)), y = avg_xprs)) +
-# ggplot(qt_circ_dt, aes(x = qt, y = avg_xprs)) +
-#   geom_boxplot(aes(fill = dec), varwidth = F) +
-#   scale_y_log10("Avg CPM", label = comma) +
-#   facet_grid(rows = vars(sim_selected), scales = "free_y") +
-#   theme(legend.position = c(.1, .8), 
-#         axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5))
-```
-
-### Compose and save the source data set
-
-```{r}
-## further subset original matrix to the selected circRNAs
-orig_mat <- orig_mat[unlist(circs_to_sim), ]
-```
+### Save the source data set
 
 ```{r}
 ## save source dataset
 orig_mat_dge <- edgeR::DGEList(counts = orig_mat, group = sample_table[colnames(orig_mat), "condition"])
 
-source_dataset_qs <- "trimmed_source_dataset.qs"
+source_dataset_qs <- file.path(params$outdir, "trimmed_source_dataset.qs")
 qsave(x = orig_mat_dge, 
       file = source_dataset_qs, 
       nthreads = multicoreWorkers(), 
@@ -461,10 +336,10 @@ bulk_sims_params <-
        N05_bulk = c(params_list, reps_per_group =  5, model_zeros = FALSE),
        N10_bulk = c(params_list, reps_per_group = 10, model_zeros = FALSE))
 
-sice_sims_params <- 
-  list(N03_sice = c(params_list, reps_per_group =  3, model_zeros = TRUE),
-       N05_sice = c(params_list, reps_per_group =  5, model_zeros = TRUE),
-       N10_sice = c(params_list, reps_per_group = 10, model_zeros = TRUE))
+# sice_sims_params <- 
+#   list(N03_sice = c(params_list, reps_per_group =  3, model_zeros = TRUE),
+#        N05_sice = c(params_list, reps_per_group =  5, model_zeros = TRUE),
+#        N10_sice = c(params_list, reps_per_group = 10, model_zeros = TRUE))
 ```
 
 ### Not DE data sets
@@ -486,10 +361,10 @@ mock_bulk_sims_params <-
        N05_bulk_mock = c(mock_params_list, reps_per_group =  5, model_zeros = FALSE),
        N10_bulk_mock = c(mock_params_list, reps_per_group = 10, model_zeros = FALSE))
 
-mock_sice_sims_params <- 
-  list(N03_sice_mock = c(mock_params_list, reps_per_group =  3, model_zeros = TRUE),
-       N05_sice_mock = c(mock_params_list, reps_per_group =  5, model_zeros = TRUE),
-       N10_sice_mock = c(mock_params_list, reps_per_group = 10, model_zeros = TRUE))
+# mock_sice_sims_params <- 
+#   list(N03_sice_mock = c(mock_params_list, reps_per_group =  3, model_zeros = TRUE),
+#        N05_sice_mock = c(mock_params_list, reps_per_group =  5, model_zeros = TRUE),
+#        N10_sice_mock = c(mock_params_list, reps_per_group = 10, model_zeros = TRUE))
 ```
 
 ## Do simulations
@@ -497,10 +372,10 @@ mock_sice_sims_params <-
 ```{r}
 ## do simulations in parallel
 ds_par_list <- 
-  c(bulk_sims_params, 
-    sice_sims_params,
-    mock_bulk_sims_params, 
-    mock_sice_sims_params)
+  c(bulk_sims_params,
+    mock_bulk_sims_params)
+# sice_sims_params,
+# mock_sice_sims_params
 ```
 
 ```{r}
@@ -512,25 +387,12 @@ sim_ds_list <-
 ```
 
 ```{r}
-
-## save the simulated data sets
-# simulated_datasets_rds <- "simulated_datasets.rds"
-# saveRDS(object = sim_ds_list, 
-#         file = simulated_datasets_rds)
-
 ## 'qs' is much quicker than 'saveRDS' !!
-simulated_datasets_qs <- "trimmed_simulated_datasets.qs"
+simulated_datasets_qs <- file.path(params$outdir, "trimmed_simulated_datasets.qs")
 qsave(x = sim_ds_list, 
       file = simulated_datasets_qs, 
       nthreads = multicoreWorkers(), 
       preset = "fast")
-```
-
-```{r}
-## save in text format each simulated dataset: 
-## 1. count matrix, 2. DE indicators, 3. sample design table
-# sim_dir <- "simulated_datasets"
-## TODO (?)
 ```
 
 The simulated data sets can be loaded from the <a href="`r simulated_datasets_qs`">`r simulated_datasets_qs`</a> R object using the <a href="https://cran.r-project.org/web/packages/qs/index.html">qs</a> package.  

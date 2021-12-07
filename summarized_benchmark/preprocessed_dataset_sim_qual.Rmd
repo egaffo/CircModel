@@ -1,0 +1,100 @@
+---
+title: "Assess simulated data set quality"
+author: "Enrico Gaffo"
+date: "`r Sys.Date()`"
+output: 
+  html_document: 
+    toc: yes
+    toc_float: yes
+    code_folding: hide
+params:
+  simulated_datasets_qs: "MS_prep_ds/datasetList.qs"
+  outdir: "MS_processed_ds_stats"
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(qs)
+library(data.table)
+library(edgeR)
+library(BiocParallel)
+library(ggplot2)
+```
+
+# Assess simulated data is similar to real data
+
+```{r}
+nPermutations <- 500 # 1000 
+outdir <- params$outdir
+dir.create(outdir, recursive = T, showWarnings = F)
+```
+
+
+```{r}
+simulated_datasets_qs <- params$simulated_datasets_qs #"preprocessed_datasets/datasetList.qs"
+## to read the data
+sim_ds_list <- qread(file = simulated_datasets_qs, nthreads = multicoreWorkers())
+```
+
+```{r}
+# get_simulated_datasets <- function(x) {
+#   x$Datasets$sim.data.list
+# }
+```
+
+```{r}
+## separate DE and not-DE simulations
+de_ds_list <- sim_ds_list[grepl("_de_", names(sim_ds_list))]
+
+not_de_ds_list <- sim_ds_list[grepl("_mock_", names(sim_ds_list))]
+```
+
+## DE datasets
+
+```{r}
+sim_data_list <- de_ds_list
+```
+
+```{r, child="_simdata_stats.Rmd"}
+
+```
+
+```{r}
+de_ds_stats <- rbindlist(list(Expression = expression_stats, 
+                              FeatureFracZero = featureFracZero_stats, 
+                              ExprVsFracZero = exprVsFracZero_stats, 
+                              LibsizeVsFracZero = libsizeVsFracZero_stats), 
+                         use.names = T, idcol = "Measure", fill = T)
+
+fwrite(de_ds_stats, file = file.path(outdir, "de_ds_stats.csv"), sep = "\t", row.names = F)
+```
+
+## Not DE datasets
+
+```{r}
+# sim_data_list <- lapply(not_de_ds_list, get_simulated_datasets)
+sim_data_list <- not_de_ds_list
+```
+
+```{r, child="_simdata_stats.Rmd"}
+
+```
+
+```{r}
+not_de_ds_stats <- rbindlist(list(Expression = expression_stats, 
+                                  FeatureFracZero = featureFracZero_stats, 
+                                  ExprVsFracZero = exprVsFracZero_stats, 
+                                  LibsizeVsFracZero = libsizeVsFracZero_stats), 
+                             use.names = T, idcol = "Measure", fill = T)
+
+fwrite(not_de_ds_stats, file = file.path(outdir, "not_de_ds_stats.csv"), sep = "\t", row.names = F)
+```
+
+# Session info
+
+```{r}
+sessionInfo()
+```
+
