@@ -837,9 +837,9 @@ plot_dt <- melt(msbAssay_dt, id.vars = c("Source_ds", "SetSize", "MZP", "DsType"
 ### FPR
 
 ```{r}
-# pval_tpr_pattern <- "^TPR.[0-9]$"
+pval_tnr_pattern <- "^TNR.[0-9]$"
 padj_tnr_pattern <- "^TNR.[0-9].[0-9]$"
-tnr_pattern <- padj_tnr_pattern #pval_tpr_pattern
+tnr_pattern <- pval_tnr_pattern #padj_tnr_pattern
 Alpha_plot_label <- "P-value \U2264"
 if(tnr_pattern == padj_tnr_pattern){
   Alpha_plot_label <- "P-adj \U2264"
