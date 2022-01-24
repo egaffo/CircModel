@@ -160,7 +160,7 @@ sbL <-
 ## Estimate performance
 
 ```{r estimate_performance}
-alpha_targets <- c(0.01, 0.05, 0.1) 
+alpha_targets <- c("0.01" = 0.01, "0.05" = 0.05, "0.1" = 0.1) 
 add_weights <- c(FALSE, TRUE)
 
 sbL <- bplapply(sbL, function(x, alphas, add_weights) {
