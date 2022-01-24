@@ -22,6 +22,7 @@ library(ComplexHeatmap)
 library(scales)
 library(ggplot2)
 library(ggrepel)
+library(patchwork)
 
 library(BiocParallel)
 ```
@@ -51,6 +52,171 @@ sim_ds_list <- lapply(simulated_datasets_qs_files,
 
 # Are matrix zero-inflated?
 
+## Source data sets
+
+```{r}
+source_ds_dt <- 
+    rbindlist(lapply(setNames(paste0("../data/", 
+                                     ds_names, 
+                                     "_unfiltered_CirComPara2_circbjr.csv"), 
+                              ds_names),
+                     function(x){
+                         y <- fread(x, data.table = F)
+                         m <- as.matrix(y[, -1])
+                         rownames(m) <- y[, 1]
+                         melt(as.data.table(m[rowSums(m > 0) >= 3, ], 
+                                            keep.rownames = "circ_id"),
+                              id.vars = "circ_id", variable.name = "sample_id")
+                     }
+    ), 
+    idcol = "DS")
+```
+
+```{r, fig.width=5, fig.height=5}
+source_hist_cnt <- 
+    source_ds_dt[, .(histBJR = .N), 
+             by = .(DS, BJR = value)][, Frac := histBJR / sum(histBJR), 
+                                  by = .(DS)][]
+plot_dt <- source_hist_cnt[, .(AvgFrac = mean(Frac)),
+                    by = .(DS, BJR)]
+
+ds_stats <- 
+    source_ds_dt[, .(nSamples = .N), 
+                 by = .(DS, circ_id)][, .(nSamples = head(nSamples, 1),
+                                          nCircs = .N), by = DS]
+
+ch_p <- ggplot(plot_dt, aes(x = BJR, y = AvgFrac)) + 
+    geom_col(position = "identity", alpha = 1) +
+    # facet_wrap(facets = ~ DS, ncol = 1, scales = "free_y") +
+    facet_grid(rows = vars(DS)) +
+    coord_cartesian(xlim = c(0, 15)) +
+    geom_label(data = ds_stats,
+               aes(x = 5, y = .3, 
+                   label = paste("# samples:", nSamples, "\n# circRNAs:", comma(nCircs))), hjust = 0) +
+    scale_y_continuous("Count matrix fraction (%)", 
+                       labels = function(x)round(as.numeric(x)*100)) + #labels = percent
+    scale_x_continuous(breaks = 0:15, 
+                       labels = 0:15) +
+    theme_bw() +
+    theme(legend.position = "top", 
+          axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5), 
+          plot.margin = unit(x = c(.1, .1, .1, .1), units = "lines"), 
+          strip.text = element_blank(), strip.background = element_blank())
+
+ls_bxp <- 
+    ggplot(source_ds_dt[, .(LibSize = sum(value)), by = .(DS, sample_id)],
+           aes(x = "", y = LibSize)) +
+    geom_boxplot(varwidth = T, notch = F) +
+    # geom_violin(draw_quantiles = c(.25, .5, .75)) +
+    scale_x_discrete(name = NULL) +
+    scale_y_log10(labels = function(x)sub("000$", "K", x)) +
+    coord_flip() +
+    # facet_wrap(facets = ~ DS, ncol = 1) + #, scales = "free_x"
+    facet_grid(rows = vars(DS)) +
+    theme_bw() +
+    theme(axis.ticks.y = element_blank(), panel.grid.major.y = element_blank(),
+          plot.margin = unit(x = c(.1, .1, .1, .1), units = "lines"))
+
+ch_p + ls_bxp +
+    plot_layout(widths = c(3, 1), )
+```
+
+```{r}
+library(NBID)
+meta_files <- setNames(paste0("../data/", 
+                                     ds_names, 
+                                     "_meta.csv"), 
+                              ds_names)
+
+source_ds_mt <- 
+    lapply(setNames(paste0("../data/", 
+                                     ds_names, 
+                                     "_unfiltered_CirComPara2_circbjr.csv"), 
+                              ds_names),
+                     function(x){
+                         y <- fread(x, data.table = F)
+                         m <- as.matrix(y[, -1])
+                         rownames(m) <- y[, 1]
+                         m[rowSums(m > 0) >= 3, ]
+                     }
+    )
+
+
+meta_dts <- lapply(meta_files, fread)
+
+fitResult_l <-
+    lapply(setNames(ds_names, ds_names), 
+           function(x) {
+               
+               NBID::checkDataDistribution(data = source_ds_mt[[x]][, meta_dts[[x]][["sample_id"]]], 
+                                           groups = meta_dts[[x]][["condition"]], 
+                                           ncore = multicoreWorkers())
+           })
+
+ds_aic <-
+    rbindlist(lapply(setNames(ds_names, ds_names), 
+                     function(x) {
+                         
+                         # fitResult <- NBID::checkDataDistribution(data = source_ds_mt[[x]][, meta_dts[[x]][["sample_id"]]], 
+                         #                                          groups = meta_dts[[x]][["condition"]], 
+                         #                                          ncore = multicoreWorkers())
+                         # 
+                         # dcast(melt(data.table(fitResult[, c("geneNames", 
+                         #                                     grep("modelByAIC", 
+                         #                                          colnames(fitResult), value = T))]), 
+                         #            id.vars = "geneNames")[, .N, by = .(variable, value)], 
+                         #       variable ~ value, 
+                         #       value.var = "N")
+                         dcast(melt(data.table(fitResult_l[[x]][, c("geneNames", 
+                                                                    grep("modelByAIC", 
+                                                                         colnames(fitResult_l[[x]]), value = T))]), 
+                                    id.vars = "geneNames")[, .N, by = .(variable, value)], 
+                               variable ~ value, 
+                               value.var = "N")
+                     }), 
+              idcol = "DS")
+
+
+# nbid_result <- data.frame(DEUsingNBID(source_ds_mt[[x]][, meta_dts[[x]][["sample_id"]]], 
+#                      meta_dts[[x]][["condition"]], 
+#                      ncore = multicoreWorkers()))
+# 
+# nbid_result$FDR <- p.adjust(nbid_result$pvalue, "BH")
+# sum(nbid_result$FDR <= .1)
+
+```
+
+```{r}
+datatable(ds_aic, rownames = F)
+```
+
+```{r}
+plot_dt <- melt(ds_aic, id.vars = c("DS", "variable"), variable.name = "Model", value.name = "CircRNAs")
+
+ggplot(plot_dt, aes(x = gsub("_| ", "\n", variable), 
+                    y = CircRNAs, fill = Model)) +
+    geom_col(position = position_dodge()) +
+    facet_wrap(~ DS, drop = T, scales = "free") +
+    scale_x_discrete("Condition") +
+    theme_bw() +
+    theme(legend.position = "top")
+```
+
+```{r}
+# summaryResult = summaryComparison(fitResult)
+# print(summaryResult$modelCount)
+fitres_dt <- rbindlist(lapply(fitResult_l, 
+                              function(x) data.table(summaryComparison(x)$modelCount)), 
+                       idcol = "DS")
+
+```
+
+```{r}
+datatable(fitres_dt, rownames = F)
+```
+
+## Simulated data sets
+
 ```{r, warning=FALSE}
 melt_cnt <- rbindlist(lapply(sim_ds_list, 
                         function(sims) {
@@ -73,8 +239,6 @@ melt_cnt <- melt_cnt[MZP == "bulk"]
 ```
 
 ```{r}
-library(scales)
-
 hist_cnt <- 
     melt_cnt[, .(histBJR = .N), 
              by = .(DS, dataset, SetSize, MZP, Purpose, ID, 
