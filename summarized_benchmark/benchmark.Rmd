@@ -469,6 +469,7 @@ edgeRrbst_run <- function(countData, group, design) {
 }
 
 ## 3. 50 degrees of freedom
+## https://support.bioconductor.org/p/84338/
 edgeRrbst50df_run <- function(countData, group, design) {
   
   tictoc::tic()
@@ -534,6 +535,14 @@ edgeRzw_run <- function(countData, group, design, weights) {
 
 ## 6. Quasi-likelihood dispersion estimate and empirical Bayes quasi-likelihood F-tests
 ## glmQLFit gives special attention to handling of zero counts
+## https://support.bioconductor.org/p/84338/
+## and
+## https://support.bioconductor.org/p/84291/#84292
+## "There are some situations where the QL F-test doesn't work well - for example, [...]
+## where the dispersions are very large and the counts are very small, whereby 
+## some of the approximations in the QL framework seem to fail. In such cases, 
+## I usually switch to the LRT rather than using the exact test, for the reasons 
+## of experimental flexibility that I mentioned above."
 edgeRql_run <- function(countData, group, design, weights) {
   
   tictoc::tic()
