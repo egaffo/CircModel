@@ -337,6 +337,116 @@ ggplot(plot_dt,
           legend.position = "top")
 ```
 
+##### Average point line plot
+
+```{r, fig.width=10}
+plot_dt <- 
+    mf1s[, c("baseMethod", "Params", 
+             "Test") := tstrsplit(Method, 
+                                  "_")][, .(AvgF1 = mean(F1),
+                                            SdF1 = sd(F1)), 
+                                        by = .(SetSize, MZP, DsType, Method, Alpha)]
+plot_dt$Method <- gsub("_", " ", plot_dt$Method)
+```
+
+```{r, fig.width=10}
+gg_color_hue <- function(n) {
+  hues = seq(15, 375, length = n + 1)
+  hcl(h = hues, l = 65, c = 100)[1:n]
+}
+
+method_colors <- setNames(gg_color_hue(length(unique(plot_dt$Method))), 
+                          unique(plot_dt$Method))
+```
+
+```{r, fig.width=10}
+plot_dt$Method <- factor(plot_dt$Method, 
+                         levels = plot_dt[SetSize == "N03" & 
+                                              Alpha == "2.1"][order(AvgF1), Method], 
+                         ordered = T)
+
+p0.05N03 <- 
+    ggplot(plot_dt[SetSize == "N03"], 
+           aes(x = Method, y = AvgF1)) +
+    geom_line(aes(group = "1"), color = "grey", linetype = "solid") +
+    geom_errorbar(aes(ymin = AvgF1 - SdF1, ymax = AvgF1 + SdF1), 
+                  color = "grey45",
+                  width = 0.5) +
+    geom_point(aes(color = Method)) +
+    scale_color_manual(values = method_colors, guide = NULL) +
+    ylab("Average F1") +
+    facet_grid(cols = vars(SetSize), 
+               rows = vars(Alpha), scales = "free_y") +
+    theme_bw() +
+    theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5),
+          legend.position = "top")
+```
+
+```{r, fig.width=10}
+plot_dt$Method <- factor(plot_dt$Method, 
+                         levels = plot_dt[SetSize == "N05" & 
+                                              Alpha == "2.1"][order(AvgF1), Method], 
+                         ordered = T)
+
+p0.05N05 <- 
+    ggplot(plot_dt[SetSize == "N05"], 
+           aes(x = Method, y = AvgF1)) +
+    geom_line(aes(group = "1"), color = "grey", linetype = "solid") +
+    geom_errorbar(aes(ymin = AvgF1 - SdF1, ymax = AvgF1 + SdF1), 
+                  color = "grey45",
+                  width = 0.5) +
+    geom_point(aes(color = Method)) +
+    scale_color_manual(values = method_colors, guide = NULL) +
+    ylab("Average F1") +
+    facet_grid(cols = vars(SetSize), 
+               rows = vars(Alpha), scales = "free_y") +
+    theme_bw() +
+    theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5),
+          legend.position = "top")
+```
+
+```{r, fig.width=10}
+plot_dt$Method <- factor(plot_dt$Method, 
+                         levels = plot_dt[SetSize == "N10" & 
+                                              Alpha == "2.1"][order(AvgF1), Method], 
+                         ordered = T)
+
+p0.05N10 <- 
+    ggplot(plot_dt[SetSize == "N10"], 
+           aes(x = Method, y = AvgF1)) +
+    geom_line(aes(group = "1"), color = "grey", linetype = "solid") +
+    geom_errorbar(aes(ymin = AvgF1 - SdF1, ymax = AvgF1 + SdF1), 
+                  color = "grey45",
+                  width = 0.5) +
+    geom_point(aes(color = Method)) +
+    scale_color_manual(values = method_colors, guide = NULL) +
+    ylab("Average F1") +
+    facet_grid(cols = vars(SetSize), 
+               rows = vars(Alpha), scales = "free_y") +
+    theme_bw() +
+    theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5),
+          legend.position = "top")
+```
+
+```{r, fig.width=10}
+library(patchwork)
+
+result <- 
+    p0.05N03 + labs(x = NULL, y = NULL) + coord_cartesian(ylim = c(0, 1)) +
+    theme(strip.background.y = element_blank(), strip.text.y = element_blank(), 
+          plot.margin = unit(c(0, 0, 0, 0), "lines")) +
+    p0.05N05 + labs(x = NULL, y = NULL) + coord_cartesian(ylim = c(0, 1)) +
+    theme(axis.text.y = element_blank(), axis.ticks.y = element_blank(),
+          strip.background.y = element_blank(), strip.text.y = element_blank(), 
+          plot.margin = unit(c(0, 0, 0, 0), "lines")) +
+    p0.05N10 + labs(x = NULL, y = NULL) + coord_cartesian(ylim = c(0, 1)) +
+    theme(axis.text.y = element_blank(), axis.ticks.y = element_blank(), 
+          plot.margin = unit(c(0, 0, 0, 0), "lines"))
+
+gt <- patchwork::patchworkGrob(result)
+gridExtra::grid.arrange(gt, left = "Avg F1", bottom = "Method")
+```
+
 #### F0.5 {.tabset} 
 
 ##### Boxplot
