@@ -10,7 +10,7 @@ output:
 params:
   output_dir: "DM1_evaluations"
   simulated_datasets_qs: "DM1_prep_ds/datasetList.qs"
-  sumBench_perf_metrics_qs: "DM1_benchmark_results/sumBench_perf_metrics.qs"
+  sumBench_perf_metrics_qs: "DM1_performance/sumBench_perf_metrics.qs"
   sice: FALSE
 editor_options: 
   chunk_output_type: console
@@ -1626,6 +1626,7 @@ ggplot(plot_dt, aes(x = F1, y = mTime, color = Method, shape = baseMethod)) +
   scale_y_log10("Runtime (mm:ss)", 
                 breaks = c(0.1, 1, 10, 60, 600),
                 labels = c("00:00.1", "00:01", "00:10", "01:00", "10:00")) +
+  scale_shape_manual(values = 1:length(unique(plot_dt$baseMethod))) +
   theme_bw() +
   theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5))
 ```
@@ -1639,6 +1640,7 @@ ggplot(plot_dt, aes(x = F0.5, y = mTime, color = Method, shape = baseMethod)) +
   scale_y_log10("Runtime (mm:ss)", 
                 breaks = c(0.1, 1, 10, 60, 600),
                 labels = c("00:00.1", "00:01", "00:10", "01:00", "10:00")) +
+  scale_shape_manual(values = 1:length(unique(plot_dt$baseMethod))) +
   theme_bw() +
   theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5))
 ```
@@ -1704,7 +1706,7 @@ plot_dt <- melt(mSbAssayL, id.vars = c("SetSize", "MZP", "DsType", "Method"))
 ### FPR
 
 ```{r}
-pval_tnr_pattern <- "^TPR.[0-9]$"
+pval_tnr_pattern <- "^TNR.[0-9]$"
 padj_tnr_pattern <- "^TNR.[0-9].[0-9]$"
 tnr_pattern <- pval_tnr_pattern #padj_tnr_pattern
 Alpha_plot_label <- "P-value \U2264"
@@ -1715,7 +1717,7 @@ if(tnr_pattern == padj_tnr_pattern){
 
 ```{r, fig.width=10}
 ## Avg FPR = 1 - TNR
-ggplot(plot_dt[grep(tnr_pattern, variable)], 
+ggplot(plot_dt[grepl(tnr_pattern, variable)], 
        aes(x = Method, y = 1 - value)) +
   geom_line(aes(group = variable, color = variable)) +
   geom_point(aes(shape = variable, color = variable)) +
