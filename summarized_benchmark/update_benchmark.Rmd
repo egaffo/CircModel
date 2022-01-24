@@ -8,8 +8,8 @@ output:
     toc_float: yes
     code_folding: hide
 params:
-  outdir: "DM1_updated_benchmark_results"
-  inputData: "./DM1_benchmark_results/sumBenchs.qs"
+  outdir: "MS_updated_benchmark_results"
+  inputData: "./MS_benchmark_results/sumBenchs.qs"
 editor_options: 
   chunk_output_type: console
 ---
@@ -51,45 +51,64 @@ dir.create(path = outdir, recursive = T, showWarnings = F)
 ```
 
 ```{r}
-nWorkers <- multicoreWorkers()
+# nWorkers <- multicoreWorkers()
+nWorkers <- 12
 
-## load previous benchmark
-inputData <- params$inputData
+prev_output <- file.path(outdir, "updated_sumBenchs.qs")
+sumBench_perf_metrics_qs <- prev_output
+if(file.exists(prev_output)){
+    inputData <- prev_output
+}else{
+    ## load previous benchmark
+    inputData <- params$inputData
+}
 sbL <- qread(file = inputData, nthreads = nWorkers)
+
+# countData <- sbL$N03_bulk_de_01@BenchDesign@data@data$cntdat
+# group <- sbL$N03_bulk_de_01@BenchDesign@data@data$coldat$condition
 ```
 
 ```{r}
 # subsetIdx <- c(1:2, 31:32, 61:62, 91:92, 121:122, 151:152)
 # subsetIdx <- 1:2
-subsetIdx <- 1:length(sbL) # all
-sbL <- sbL[subsetIdx]
+# subsetIdx <- 1:length(sbL) # all
+# sbL <- sbL[subsetIdx]
+sbL <- sbL[grep("bulk", names(sbL))]
 ```
 
 ```{r}
 ## set scheduler for cluster computing
-ncpus <- 1
-bpparam <- BatchtoolsParam(workers = length(sbL), 
-                           saveregistry = F,
-                           cluster = "slurm",
-                           resources = list(ncpus = ncpus, 
-                                            walltime = 3600, # 1h max
-                                            memory = 8192) # 4Gb, 2048 2GByte, 8192 8Gb
-)
+# ncpus <- 1
+# bpparam <- BatchtoolsParam(workers = length(sbL), 
+#                            saveregistry = F,
+#                            cluster = "slurm",
+#                            resources = list(ncpus = ncpus, 
+#                                             walltime = 3600, # 1h max
+#                                             memory = 2048) # 4Gb, 2048 2GByte, 8192 8Gb
+# )
 
 ## Multithread, single machine
-# bpparam <- MulticoreParam(nWorkers)
+bpparam <- MulticoreParam(8)
 ```
 
 # Update bench design
 
-## Add lncDIFF method(s)
+## lncDIFF
 
 ```{r}
 lncdiff_run <- function(countData, group) {
   
   tictoc::tic()
-      
-  res <- lncDIFF::lncDIFF(edata = countData, 
+
+  dgeList <- edgeR::DGEList(counts = countData)
+  # calculate normalization factors
+  dgeList <- edgeR::calcNormFactors(object = dgeList, method = "TMM")
+  ## normalize counts
+  norm_data <- edgeR::cpm(dgeList, 
+                          normalized.lib.sizes = TRUE, 
+                          log = F)
+  
+  res <- lncDIFF::lncDIFF(edata = norm_data, 
                           group = as.character(group), 
                           covariate = NULL, 
                           link.function = 'log', 
@@ -105,12 +124,15 @@ lncdiff_run <- function(countData, group) {
 }
 
 lncdiff_pv <- function(x) {
-  x$res$DE.results$Pvalue
+    res <- x$res$DE.results$Pvalue
+    res[is.na(res)] <- 1
+    res
 }
 
-
 lncdiff_apv <- function(x) {
-  p.adjust(x$res$DE.results$Pvalue, method = "BH")
+  res <- p.adjust(x$res$DE.results$Pvalue, method = "BH")
+  res[is.na(res)] <- 1
+  res
 }
 
 lncdiff_lfc <- function(x) {
@@ -125,8 +147,8 @@ lncdiff_time <- function(x) { rep(as.numeric(x$runtime), length(x$res$DE.results
 ```{r}
 # https://www.bioconductor.org/packages/devel/bioc/vignettes/SummarizedBenchmark/inst/doc/Feature-Iterative.html#using-updatebench
 ## override BPPARAM
-parallel_methods <- 4
-bpparam$resources$ncpus <- parallel_methods
+# parallel_methods <- 4
+# bpparam$resources$ncpus <- parallel_methods
 
 func_list <- list(lncdiff_run = lncdiff_run,
                   lncdiff_pv = lncdiff_pv,
@@ -136,9 +158,8 @@ func_list <- list(lncdiff_run = lncdiff_run,
 
 sbL <- 
     bplapply(sbL, 
-             function(sb, 
-                      func_list,
-                      parallel_methods) { 
+             function(sb,
+                      func_list) { 
                  bd <- SummarizedBenchmark::BenchDesign(sb)
                  
                  bd <- SummarizedBenchmark::addMethod(bd = bd,
@@ -156,7 +177,6 @@ sbL <-
                  SummarizedBenchmark::updateBench(sb = sb, bd = bd, dryrun = F)
              }, 
              func_list = func_list,
-             parallel_methods = parallel_methods,
              BPPARAM = bpparam)
 # sbL
 ```
@@ -184,15 +204,15 @@ datatable(show_dt[adj_pv != "success" |
 ```
 
 ```{r}
-## save the updated summarizedBenchmark
+# save the updated summarizedBenchmark
 sumBench_perf_metrics_qs <- file.path(outdir, "updated_sumBenchs.qs")
-qsave(x = sbL, 
-      file = sumBench_perf_metrics_qs, 
-      nthreads = multicoreWorkers(), 
+qsave(x = sbL,
+      file = sumBench_perf_metrics_qs,
+      nthreads = multicoreWorkers(),
       preset = "fast")
 ```
 
-## Add SAMseq method(s)
+## SAMseq
 
 ```{r}
 samseq_run <- function(countData, group) {
@@ -248,13 +268,17 @@ samseq_run <- function(countData, group) {
 }
 
 samseq_pv <- function(x) {
-  x$res$Pvalue
+  res <- x$res$Pvalue
+  res[is.na(res)] <- 1
+  res
 }
 
 
 samseq_apv <- function(x) {
   # p.adjust(x$res$Pvalue, "BH")
-  x$res$FDR
+  res <- x$res$FDR
+  res[is.na(res)] <- 1
+  res
 }
 
 samseq_lfc <- function(x) {
@@ -264,29 +288,13 @@ samseq_lfc <- function(x) {
 samseq_time <- function(x) { rep(as.numeric(x$runtime), nrow(x$res)) }
 ```
 
-```{r}
-## make a new Bench Design
-# bd <- BenchDesign()
-# 
-# bd <- bd %>%
-#     addMethod(label = "SAMseq_Dt_TT", ## lncDIFF, defaults, test?
-#               func = samseq_run,
-#               post = list(pv = samseq_pv,
-#                           adj_pv = samseq_apv,
-#                           lfc = samseq_lfc,
-#                           runtime = samseq_time),
-#               meta = list(pkg_name = "samr", pkg_vers = as.character(packageVersion("samr"))),
-#               params = rlang::quos(countData = cntdat,
-#                                    group = coldat$condition))
-```
-
 ### Update the Build bench list
 
 ```{r}
 # https://www.bioconductor.org/packages/devel/bioc/vignettes/SummarizedBenchmark/inst/doc/Feature-Iterative.html#using-updatebench
 ## override BPPARAM
-parallel_methods <- 4
-bpparam$resources$ncpus <- parallel_methods
+# parallel_methods <- 4
+# bpparam$resources$ncpus <- parallel_methods
 
 func_list <- list(samseq_run = samseq_run,
                   samseq_pv = samseq_pv,
@@ -296,9 +304,9 @@ func_list <- list(samseq_run = samseq_run,
 
 sbL <- 
     bplapply(sbL, 
-             function(sb, 
-                      func_list,
-                      parallel_methods) { 
+             function(sb,
+                      # parallel_methods, 
+                      func_list) { 
                  bd <- SummarizedBenchmark::BenchDesign(sb)
                  
                  bd <- SummarizedBenchmark::addMethod(bd = bd,
@@ -316,7 +324,7 @@ sbL <-
                  SummarizedBenchmark::updateBench(sb = sb, bd = bd, dryrun = F)
              }, 
              func_list = func_list,
-             parallel_methods = parallel_methods,
+             # parallel_methods = parallel_methods,
              BPPARAM = bpparam)
 # sbL
 ```
@@ -346,114 +354,655 @@ datatable(show_dt[adj_pv != "success" |
 ```{r}
 ## save the updated summarizedBenchmark
 sumBench_perf_metrics_qs <- file.path(outdir, "updated_sumBenchs.qs")
-qsave(x = sbL, 
-      file = sumBench_perf_metrics_qs, 
-      nthreads = multicoreWorkers(), 
+qsave(x = sbL,
+      file = sumBench_perf_metrics_qs,
+      nthreads = multicoreWorkers(),
       preset = "fast")
 ```
 
 The benchmark results have been save into <a href="`r sumBench_perf_metrics_qs`">`r sumBench_perf_metrics_qs`</a>.  
 
-## ShrinkBayes
+## NBID
 
 ```{r}
-shrinkBayes_run <- 
-    function(countData, groups) {
-      
-      ## TODO: complete this function
-        
-      tictoc::tic()
-      
-      ## https://github.com/markvdwiel/ShrinkBayes/blob/master/inst/doc/ShrinkBayes.pdf
-      # library(edgeR)
-      DGE <- edgeR::DGEList(countData, group = groups)
-      libsize <- colSums(countData, na.rm = T)
-      DGEnorm <- edgeR::calcNormFactors(DGE, method = "TMMwsp")
-      normfac0 <- DGEnorm$samples[,3]
-      rellibsize <- libsize / exp(mean(log(libsize)))
-      normfac <- normfac0 * rellibsize
-      myoffsets <- log(normfac)
-      form <- ~ 1 + groups + offset(myoffsets)
-      # form0 <- ~ 1 + offset(myoffsets)
-      
-      library(INLA)
-      library(ShrinkBayes)
-      SBmir <- ShrinkBayes::ShrinkBayesWrap(countData, form, ncpus = 1)
-      # shrinksimul <- ShrinkSeq(form = form,
-      #                          dat = countData,
-      #                          shrinkfixed = "g",
-      #                          fams = "zinb")
-      
-      # form0 <- y ~ 1
-      # shrinksimul <- ShrinkSeq(form = form, 
-      #                          dat = physeq@otu_table@.Data, 
-      #                          shrinkfixed = "g", 
-      #                          fams = "zinb")
-      # fitall <- FitAllShrink(form, 
-      #                        dat = norm.counts, 
-      #                        fams = "zinb",
-      #                        shrinksimul = shrinksimul)
-      # fitall0 <- FitAllShrink(form0, 
-      #                         dat = norm.counts, 
-      #                         fams = "zinb",
-      #                         shrinksimul = shrinksimul)  
-      # npprior <- MixtureUpdatePrior(fitall = fitall, 
-      #                               fitall0 = fitall0, 
-      #                               shrinkpara="g", 
-      #                               ncpus = mc.cores)
-      # nppostshr <- MixtureUpdatePosterior(fitall, npprior, fitall0)
-      # lfdr <- SummaryWrap(nppostshr)
-      # fdr <- BFDR(lfdr)
-      # pGlobal <- as.vector(fdr)
-      # rm(list = c("ptm", "g", "form", "form0", "shrinksimul", 
-      #             "fitall", "fitall0", "npprior" ,"nppostshr", "lfdr", "fdr"))
-      # 
-      # pValMat <- as.matrix(pGlobal)
-      # colnames(pValMat) <- c("adjP")
-      # statInfo <- NULL
-      
-      res <- list("pValMat" = pValMat, "statInfo" = statInfo)
-      # res <- data.frame(p.value = pval, 
-      #               logFC = lfc)
-      
-      runtime <- tictoc::toc(log = F, quiet = T)
-      
-      list(res = res, 
-           runtime = runtime$toc - runtime$tic)
-    }
+nbid_run <- function(countData, group) {
+    
+    tictoc::tic()
+    
+    res <- NBID::DEUsingNBID(countData, group, ncore = 1)
+    
+    runtime <- tictoc::toc(log = F, quiet = T)
+    
+    list(res = res, 
+         runtime = runtime$toc - runtime$tic)
+}
 
-#TODO
-shrinkBayes_pv <- function(x) {}
+## use NBID with scran size factors
+nbid_sc_run <- function(countData, group) {
+    
+    tictoc::tic()
+    
+    # sf <- scran::calculateSumFactors(countData, clusters = group)
+    sf <- scuttle::pooledSizeFactors(countData, clusters = group)
+    # sf <- scuttle::pooledSizeFactors(countData) # this reduces to librarySizeFactors(countData)
+    res <- NBID::DEUsingNBID(countData, group, ncore = 1, countPerCell = sf)
+    
+    runtime <- tictoc::toc(log = F, quiet = T)
+    
+    list(res = res, 
+         runtime = runtime$toc - runtime$tic)
+}
 
-shrinkBayes_apv <- function(x) {}
+nbid_pv <- function(x) {
+    res <- x$res[, "pvalue"]
+    res[is.na(res)] <- 1
+    res
+}
 
-shrinkBayes_lfc <- function(x) {}
+nbid_apv <- function(x) {
+    res <- p.adjust(x$res[, "pvalue"], method = "BH")
+    res[is.na(res)] <- 1
+    res
+}
 
-shrinkBayes_time <- function(x) { x$runtime }
+nbid_lfc <- function(x) {
+    x$res[, "log2FC2"]
+}
+
+nbid_time <- function(x) {
+    rep(as.numeric(x$runtime), length(x$res[, "pvalue"]))
+}
+
+# res <- NBID::DEAnalysisSCUsingEdgeR(smallData$count, smallData$groupLabel)
 ```
 
-## Other
+### Update the Build bench list
+
+#### NBID 
 
 ```{r}
-# poissonSeq <- function(countData, group, design) {
-#     library(PoissonSeq)
-#     dat = list(n = count.matrix(cdata), 
-#                y=sample.annotations(cdata)$condition, 
-#                pair = FALSE, 
-#                type = 'twoclass', 
-#                gname=rownames(count.matrix(cdata)))
-#     PS.test = PoissonSeq::PS.Main(dat)
-#     PS.nc = PS.test$nc
-#     PS.gname = rownames(PS.test)
-#     PS.tt = PS.test$tt
-#     PS.pvalue = PS.test$pval
-#     PS.FDR = PS.test$fdr
-#     PS.logfc =  PS.test$log.fc
-#     result.table = data.frame('nc' = PS.nc, 
-#     'Genename' = PS.gname, 
-#     'tt' = PS.tt, 
-#     'pvalue' = PS.pvalue, 
-#     'FDR'=PS.FDR, 'log.fc' = PS.logfc)
+# https://www.bioconductor.org/packages/devel/bioc/vignettes/SummarizedBenchmark/inst/doc/Feature-Iterative.html#using-updatebench
+## override BPPARAM
+# parallel_methods <- 4
+# bpparam$resources$ncpus <- parallel_methods
+
+func_list <- list(nbid_run = nbid_run,
+                  nbid_pv = nbid_pv,
+                  nbid_apv = nbid_apv,
+                  nbid_lfc = nbid_lfc,
+                  nbid_time = nbid_time)
+
+sbL <- 
+    bplapply(sbL, 
+             function(sb,
+                      # parallel_methods, 
+                      func_list) { 
+                 bd <- SummarizedBenchmark::BenchDesign(sb)
+                 
+                 bd <- SummarizedBenchmark::addMethod(bd = bd,
+                                                      label = "NBID_Dt_LRT", 
+                                                      func = func_list$nbid_run,
+                                                      post = list(pv = func_list$nbid_pv,
+                                                                  adj_pv = func_list$nbid_apv,
+                                                                  lfc = func_list$nbid_lfc,
+                                                                  runtime = func_list$nbid_time),
+                                                      meta = list(pkg_name = "NBID", 
+                                                                  pkg_vers = as.character(packageVersion("NBID"))),
+                                                      params = rlang::quos(countData = cntdat,
+                                                                           group = coldat$condition))
+                 
+                 SummarizedBenchmark::updateBench(sb = sb, bd = bd, dryrun = F)
+             }, 
+             func_list = func_list,
+             # parallel_methods = parallel_methods,
+             BPPARAM = bpparam)
+```
+
+#### NBID scran
+
+```{r}
+func_list <- list(nbid_run = nbid_sc_run,
+                  nbid_pv = nbid_pv,
+                  nbid_apv = nbid_apv,
+                  nbid_lfc = nbid_lfc,
+                  nbid_time = nbid_time)
+
+sbL <- 
+    bplapply(sbL, 
+             function(sb,
+                      # parallel_methods, 
+                      func_list) { 
+                 bd <- SummarizedBenchmark::BenchDesign(sb)
+                 
+                 bd <- SummarizedBenchmark::addMethod(bd = bd,
+                                                      label = "NBID_Sc_LRT", 
+                                                      func = func_list$nbid_run,
+                                                      post = list(pv = func_list$nbid_pv,
+                                                                  adj_pv = func_list$nbid_apv,
+                                                                  lfc = func_list$nbid_lfc,
+                                                                  runtime = func_list$nbid_time),
+                                                      meta = list(pkg_name = "NBID", 
+                                                                  pkg_vers = as.character(packageVersion("NBID"))),
+                                                      params = rlang::quos(countData = cntdat,
+                                                                           group = coldat$condition))
+                 
+                 SummarizedBenchmark::updateBench(sb = sb, bd = bd, dryrun = F)
+             }, 
+             func_list = func_list,
+             # parallel_methods = parallel_methods,
+             BPPARAM = bpparam)
+# sbL
+```
+
+```{r}
+## error handling
+show_dt <- 
+  dcast(melt(rbindlist(lapply(sbL, 
+                              function(x)data.table(as.data.frame(simplify2array(metadata(x)$sessions[[1]]$results)), 
+                                                    keep.rownames = "Assay")), 
+                       idcol = "DS"), 
+             id.vars = c("DS", "Assay"), 
+             variable.name = "Method"), 
+        formula = DS + Method ~ Assay)
+
+show_dt$DS <- factor(show_dt$DS)
+show_dt$Method <- factor(show_dt$Method)
+
+datatable(show_dt[adj_pv != "success" | 
+                    lfc != "success" | 
+                    pv != "success" | 
+                    runtime != "success"], 
+          caption = "Methods that failed",
+          filter = "top", rownames = F)
+```
+
+```{r}
+## save the updated summarizedBenchmark
+sumBench_perf_metrics_qs <- file.path(outdir, "updated_sumBenchs.qs")
+qsave(x = sbL,
+      file = sumBench_perf_metrics_qs,
+      nthreads = multicoreWorkers(),
+      preset = "fast")
+```
+
+The benchmark results have been save into <a href="`r sumBench_perf_metrics_qs`">`r sumBench_perf_metrics_qs`</a>.  
+
+## NOISeqBIO
+
+```{r}
+noiseqbio_run <- function(countData, group) {
+    
+    tictoc::tic()
+    
+    # mynoiseq <- NOISeq::noiseq(countData, 
+    #                            k = 0.5, 
+    #                            norm = "rpkm", 
+    #                            factor = "Tissue", 
+    #                            pnr = 0.2, 
+    #                            nss = 5, 
+    #                            v = 0.02, 
+    #                            lc = 1, 
+    #                            replicates = "technical")
+    # head(mynoiseq@results[[1]])
+    # 
+    # mynoiseq.tmm <- NOISeq::noiseq(countData, 
+    #                                k = 0.5, 
+    #                                norm = "tmm", 
+    #                                factor = "TissueRun",
+    #                                conditions = c("Kidney_1", "Liver_1"), 
+    #                                lc = 0, 
+    #                                replicates = "technical")
+    
+    res <- NOISeq::noiseqbio(NOISeq::readData(countData, group), 
+                             k = 0.5, 
+                             norm = "tmm", 
+                             factor = "condition",
+                             lc = 0,
+                             # r = 20, 
+                             adj = 1.5, 
+                             plot = FALSE, 
+                             a0per = 0.9, 
+                             random.seed = 12345,
+                             filter = 0) #disabled filter
+    
+    runtime <- tictoc::toc(log = F, quiet = T)
+    
+    list(res = res, 
+         runtime = runtime$toc - runtime$tic)
+}
+
+noiseqbio_pv <- function(x) {
+    
+    ## NB: NOISeq does not provide P-values, but only "adjusted p-value"-like probabilities
+    res <- 1 - x$res@results[[1]]$prob
+    res[is.na(res)] <- 1
+    res
+}
+
+noiseqbio_apv <- function(x) {
+    
+    # res@results[[1]]$prob gives the estimated probability of differential 
+    # expression for each feature. Note that when using NOISeq, these probabilities 
+    # are not equivalent to p-values. The higher the probability, the more likely 
+    # that the difference in expression is due to the change in the experimental 
+    # condition and not to chance.
+    # when using NOISeqBIO, the probability of differential expression would be 
+    # equivalent to 1 − FDR, where FDR can be considered as an adjusted p-value. 
+    # Hence, in this case, it would be more convenient to use q = 0.95.
+    
+    res <- 1 - x$res@results[[1]]$prob
+    res[is.na(res)] <- 1
+    res
+}
+
+noiseqbio_lfc <- function(x) {
+    x$res@results[[1]]$log2FC
+}
+
+noiseqbio_time <- function(x) {
+    rep(as.numeric(x$runtime), length(x$res@results[[1]]$log2FC))
+}
+```
+
+### Update the Build bench list
+
+```{r}
+func_list <- list(run = noiseqbio_run,
+                  pv = noiseqbio_pv,
+                  apv = noiseqbio_apv,
+                  lfc = noiseqbio_lfc,
+                  time = noiseqbio_time)
+
+sbL <-
+    bplapply(sbL,
+             function(sb,
+                      # parallel_methods,
+                      func_list) {
+                 bd <- SummarizedBenchmark::BenchDesign(sb)
+
+                 bd <- SummarizedBenchmark::addMethod(bd = bd,
+                                                      label = "NOISeqBIO_TMM_LRT",
+                                                      func = func_list$run,
+                                                      post = list(pv = func_list$pv,
+                                                                  adj_pv = func_list$apv,
+                                                                  lfc = func_list$lfc,
+                                                                  runtime = func_list$time),
+                                                      meta = list(pkg_name = "NOISeqBIO",
+                                                                  pkg_vers = as.character(packageVersion("NOISeq"))),
+                                                      params = rlang::quos(countData = cntdat,
+                                                                           group = coldat))
+
+                 SummarizedBenchmark::updateBench(sb = sb, bd = bd, dryrun = F)
+             },
+             func_list = func_list,
+             # parallel_methods = parallel_methods,
+             BPPARAM = bpparam)
+# sbL
+```
+
+```{r}
+# error handling
+show_dt <-
+  dcast(melt(rbindlist(lapply(sbL,
+                              function(x)data.table(as.data.frame(simplify2array(metadata(x)$sessions[[1]]$results)),
+                                                    keep.rownames = "Assay")),
+                       idcol = "DS"),
+             id.vars = c("DS", "Assay"),
+             variable.name = "Method"),
+        formula = DS + Method ~ Assay)
+
+show_dt$DS <- factor(show_dt$DS)
+show_dt$Method <- factor(show_dt$Method)
+
+datatable(show_dt[adj_pv != "success" |
+                    lfc != "success" |
+                    pv != "success" |
+                    runtime != "success"],
+          caption = "Methods that failed",
+          filter = "top", rownames = F)
+```
+
+```{r}
+# save the updated summarizedBenchmark
+sumBench_perf_metrics_qs <- file.path(outdir, "updated_sumBenchs.qs")
+qsave(x = sbL,
+      file = sumBench_perf_metrics_qs,
+      nthreads = multicoreWorkers(),
+      preset = "fast")
+```
+
+The benchmark results have been save into <a href="`r sumBench_perf_metrics_qs`">`r sumBench_perf_metrics_qs`</a>.  
+
+## PoissonSeq
+
+```{r}
+poissonSeq_run <- function(countData, group) {
+    
+    # library(PoissonSeq)
+    library(splines)
+    tictoc::tic()
+    
+    dat <- list(n = countData,
+                y = as.numeric(group),
+                pair = FALSE,
+                type = 'twoclass',
+                gname = rownames(countData))
+    
+    res <- PoissonSeq::PS.Main(dat = dat, para = list(ct.sum = 2,
+                                                      ct.mean = 0.1))
+    res <- res[rownames(countData), ]
+    
+    runtime <- tictoc::toc(log = F, quiet = T)
+    
+    list(res = res, 
+         runtime = runtime$toc - runtime$tic)
+}
+
+poissonSeq_pv <- function(x) {
+    res <- x$res$pval
+    res[is.na(res)] <- 1
+    res
+}
+
+poissonSeq_apv <- function(x) {
+    res <- x$res$fdr
+    res[is.na(res)] <- 1
+    res
+}
+
+poissonSeq_lfc <- function(x) {
+    x$res$log.fc
+}
+
+poissonSeq_time <- function(x) { 
+    rep(as.numeric(x$runtime), length(x$res$pval))
+}
+```
+
+### Update the Build bench list
+
+```{r}
+func_list <- list(run = poissonSeq_run,
+                  pv = poissonSeq_pv,
+                  apv = poissonSeq_apv,
+                  lfc = poissonSeq_lfc,
+                  time = poissonSeq_time)
+
+sbL <-
+    bplapply(sbL,
+             function(sb,
+                      func_list) {
+                 bd <- SummarizedBenchmark::BenchDesign(sb)
+
+                 bd <- SummarizedBenchmark::addMethod(bd = bd,
+                                                      label = "PoissonSeq_Dt_TT",
+                                                      func = func_list$run,
+                                                      post = list(pv = func_list$pv,
+                                                                  adj_pv = func_list$apv,
+                                                                  lfc = func_list$lfc,
+                                                                  runtime = func_list$time),
+                                                      meta = list(pkg_name = "PoissonSeq",
+                                                                  pkg_vers = as.character(packageVersion("PoissonSeq"))),
+                                                      params = rlang::quos(countData = cntdat,
+                                                                           group = coldat$condition))
+
+                 SummarizedBenchmark::updateBench(sb = sb, bd = bd, dryrun = F)
+             },
+             func_list = func_list,
+             BPPARAM = bpparam)
+# sbL
+```
+
+```{r}
+# error handling
+show_dt <-
+  dcast(melt(rbindlist(lapply(sbL,
+                              function(x)data.table(as.data.frame(simplify2array(metadata(x)$sessions[[1]]$results)),
+                                                    keep.rownames = "Assay")),
+                       idcol = "DS"),
+             id.vars = c("DS", "Assay"),
+             variable.name = "Method"),
+        formula = DS + Method ~ Assay)
+
+show_dt$DS <- factor(show_dt$DS)
+show_dt$Method <- factor(show_dt$Method)
+
+datatable(show_dt[adj_pv != "success" |
+                    lfc != "success" |
+                    pv != "success" |
+                    runtime != "success"],
+          caption = "Methods that failed",
+          filter = "top", rownames = F)
+```
+
+```{r}
+# save the updated summarizedBenchmark
+sumBench_perf_metrics_qs <- file.path(outdir, "updated_sumBenchs.qs")
+qsave(x = sbL,
+      file = sumBench_perf_metrics_qs,
+      nthreads = multicoreWorkers(),
+      preset = "fast")
+```
+
+The benchmark results have been save into <a href="`r sumBench_perf_metrics_qs`">`r sumBench_perf_metrics_qs`</a>.  
+
+## edgeR TMMwsp
+
+```{r}
+##  robust
+edgeRrbstTMMswp_run <- function(countData, group, design) {
+  
+  tictoc::tic()
+  
+  y <- edgeR::DGEList(countData, group = group)
+  y <- edgeR::calcNormFactors(y, method = "TMMwsp")
+  des <- model.matrix(~group, data = y$samples)
+  y <- edgeR::estimateGLMRobustDisp(y, des) 
+  fit <- edgeR::glmQLFit(y = y, 
+                         dispersion = y$tagwise.dispersion, 
+                         robust = TRUE, 
+                         design = des)
+  res <- edgeR::glmLRT(fit, coef = 2)
+  
+  runtime <- tictoc::toc(log = F, quiet = T)
+  
+  list(res = res, 
+       runtime = runtime$toc - runtime$tic)
+}
+
+## post functions
+edgeR_pv <- function(x) { 
+  res <- x$res$table$PValue 
+  res[is.na(res)] <- 1
+  res
+}
+
+edgeR_apv <- function(x) {
+  res <- p.adjust(p = x$res$table$PValue, method = "BH")
+  # res <- topTags(x, number = Inf, sort.by = "none")$table$FDR
+  res[is.na(res)] <- 1
+  res
+}
+
+edgeR_lfc <- function(x) { x$res$table$logFC }
+
+edgeR_time <- function(x) { rep(as.numeric(x$runtime), nrow(x$res)) }
+```
+
+### Update the Build bench list
+
+```{r}
+func_list <- list(run = edgeRrbstTMMswp_run,
+                  pv = edgeR_pv,
+                  apv = edgeR_apv,
+                  lfc = edgeR_lfc,
+                  time = edgeR_time)
+
+sbL <-
+    bplapply(sbL, function(sb, func_list) {
+        bd <- SummarizedBenchmark::BenchDesign(sb)
+        
+        bd <- SummarizedBenchmark::addMethod(bd = bd,
+                                             label = "edgeR_rbstTMMswp_LRT",
+                                             func = func_list$run,
+                                             post = list(pv = func_list$pv,
+                                                         adj_pv = func_list$apv,
+                                                         lfc = func_list$lfc,
+                                                         runtime = func_list$time),
+                                             meta = list(pkg_name = "edgeR", pkg_vers = as.character(packageVersion("edgeR"))),
+                                             params = rlang::quos(countData = cntdat,
+                                                                  group = coldat$condition,
+                                                                  design = ~coldat$condition))
+        
+        SummarizedBenchmark::updateBench(sb = sb, bd = bd, dryrun = F)
+    },
+    func_list = func_list,
+    BPPARAM = bpparam)
+# sbL
+```
+
+```{r}
+# error handling
+show_dt <-
+  dcast(melt(rbindlist(lapply(sbL,
+                              function(x)data.table(as.data.frame(simplify2array(metadata(x)$sessions[[1]]$results)),
+                                                    keep.rownames = "Assay")),
+                       idcol = "DS"),
+             id.vars = c("DS", "Assay"),
+             variable.name = "Method"),
+        formula = DS + Method ~ Assay)
+
+show_dt$DS <- factor(show_dt$DS)
+show_dt$Method <- factor(show_dt$Method)
+
+datatable(show_dt[adj_pv != "success" |
+                    lfc != "success" |
+                    pv != "success" |
+                    runtime != "success"],
+          caption = "Methods that failed",
+          filter = "top", rownames = F)
+```
+
+```{r}
+# save the updated summarizedBenchmark
+sumBench_perf_metrics_qs <- file.path(outdir, "updated_sumBenchs.qs")
+qsave(x = sbL,
+      file = sumBench_perf_metrics_qs,
+      nthreads = multicoreWorkers(),
+      preset = "fast")
+```
+
+The benchmark results have been save into <a href="`r sumBench_perf_metrics_qs`">`r sumBench_perf_metrics_qs`</a>.  
+
+## Limma + sctransform::vst
+
+```{r}
+limmaStVst_run <- function(countData, group, design) {
+
+    tictoc::tic()
+
+    sampleTab <- data.frame(condition = setNames(group, colnames(countData)))
+    des <- model.matrix(~ condition, data = sampleTab)
+
+    # library(sctransform)
+    set.seed(12345)
+    vst_out <- sctransform::vst(countData,
+                                cell_attr = sampleTab,
+                                latent_var = c("condition"), #c("log_umi"),
+                                method = "glmGamPoi",
+                                # method = "glmGamPoi_offset",
+                                # method = "offset",
+                                return_gene_attr = TRUE,
+                                return_cell_attr = TRUE,
+                                min_cells = 3,
+                                n_genes = NULL,
+                                verbosity = 1)
+
+    fit <- limma::eBayes(limma::lmFit(vst_out$y, des))
+    
+    hist(fit$p.value, 50)
+    hist(fit$F.p.value, 50)
+    
+    res <- topTable(fit, 
+                     number = nrow(countData))[rownames(countData), ]
+
+    runtime <- tictoc::toc(log = F, quiet = T)
+
+    list(res = res,
+         runtime = runtime$toc - runtime$tic)
+}
+
+# limmaStVst_pv <- function(x) { 
+#     res <- x$res$p.value[, 2] # res <- x$F.p.value	?
+#     res[is.na(res)] <- 1
+#     res
+# }
+# 
+# limmaStVst_apv <- function(x) {
+#     # res <- p.adjust(p = x$p.value[, 2], method = "BH")
+#     res <- limma::topTable(x$res, number = Inf, sort.by = "none")$adj.P.Val
+#     res[is.na(res)] <- 1
+#     res
+# }
+# 
+# limmaStVst_lfc <- function(x) {
+#     # x$coefficients[, 2]
+#     limma::topTable(x$res, number = Inf, sort.by = "none")$logFC
+# }
+# 
+# limmaStVst_time <- function(x) { rep(as.numeric(x$runtime), nrow(x$res)) }
+```
+
+## ROTS
+
+```{r}
+# https://github.com/csoneson/conquer_comparison/blob/master/scripts/apply_ROTScpm.R
+ROTScpm_run <- function(countData, group) {
+    
+    grp <- as.character(group)
+    dge <- edgeR::DGEList(counts = countData)
+    dge <- edgeR::calcNormFactors(dge, method = "TMM")
+    cpms <- edgeR::cpm(dge)
+    rots <- ROTS::ROTS(data = cpms,
+                       groups = grp,
+                       B = 1000,
+                       K = 1000,
+                       log = FALSE,
+                       seed = 123)
+    
+    list(session_info = session_info,
+         timing = timing,
+         res = rots,
+         df = data.frame(pval = rots$pvalue,
+                         row.names = rownames(rots$data)))
+}
+
+# run_ROTSvoom <- function(L) {
+#   message("ROTS, voom")
+#   session_info <- sessionInfo()
+#   timing <- system.time({
+#     stopifnot(all(names(L$condt) == colnames(L$count)))
+#     grp <- L$condt
+#     dge <- DGEList(counts = L$count)
+#     dge <- edgeR::calcNormFactors(dge)
+#     vm <- voom(dge, design = model.matrix(~ grp))
+#     rots <- ROTS(data = vm$E, groups = grp, B = 1000, K = 1000, log = TRUE, seed = 123)
+#   })
+#   
+#   hist(rots$pvalue, 50)
+#   hist(rots$FDR, 50)
+#   hist(rots$logfc, 50)
+#   print(rots$R)
+#   print(rots$Z)
+#   print(rots$k)
+#   print(rots$a1)
+#   print(rots$a2)
+#   
+#   list(session_info = session_info,
+#        timing = timing,
+#        res = rots,
+#        df = data.frame(pval = rots$pvalue,
+#                        row.names = rownames(rots$data)))
 # }
 
 # ROTS <- function(countData, group, design) {
@@ -489,6 +1038,273 @@ shrinkBayes_time <- function(x) { x$runtime }
 #   rots.FDR <- results$FDR
 #   result.table <- data.frame('pvalue' = rots.pvalues, 'logFC' = rots.logFC, 'FDR' = rots.FDR)
 # }
+```
+
+
+## DESingle
+
+```{r}
+# https://github.com/csoneson/conquer_comparison/blob/master/scripts/apply_DEsingle.R
+run_DEsingle <- function(countData, group) {
+    
+    results <- DEsingle::DEsingle(counts = countData, group = group)
+    results <- data.frame(results, stringsAsFactors = FALSE)
+    
+    list(session_info = session_info,
+         timing = timing,
+         res = results,
+         df = data.frame(pval = results$pvalue,
+                         padj = results$pvalue.adj.FDR,
+                         row.names = rownames(results)))
+
+}
+
+# #TODO
+# _apv <- function(x) {}
+# 
+# _lfc <- function(x) {}
+# 
+# _time <- function(x) {}
+
+
+```
+
+## Seurat Bimod
+
+```{r}
+## Seurat (Tobit)
+# https://github.com/csoneson/conquer_comparison/blob/master/scripts/apply_SeuratTobit.R
+run_SeuratBimod <- function(countData, group) {
+    
+    colnames(countData) <- paste0(group, "__", 1:ncol(countData))
+    # seur <- new("seurat", raw.data = countData)
+    # seur <- Seurat::Setup(seur, 
+    #                       project = "scrnaseq", 
+    #                       do.logNormalize = FALSE,
+    #                       names.field = 1, 
+    #                       names.delim = "__")
+    seur <- Seurat::CreateSeuratObject(counts = countData, 
+                                       project = "scrnaseq", 
+                                       assay = "RNA", 
+                                       names.field = 1, 
+                                       names.delim = "__")
+    res <- Seurat::FindMarkers(seur, 
+                               ident.1 = levels(factor(group))[1],
+                               ident.2 = levels(factor(group))[2], 
+                               test.use = "bimod")
+    
+    # res <- Seurat::FindMarkers(seur, 
+    #                            ident.1 = levels(factor(group))[1],
+    #                            ident.2 = levels(factor(group))[2], 
+    #                            test.use = "wilcox")
+    
+    # res <- Seurat::FindMarkers(seur,
+    #                            ident.1 = levels(factor(group))[1],
+    #                            ident.2 = levels(factor(group))[2],
+    #                            test.use = "MAST")
+    
+    list(session_info = session_info,
+         timing = timing,
+         res = res,
+         df = data.frame(pval = res$p_val,
+                         padj = p.adjust(res$p_val, method = "BH"),
+                         row.names = rownames(res)))
+}
+```
+
+## MAST
+
+```{r}
+# MAST (on CPM counts)
+# https://github.com/csoneson/conquer_comparison/blob/master/scripts/apply_MASTcpm.R
+run_MASTcpm <- function(countData, group) {
+  
+    grp <- group
+    dge <- edgeR::DGEList(counts = countData)
+    dge <- edgeR::calcNormFactors(dge, method = "TMM")
+    cpms <- edgeR::cpm(dge)
+    sca <- MAST::FromMatrix(exprsArray = log2(cpms + 1),
+                            cData = data.frame(wellKey = colnames(cpms),
+                                               grp = grp))
+    # zlmdata <- MAST::zlm.SingleCellAssay(~grp, sca)
+    zlmdata <- MAST::zlm(~ grp, sca)
+    mast <- MAST::lrTest(zlmdata, "grp")
+    
+    list(session_info = session_info,
+         timing = timing,
+         res = mast,
+         df = data.frame(pval = mast[, "hurdle", "Pr(>Chisq)"],
+                         row.names = names(mast[, "hurdle", "Pr(>Chisq)"])))
+}
+```
+
+## SCDE
+
+```{r}
+## SCDE
+# https://github.com/csoneson/conquer_comparison/blob/master/scripts/apply_SCDE.R
+# suppressPackageStartupMessages(library(scde))
+# 
+run_SCDE <- function(countData, group) {
+    
+    intcount <- apply(countData, 2, 
+                      function(x) {
+                          storage.mode(x) <- 'integer'
+                          x
+                      }
+    )
+    
+    o.ifm <- scde::scde.error.models(counts = intcount, 
+                                     groups = group, 
+                                     min.count.threshold = 1,
+                                     n.cores = 1,
+                                     threshold.segmentation = TRUE,
+                                     save.crossfit.plots = FALSE, 
+                                     save.model.plots = FALSE,
+                                     verbose = 0, 
+                                     min.size.entries = min(2000, nrow(countData) - 1))
+    
+    valid.cells <- o.ifm$corr.a > 0
+    # table(valid.cells)
+    o.ifm <- o.ifm[valid.cells, ]
+    o.prior <- scde::scde.expression.prior(models = o.ifm, 
+                                     counts = intcount[, valid.cells],
+                                     length.out = 400, 
+                                     show.plot = FALSE)
+    grp <- factor(group[which(valid.cells)])
+    names(grp) <- rownames(o.ifm)
+    ediff <- scde::scde.expression.difference(o.ifm, 
+                                        intcount[, valid.cells], 
+                                        o.prior,
+                                        groups = grp, n.randomizations = 100,
+                                        n.cores = 1, 
+                                        verbose = 0)
+    p.values <- 2 * pnorm(abs(ediff$Z), lower.tail = FALSE)
+    p.values.adj <- 2 * pnorm(abs(ediff$cZ), lower.tail = FALSE)
+
+  hist(p.values, 50)
+  hist(p.values.adj, 50)
+
+  list(session_info = session_info,
+       timing = timing,
+       res = ediff,
+       df = data.frame(pval = p.values,
+                       padj = p.values.adj,
+                       score = abs(ediff$Z),
+                       row.names = rownames(ediff)))
+}
+```
+
+## Wilcoxon
+
+```{r}
+# https://github.com/csoneson/conquer_comparison/blob/master/scripts/apply_Wilcoxon.R
+# suppressPackageStartupMessages(library(edgeR))
+# 
+run_Wilcoxon <- function(countData, group) {
+    
+    dge <- edgeR::calcNormFactors(countData, method = "TMM")
+    cpms <- edgeR::cpm(dge)
+    idx <- 1:nrow(cpms)
+    names(idx) <- rownames(cpms)
+    wilcox_p <- sapply(idx, function(i) {
+      wilcox.test(countData[i, ] ~ group)$p.value
+    })
+  
+  hist(wilcox_p, 50)
+
+  list(session_info = session_info,
+       timing = timing,
+       df = data.frame(pval = wilcox_p,
+                       row.names = names(wilcox_p)))
+}
+```
+
+## BPSC
+
+```{r}
+# https://github.com/csoneson/conquer_comparison/blob/master/scripts/apply_BPSC.R
+
+run_BPSC <- function(countData, group) {
+  
+    cpms <- edgeR::cpm(countData, 
+                       lib.size = colSums(countData) * edgeR::calcNormFactors(countData))
+    controlIds <- which(group == levels(factor(group))[1])
+    design <- model.matrix(~ group)
+    coef <- 2
+    resbp <- BPSC::BPglm(data = cpms, 
+                         controlIds = controlIds,
+                         design = design, 
+                         coef = coef, 
+                         estIntPar = FALSE)
+
+  list(session_info = session_info,
+       timing = timing,
+       res = resbp,
+       df = data.frame(pval = resbp$PVAL,
+                       row.names = rownames(L$count)))
+}
+```
+
+## metagenomeSeq
+
+```{r}
+# https://github.com/csoneson/conquer_comparison/blob/master/scripts/apply_metagenomeSeq.R
+run_metagenomeSeq <- function(countData, group) {
+    
+    obj <- metagenomeSeq::newMRexperiment(countData, 
+                                          phenoData = new("AnnotatedDataFrame", 
+                                                          data = data.frame(condition = group, 
+                                                                            row.names = colnames(countData))))
+    p <- metagenomeSeq::cumNormStatFast(obj)
+    obj <- metagenomeSeq::cumNorm(obj, p = p)
+    mod <- model.matrix(~ condition, data = pData(obj))
+    res <- metagenomeSeq::fitFeatureModel(obj = obj, mod = mod, coef = 2)
+    tbl <- metagenomeSeq::MRtable(obj = res, number = Inf, by = 2, adjustMethod = "BH")
+    
+    list(session_info = session_info,
+         timing = timing,
+         res = res,
+         df = data.frame(pval = tbl$pvalues,
+                         padj = tbl$adjPvalues,
+                         row.names = rownames(tbl)))
+}
+```
+
+## Monocle
+
+```{r}
+# https://github.com/csoneson/conquer_comparison/blob/master/scripts/apply_monocle.R
+# suppressPackageStartupMessages(library(monocle))
+# suppressPackageStartupMessages(library(edgeR))
+
+run_monocle <- function(countData, group) {
+    
+    dge <- edgeR::DGEList(counts = countData)
+    dge <- edgeR::calcNormFactors(dge, method = "TMM")
+    cpms <- edgeR::cpm(dge)
+    # cpms <- edgeR::cpm(countData)
+    mon <- monocle::newCellDataSet(cpms,#as.matrix(L$tpm), 
+                                   phenoData = new("AnnotatedDataFrame", 
+                                                   data = data.frame(condition = group, 
+                                                                     row.names = colnames(countData))),
+                                   expressionFamily = VGAM::tobit())
+    monres <- monocle::differentialGeneTest(mon, fullModelFormulaStr = " ~ condition")
+    
+    
+    list(session_info = session_info,
+         timing = timing,
+         res = monres,
+         df = data.frame(pval = monres$pval, 
+                         padj = monres$qval,
+                         row.names = rownames(monres)))
+}
+```
+
+
+## baySeq
+
+```{r}
 
 # baySeq <- function(countData, group, design) {
 #     
@@ -519,40 +1335,120 @@ shrinkBayes_time <- function(x) { x$runtime }
 #     baySeq.score <- 1 - baySeq.FDR
 #     data.frame('FDR' = baySeq.FDR, 'score' = baySeq.score, 'posterior.DE' = baySeq.posteriors.DE)
 # }
-
-# DeSingle_run <- function(countData, group, design) {
-#   #Load library and the test data for DEsingle
-#   library(DEsingle)
-#   library(SingleCellExperiment)
-#   data(TestData)
-#   
-#   # Convert the test data in DEsingle to SingleCellExperiment data representation
-#   sce <- SingleCellExperiment(assays = list(counts = countData))
-#   
-#   # Detecting the DE genes with SingleCellExperiment input sce
-#   results <- DEsingle(counts = sce, group = group)
-#   
-#   # Dividing the DE genes into 3 categories at threshold of FDR < 0.05
-#   results.classified <- DEtype(results = results, threshold = 0.05)
-#   
-#   # Dividing the DE genes into 3 categories at threshold of FDR < 0.05
-#   # results.classified <- DEtype(results = results, threshold = 1)
-#   
-#   # results$emdall
-#   pValMat <- as.matrix(results$pvalue)
-#   colnames(pValMat) <- c("adjP")
-#   statInfo <- cbind("foldChange" = results$foldChange)
-#   list("pValMat" = pValMat, "statInfo" = statInfo)
-# }# END - function: DeSingle
-
-# #TODO
-# _apv <- function(x) {}
-# 
-# _lfc <- function(x) {}
-# 
-# _time <- function(x) {}
 ```
 
+## ShrinkBayes
+
+```{r}
+# shrinkBayes_run <- 
+#     function(countData, groups) {
+#       
+#       ## TODO: complete this function
+#         
+#       tictoc::tic()
+#       
+#       ## https://github.com/markvdwiel/ShrinkBayes/blob/master/inst/doc/ShrinkBayes.pdf
+#       # library(edgeR)
+#       DGE <- edgeR::DGEList(countData, group = groups)
+#       libsize <- colSums(countData, na.rm = T)
+#       DGEnorm <- edgeR::calcNormFactors(DGE, method = "TMMwsp")
+#       normfac0 <- DGEnorm$samples[,3]
+#       rellibsize <- libsize / exp(mean(log(libsize)))
+#       normfac <- normfac0 * rellibsize
+#       myoffsets <- log(normfac)
+#       form <- ~ 1 + groups + offset(myoffsets)
+#       # form0 <- ~ 1 + offset(myoffsets)
+#       
+#       library(INLA)
+#       library(ShrinkBayes)
+#       SBmir <- ShrinkBayes::ShrinkBayesWrap(countData, form, ncpus = 1)
+#       # shrinksimul <- ShrinkSeq(form = form,
+#       #                          dat = countData,
+#       #                          shrinkfixed = "g",
+#       #                          fams = "zinb")
+#       
+#       # form0 <- y ~ 1
+#       # shrinksimul <- ShrinkSeq(form = form, 
+#       #                          dat = physeq@otu_table@.Data, 
+#       #                          shrinkfixed = "g", 
+#       #                          fams = "zinb")
+#       # fitall <- FitAllShrink(form, 
+#       #                        dat = norm.counts, 
+#       #                        fams = "zinb",
+#       #                        shrinksimul = shrinksimul)
+#       # fitall0 <- FitAllShrink(form0, 
+#       #                         dat = norm.counts, 
+#       #                         fams = "zinb",
+#       #                         shrinksimul = shrinksimul)  
+#       # npprior <- MixtureUpdatePrior(fitall = fitall, 
+#       #                               fitall0 = fitall0, 
+#       #                               shrinkpara="g", 
+#       #                               ncpus = mc.cores)
+#       # nppostshr <- MixtureUpdatePosterior(fitall, npprior, fitall0)
+#       # lfdr <- SummaryWrap(nppostshr)
+#       # fdr <- BFDR(lfdr)
+#       # pGlobal <- as.vector(fdr)
+#       # rm(list = c("ptm", "g", "form", "form0", "shrinksimul", 
+#       #             "fitall", "fitall0", "npprior" ,"nppostshr", "lfdr", "fdr"))
+#       # 
+#       # pValMat <- as.matrix(pGlobal)
+#       # colnames(pValMat) <- c("adjP")
+#       # statInfo <- NULL
+#       
+#       res <- list("pValMat" = pValMat, "statInfo" = statInfo)
+#       # res <- data.frame(p.value = pval, 
+#       #               logFC = lfc)
+#       
+#       runtime <- tictoc::toc(log = F, quiet = T)
+#       
+#       list(res = res, 
+#            runtime = runtime$toc - runtime$tic)
+#     }
+# 
+# #TODO
+# shrinkBayes_pv <- function(x) {}
+# 
+# shrinkBayes_apv <- function(x) {}
+# 
+# shrinkBayes_lfc <- function(x) {}
+# 
+# shrinkBayes_time <- function(x) { x$runtime }
+```
+
+## GMPR + {DESeq2, edgeR, ....}
+
+```{r}
+# https://peerj.com/articles/4600/
+# GMPR: A robust normalization method for zero-inflated count data with application to microbiome sequencing data
+# https://github.com/jchen1981/GMPR
+# # Demonstrate the use of GMPR factor
+# #setwd('path2GMPR')
+# 
+# require(GUniFrac)
+# require(vegan)
+# require(DESeq2)
+# source('GMPR.R')
+# 
+# data(throat.otu.tab)
+# data(throat.meta)
+# 
+# #########################################
+# # Calculate GMPR size factor
+# # Row - features, column - samples
+# otu.tab <- t(throat.otu.tab)
+# gmpr.size.factor <- GMPR(otu.tab)
+# # Application 2:  Differential abundance analysis using DESeq2 using GMPR size factors instead of the default
+# dds <- DESeqDataSetFromMatrix(countData = otu.tab,
+# 		colData = throat.meta,
+# 		design= ~ SmokingStatus)
+# 
+# # Replace size factor
+# # dds <- estimateSizeFactors(dds)
+# sizeFactors(dds) <-  gmpr.size.factor
+# dds <- estimateDispersions(dds)
+# dds <- nbinomWaldTest(dds)
+# results(dds, contrast=c("SmokingStatus", "NonSmoker", "Smoker"))
+```
 
 # Session info
 
