@@ -84,6 +84,12 @@ prec.from.f1.score <- function(recall, f1, perc.scale = F){
 
 # Simulated data sets  {.tabset} 
 
+```{r read_sumbench_objs}
+## read input: the list of the SummarizedBenchmark objects after the performance evaluation 
+sbL_all <- qread(file = sumBench_perf_metrics_qs, 
+                 nthreads = multicoreWorkers())
+```
+
 ```{r read_sim_datasets}
 ## read input: the simulated dataset list
 sim_ds_list <- qread(file = simulated_datasets_qs, 
@@ -128,7 +134,7 @@ sim_ds_fraczeros[, c("SetSize", "MZP", "Purpose", "ID") := tstrsplit(dataset, "_
 ```{r, fig.height=7}
 ggplot(sim_ds_fraczeros, 
        aes(x = ID, y = FracZeros)) +
-  geom_boxplot(outlier.size = .5, varwidth = T, notch = T) +
+  geom_boxplot(outlier.size = .5, varwidth = F, notch = F) +
   facet_grid(cols = vars(MZP),
              rows = vars(paste(SetSize, Purpose))) +
   theme_bw() +
@@ -136,281 +142,611 @@ ggplot(sim_ds_fraczeros,
 ```
 
 ```{r}
-## DEC expression
-sim_ds_status <- 
-  rbindlist(lapply(sim_ds_list, 
-                   function(x) data.frame(circ_id = rownames(x$cntdat), 
-                                          is.DEC = x$status)), 
-            use.names = T, idcol = "dataset")
-
-sim_ds_status[, c("SetSize", "MZP", "Purpose", "ID") := tstrsplit(dataset, "_", type.convert = F), 
-              by = dataset]
-
-sim_ds_status <-
-    merge(sim_ds_status, 
-          sim_ds_avgbjr, 
-          by = c("dataset", "SetSize", "MZP", "Purpose", "ID", "circ_id"))
-
-sim_ds_status <-
-    merge(sim_ds_status, 
-          sim_ds_fraczeros, 
-          by = c("dataset", "SetSize", "MZP", "Purpose", "ID", "circ_id"))
+# ## DEC expression
+# sim_ds_status <- 
+#   rbindlist(lapply(sim_ds_list, 
+#                    function(x) data.frame(circ_id = rownames(x$cntdat), 
+#                                           is.DEC = x$status)), 
+#             use.names = T, idcol = "dataset")
+# 
+# sim_ds_status[, c("SetSize", "MZP", "Purpose", "ID") := tstrsplit(dataset, "_", type.convert = F), 
+#               by = dataset]
+# 
+# sim_ds_status <-
+#     merge(sim_ds_status, 
+#           sim_ds_avgbjr, 
+#           by = c("dataset", "SetSize", "MZP", "Purpose", "ID", "circ_id"))
+# 
+# sim_ds_status <-
+#     merge(sim_ds_status, 
+#           sim_ds_fraczeros, 
+#           by = c("dataset", "SetSize", "MZP", "Purpose", "ID", "circ_id"))
 ```
-
-## DEC Raw expression boxplot
 
 ```{r, fig.height=10, fig.width=13}
-ggplot(sim_ds_status, aes(x = ID, y = AvgBJR, fill = ifelse(is.DEC == 1, T, F))) +
-    geom_violin(draw_quantiles = c(.25, .5, .75)) +
-    scale_fill_discrete("DEC") +
-    scale_y_log10() +
-    facet_grid(rows = vars(SetSize), cols = vars(MZP)) + 
-    theme_bw() +
-    theme(legend.position = "top",
-          axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5))
+## DEC Raw expression boxplot
+# ggplot(sim_ds_status, aes(x = ID, y = AvgBJR, fill = ifelse(is.DEC == 1, T, F))) +
+#     geom_violin(draw_quantiles = c(.25, .5, .75)) +
+#     scale_fill_discrete("DEC") +
+#     scale_y_log10() +
+#     facet_grid(rows = vars(SetSize), cols = vars(MZP)) + 
+#     theme_bw() +
+#     theme(legend.position = "top",
+#           axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5))
 ```
-
-## DEC Raw expression density
 
 ```{r}
-ggplot(sim_ds_status, aes(x = AvgBJR, color = ifelse(is.DEC == 1, T, F))) +
-    geom_density(aes(group = paste(dataset, is.DEC)), alpha = .3) +
-    scale_color_discrete("DEC") +
-    scale_x_log10(label = comma) +
-    facet_grid(rows = vars(SetSize), cols = vars(MZP)) + 
-    theme_bw() +
-    theme(legend.position = c(.9, .88), 
-          axis.text.x = element_text(angle = 30, hjust = 1))
+## DEC Raw expression density
+# ggplot(sim_ds_status, aes(x = AvgBJR, color = ifelse(is.DEC == 1, T, F))) +
+#     geom_density(aes(group = paste(dataset, is.DEC)), alpha = .3) +
+#     scale_color_discrete("DEC") +
+#     scale_x_log10(label = comma) +
+#     facet_grid(rows = vars(SetSize), cols = vars(MZP)) + 
+#     theme_bw() +
+#     theme(legend.position = c(.9, .88), 
+#           axis.text.x = element_text(angle = 30, hjust = 1))
 ```
 
-## DEC Fraction of zeros boxplot
-
 ```{r, fig.height=10, fig.width=13}
-ggplot(sim_ds_status, aes(x = ID, y = FracZeros, fill = ifelse(is.DEC == 1, T, F))) +
-    geom_boxplot(outlier.size = .5) +
-    scale_fill_discrete("DEC") +
-    scale_y_log10() +
-    facet_grid(rows = vars(SetSize), cols = vars(MZP), scales = "free_y") + 
-    theme_bw() +
-    theme(legend.position = "top",
-          axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5))
+# ## DEC Fraction of zeros boxplot
+# ggplot(sim_ds_status, aes(x = ID, y = FracZeros, fill = ifelse(is.DEC == 1, T, F))) +
+#     geom_boxplot(outlier.size = .5) +
+#     scale_fill_discrete("DEC") +
+#     scale_y_log10() +
+#     facet_grid(rows = vars(SetSize), cols = vars(MZP), scales = "free_y") + 
+#     theme_bw() +
+#     theme(legend.position = "top",
+#           axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5))
 ```
 
 ## DEC Fraction of zeros density
 
 ```{r}
-ggplot(sim_ds_status, aes(x = FracZeros, color = ifelse(is.DEC == 1, T, F))) +
-    geom_density(aes(group = paste(dataset, is.DEC)), alpha = .3) +
-    scale_color_discrete("DEC") +
-    facet_grid(rows = vars(SetSize), cols = vars(MZP)) + 
-    theme_bw() +
-    theme(legend.position = c(.9, .88), 
-          axis.text.x = element_text(angle = 30, hjust = 1))
+# ggplot(sim_ds_status, aes(x = FracZeros, color = ifelse(is.DEC == 1, T, F))) +
+#     geom_density(aes(group = paste(dataset, is.DEC)), alpha = .3) +
+#     scale_color_discrete("DEC") +
+#     facet_grid(rows = vars(SetSize), cols = vars(MZP)) + 
+#     theme_bw() +
+#     theme(legend.position = c(.9, .88), 
+#           axis.text.x = element_text(angle = 30, hjust = 1))
 ```
+
+# Type I error (mock data set)
+
+```{r}
+sbL <- sbL_all[grepl("_mock", names(sbL_all))]
+```
+
+## Performance {.tabset}
+
+```{r}
+## FPR = 1 - TNR
+sbAssayL <- 
+  rbindlist(lapply(sbL, 
+                   function(x){
+                     data.table(as.data.frame(colData(x)), 
+                                keep.rownames = "Method")
+                     }), 
+            idcol = "Dataset")
+
+sbAssayL[, c("SetSize", "MZP", "DsType", "DsId") := tstrsplit(Dataset, "_")]
+
+# setnafill(x = sbAssayL, 
+#           type = "const", 
+#           fill = 0, 
+#           nan = NA, 
+#           cols = grep("TNR", colnames(sbAssayL), value = T))
+```
+
+```{r}
+value_cols <- 
+  c(grep("rejections", colnames(sbAssayL), value = T),
+    # grep("TPR", colnames(sbAssayL), value = T),
+    # grep("FDR", colnames(sbAssayL), value = T),
+    grep("TNR", colnames(sbAssayL), value = T))
+
+mSbAssayL <- 
+  sbAssayL[, lapply(.SD, mean, na.rm = T), 
+           .SDcols = value_cols,
+           by = .(SetSize, MZP, DsType, Method)]
+```
+
+```{r}
+show_dt <- copy(mSbAssayL)
+show_dt$SetSize <- factor(show_dt$SetSize)
+show_dt$MZP <- factor(show_dt$MZP)
+show_dt$DsType <- factor(show_dt$DsType)
+show_dt$Method <- factor(show_dt$Method)
+
+datatable(show_dt, 
+          caption = paste("Alphas:", paste(alpha_targets, collapse = "/")),
+          rownames = F, 
+          filter = "top") %>%
+  formatRound(value_cols, 3)
+```
+
+### FPR
+
+```{r}
+plot_dt <- melt(mSbAssayL, id.vars = c("SetSize", "MZP", "DsType", "Method"))
+```
+
+```{r}
+pval_tnr_pattern <- "^TNR.[0-9]$"
+padj_tnr_pattern <- "^TNR.[0-9].[0-9]$"
+tnr_pattern <- pval_tnr_pattern #padj_tnr_pattern
+Alpha_plot_label <- "P-value \U2264"
+if(tnr_pattern == padj_tnr_pattern){
+  Alpha_plot_label <- "P-adj \U2264"
+}
+```
+
+```{r, fig.width=10}
+## Avg FPR = 1 - TNR
+ggplot(plot_dt[grepl(tnr_pattern, variable)], 
+       aes(x = Method, y = 1 - value)) +
+  geom_line(aes(group = variable, color = variable)) +
+  geom_point(aes(shape = variable, color = variable)) +
+  ylab("Average FPR") +
+  scale_color_discrete(Alpha_plot_label, labels = alpha_targets) +
+  scale_shape_discrete(Alpha_plot_label, labels = alpha_targets) +
+  facet_grid(cols = vars(SetSize), rows = vars(MZP), scales = "free_y") +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5),
+        legend.position = "top")
+```
+
+#### Boxplot 
+
+```{r}
+idvars <- c("SetSize", "MZP", "DsType", "Method")
+plot_dt <- melt(sbAssayL[, c(idvars, 
+                             grep(tnr_pattern, 
+                                  colnames(sbAssayL), 
+                                  value = T)), with = F], 
+                id.vars = idvars)
+
+tnr2alpa <- data.frame(Alpha = c(TNR.1 = 0.01, 
+                                 TNR.2 = 0.05, 
+                                 TNR.3 = 0.10))
+plot_dt$Alpha <- tnr2alpa[plot_dt$variable, ]
+
+ggplot(plot_dt, aes(x = Method, y = 1 - value)) +
+    geom_hline(data = unique(plot_dt[, c("SetSize", "Alpha"), with = F]), 
+               aes(yintercept = Alpha), 
+               linetype = "dashed") +
+    geom_boxplot(outlier.shape = NA) +
+    geom_jitter(aes(color = Method), width = .1, size = .6) +
+    ylab("Average FPR") +
+    scale_color_discrete(guide = "none") +
+    scale_shape_discrete(Alpha_plot_label, labels = alpha_targets) +
+    facet_grid(cols = vars(SetSize), rows = vars(Alpha), scales = "free_y") +
+    theme_bw() +
+    theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5),
+          legend.position = "top", 
+          panel.grid.major.x = element_blank(), 
+          panel.grid.minor.x = element_blank())
+```
+
+#### Boxplot adj P <= 0.05
+
+```{r}
+ggplot(plot_dt[Alpha == 0.05], 
+       aes(x = Method, y = 1 - value)) +
+    geom_hline(data = unique(plot_dt[, c("SetSize", "Alpha"), with = F])[Alpha == 0.05], 
+               aes(yintercept = Alpha), 
+               linetype = "dashed") +
+    geom_boxplot(outlier.shape = NA) +
+    geom_jitter(aes(color = Method), width = .1, size = .6) +
+    ylab("FPR") +
+    scale_color_discrete(guide = "none") +
+    scale_shape_discrete(Alpha_plot_label, labels = alpha_targets) +
+    facet_grid(cols = vars(SetSize), 
+               # rows = vars(Alpha), 
+               scales = "free_y", 
+               drop = T) +
+    theme_bw() +
+    theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5),
+          legend.position = "top", 
+          panel.grid.major.x = element_blank(), 
+          panel.grid.minor.x = element_blank())
+```
+
+#### Alpha = 0.05, set size = N05
+
+```{r}
+ggplot(plot_dt[Alpha == 0.05 & SetSize == "N05"], 
+       aes(x = Method, y = 1 - value)) +
+    geom_hline(data = unique(plot_dt[, c("SetSize", "Alpha"), 
+                                     with = F])[Alpha == 0.05 & SetSize == "N05"], 
+               aes(yintercept = Alpha), 
+               linetype = "dashed") +
+    geom_boxplot(outlier.shape = NA) +
+    geom_jitter(aes(color = Method), width = .1) +
+    ylab("FPR") +
+    scale_color_discrete(guide = "none") +
+    scale_shape_discrete(Alpha_plot_label, labels = alpha_targets) +
+    # facet_grid(cols = vars(SetSize), 
+    #            # rows = vars(Alpha), 
+    #            scales = "free_y", 
+    #            drop = T) +
+    theme_bw() +
+    theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5),
+          legend.position = "top", 
+          panel.grid.major.x = element_blank(), 
+          panel.grid.minor.x = element_blank())
+```
+
+#### Vert Alpha = 0.05, set size = N05
+
+```{r, fig.height=10, fig.width=5}
+ggplot(plot_dt[Alpha == 0.05 & SetSize == "N05"], 
+       aes(x = Method, y = 1 - value, color = Method)) +
+    geom_hline(data = unique(plot_dt[, c("SetSize", "Alpha"), 
+                                     with = F])[Alpha == 0.05 & SetSize == "N05"], 
+               aes(yintercept = Alpha), 
+               linetype = "dashed") +
+    geom_boxplot(outlier.shape = NA) +
+    geom_jitter(width = .1, size = .6) +
+    labs(y = "FPR (P < 0.05)", x = NULL, title = "5 samples per group") +
+    scale_color_discrete(guide = "none") +
+    scale_x_discrete(limits = rev) +
+    # scale_shape_discrete(Alpha_plot_label, labels = alpha_targets) +
+    # facet_grid(cols = vars(SetSize), 
+    #            # rows = vars(Alpha), 
+    #            scales = "free_y", 
+    #            drop = T) +
+    coord_flip() +
+    theme_bw() +
+    theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5),
+          legend.position = "top", 
+          panel.grid.major.y = element_blank(), 
+          panel.grid.minor.y = element_blank())
+```
+
+### Characteristics of FP
+
+#### Signal-to-noise
+
+(mean(DECs) - mean(notDECs)) / (sd(DECs) + sd(notDECs))  
+A positive statistic indicates that the corresponding characteristic is more pronounced in the set if circRNAs called significant. 
+The statistics are computed only for the methods calling >= 5 DECs.  
+
+```{r}
+## get expression matrices of each dataset
+## compute statistics: CV(CPM), fraction of zeros, log2(average CPM), log2(variance(CPM))
+# x <- sbL$N05_bulk_mock_01
+
+get_signal_to_noise <- function(x) {
+    
+    mat <- x@BenchDesign@data@data$cntdat
+    
+    cpms <- edgeR::cpm(mat, lib.size = colSums(mat) * edgeR::calcNormFactors(mat))
+    
+    stats_dt <- 
+        data.table(gene_id = rownames(cpms), 
+                   fraczeros = apply(mat, 1, function(x) mean(x == 0)),
+                   avecpm = apply(cpms, 1, mean), 
+                   varcpm = apply(cpms, 1, var),
+                   cvcpm = apply(cpms, 1, sd) / apply(cpms, 1, mean))
+    
+    ## get DE of each method
+    alpha_thr <- 0.05
+    
+    adj_pv <- assays(x)[["adj_pv"]]
+    rownames(adj_pv) <- rownames(mat)
+    
+    meth_stats_dt <- 
+        merge(melt(data.table(adj_pv, keep.rownames = "gene_id"), 
+                   id.vars = "gene_id",
+                   value.name = "padj", 
+                   variable.name = "Method")[, is_de := padj <= alpha_thr],
+              stats_dt, by = "gene_id")
+    
+    ## use only methods that detected >= 5 DECs
+    methods <- as.character(meth_stats_dt[is_de == T, .N, by = .(Method)][N >= 5, Method])
+    
+    if(length(methods) > 0){
+        ## signal-to-noise statistic
+        # (mean(DECs) - mean(notDECs)) / (sd(DECs) + sd(notDECs))
+        
+        dcast(dcast(melt(meth_stats_dt[Method %in% methods, 
+                                       .(`M_Fraction zeros` = mean(fraczeros),
+                                         # `M_log2(average CPM)` = log2(mean(avecpm)),
+                                         # `M_log2(variance CPM)` = log2(mean(varcpm)),
+                                         `M_average CPM` = mean(avecpm),
+                                         `M_variance CPM` = mean(varcpm),
+                                         `M_CV(CPM)` = mean(cvcpm),
+                                         `SD_Fraction zeros` = sd(fraczeros),
+                                         # `SD_log2(average CPM)` = log2(sd(avecpm)),
+                                         # `SD_log2(variance CPM)` = log2(sd(varcpm)),
+                                         `SD_average CPM` = sd(avecpm),
+                                         `SD_variance CPM` = sd(varcpm),
+                                         `SD_CV(CPM)` = sd(cvcpm)),
+                                       by = .(Method, is_de)], 
+                         id.vars = c("Method", "is_de"), 
+                         value.name = "Stat_val",
+                         variable.name = "Stat"), 
+                    formula = Method + Stat ~ is_de, 
+                    value.var = "Stat_val")[, c("Stat", "Val") := tstrsplit(Stat, "_")], 
+              Method + Val ~ Stat, 
+              value.var = c("FALSE", "TRUE"))[, .(StN = (TRUE_M - FALSE_M) / (TRUE_SD + FALSE_SD)), 
+                                              by = .(Method, Val)]
+    }
+}
+```
+
+```{r}
+stn_dt <- rbindlist(lapply(sbL, get_signal_to_noise), idcol = "setID")
+stn_dt[, c("SetSize", "MZP", "Purpose", "ID") := tstrsplit(setID, "_")]
+```
+
+```{r}
+plot_dt <- copy(stn_dt)
+plot_dt$Method <- as.character(plot_dt$Method)
+plot_dt$Val <- factor(plot_dt$Val, 
+                      levels = c("CV(CPM)", "Fraction zeros", 
+                                 "average CPM", "variance CPM"), 
+                      ordered = T)
+```
+
+```{r, fig.height=7, fig.width=7}
+n_points <- plot_dt[, .N, by = .(Method, Val)]
+# n_points[, y := ifelse(Val %in% c("CV(CPM)", "Fraction zeros"), 2.2, -2.2)]
+n_points[, y := 2.2]
+
+ggplot(plot_dt, 
+       aes(x = Method, y = StN)) +
+    # geom_hline(yintercept = 2, linetype = "dashed") +
+    # geom_hline(yintercept = 2.8, linetype = "dashed") +
+    geom_text(data = n_points, 
+              aes(y = y, label = paste0("n = ", formatC(N, width = 2, format = "d", flag = "0"))), 
+              angle = 90, hjust = 0, vjust = .5, 
+              fontface = "italic", size = 3) +
+    geom_text(data = n_points, 
+              aes(y = y+1, label = "")) +
+    geom_hline(yintercept = 0) +
+    geom_boxplot(aes(color = Method), outlier.shape = NA, varwidth = F) +
+    geom_jitter(aes(color = Method), size = .7, width = .1) +
+    facet_wrap(~ Val) + #, scales = "free_y"
+    ylab("Signal-to-noise statistics (DECs/notDECs)") +
+    scale_color_discrete(guide = "none") +
+    # coord_cartesian(ylim = c(-2.5, 2.5)) +
+    theme_bw() +
+    theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5),
+          legend.position = "top", 
+          panel.grid.major.x = element_blank(), 
+          panel.grid.minor.x = element_blank())
+```
+
+#### Vert Signal-to-noise
+
+```{r}
+ggplot(plot_dt, 
+       aes(x = Method, y = StN)) +
+    geom_hline(yintercept = 0) +
+    geom_boxplot(aes(color = Method), outlier.shape = NA, varwidth = F) +
+    geom_jitter(aes(color = Method), size = .7, width = .1) +
+    facet_grid(cols = vars(Val), rows = vars(SetSize)) +
+    ylab("Signal-to-noise statistics (DECs/notDECs)") +
+    scale_color_discrete(guide = "none") +
+    coord_flip() +
+    scale_x_discrete(limits = rev) +
+    theme_bw() +
+    theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5),
+          legend.position = "top", 
+          panel.grid.major.y = element_blank(), 
+          panel.grid.minor.y = element_blank())
+```
+
+```{r}
+## save signal-to-noise statistics
+signal2noise_file <- file.path(output_dir, "signal2noise.csv")
+fwrite(x = stn_dt, file = signal2noise_file, quote = F, row.names = F, col.names = T)
+```
+
+The signal-to-noise statistics have been saved into <a href="`r signal2noise_file`">`r signal2noise_file`</a>.  
 
 # DE data sets
 
-```{r read_sumbench_objs}
-## read input: the list of the SummarizedBenchmark objects after the performance evaluation 
-sbL_all <- qread(file = sumBench_perf_metrics_qs, 
-             nthreads = multicoreWorkers())
+```{r}
 sbL <- sbL_all[grepl("_de", names(sbL_all))]
 ```
 
 ## Method prediction overlap {.tabset}
 
 ```{r}
-cmL <- lapply(sbL,  
-              function(x, alpha_thr = 0.1) {
-                  
-                  pv_mat <- assays(x)[["adj_pv"]] <= alpha_thr
-                  pv_mat[is.na(pv_mat)] <- F
-                  
-                  cm <- ComplexHeatmap::make_comb_mat(pv_mat, min_set_size = 0)
-                  
-                  list(overlap_frac = ComplexHeatmap::comb_size(cm) / nrow(assays(x)[["adj_pv"]]),
-                       cm = cm,
-                       set_names = ComplexHeatmap::set_name(cm))
-              },
-              alpha_thr = 0.1
-)
-
-set_names <- 
-  dcast(rbindlist(lapply(cmL, function(x) {data.table(Method = x$set_names,
-                                                      ID = seq_along(x$set_names))}),
-                  idcol = "DS"),
-        DS ~ ID,
-        value.var = "Method")
-
-## check methods order in combinations is always the same
-# nrow(unique(data.frame(set_names, row.names = "DS"))) == 1
-
-ovlp_frac <- 
-  rbindlist(lapply(cmL, function(x) {data.table(OvlpFrac = x$overlap_frac,
-                                                Comb = names(x$overlap_frac))}),
-            idcol = "DS")
-ovlp_frac[, c("SetSize", "MZP", "Purpose", "ID") := tstrsplit(DS, "_", type.convert = F), 
-              by = DS]
-
-
-mean_ovlp_frac <- ovlp_frac[, .(AvgOvlpFrac = mean(OvlpFrac)), 
-                            by = .(SetSize, MZP, Purpose, Comb)][order(SetSize, MZP, Purpose, -AvgOvlpFrac)]
-
-mean_ovlp_frac[, Comb_degree := sum(as.integer(unlist(strsplit(Comb, "")))), by = Comb]
+# cmL <- lapply(sbL,  
+#               function(x, alpha_thr = 0.1) {
+#                   
+#                   pv_mat <- assays(x)[["adj_pv"]] <= alpha_thr
+#                   pv_mat[is.na(pv_mat)] <- F
+#                   
+#                   cm <- ComplexHeatmap::make_comb_mat(pv_mat, min_set_size = 0)
+#                   
+#                   list(overlap_frac = ComplexHeatmap::comb_size(cm) / nrow(assays(x)[["adj_pv"]]),
+#                        cm = cm,
+#                        set_names = ComplexHeatmap::set_name(cm))
+#               },
+#               alpha_thr = 0.1
+# )
+# 
+# set_names <- 
+#   dcast(rbindlist(lapply(cmL, function(x) {data.table(Method = x$set_names,
+#                                                       ID = seq_along(x$set_names))}),
+#                   idcol = "DS"),
+#         DS ~ ID,
+#         value.var = "Method")
+# 
+# ## check methods order in combinations is always the same
+# # nrow(unique(data.frame(set_names, row.names = "DS"))) == 1
+# 
+# ovlp_frac <- 
+#   rbindlist(lapply(cmL, function(x) {data.table(OvlpFrac = x$overlap_frac,
+#                                                 Comb = names(x$overlap_frac))}),
+#             idcol = "DS")
+# ovlp_frac[, c("SetSize", "MZP", "Purpose", "ID") := tstrsplit(DS, "_", type.convert = F), 
+#               by = DS]
+# 
+# 
+# mean_ovlp_frac <- ovlp_frac[, .(AvgOvlpFrac = mean(OvlpFrac)), 
+#                             by = .(SetSize, MZP, Purpose, Comb)][order(SetSize, MZP, Purpose, -AvgOvlpFrac)]
+# 
+# mean_ovlp_frac[, Comb_degree := sum(as.integer(unlist(strsplit(Comb, "")))), by = Comb]
 ```
 
 ```{r}
-# null_comb <- paste0(rep("0", length(set_names) - 1), collapse = "")
-
-## top bar annotation data
-# selected_comb_sizes_dt <- mean_ovlp_frac[Comb_degree > 1, 
-#                                          .(SetSize, MZP, Purpose, Comb, 
-#                                            AvgOvlpFrac)][order(-AvgOvlpFrac)][1:15, ]
-selected_comb_sizes_dt <- 
-  mean_ovlp_frac[Comb_degree > 1][order(SetSize, MZP, Purpose, -AvgOvlpFrac), 
-                                  lapply(.SD, head, 15),
-                                  by = .(SetSize, MZP, Purpose),
-                                  .SDcols = c("SetSize", "MZP", "Purpose", "Comb", 
-                                              "AvgOvlpFrac")]
-
-## row annotation data
-setSize <- 
-  rbindlist(lapply(cmL, function(x) {
-    data.table(Method = names(ComplexHeatmap::set_size(x$cm)),
-               setSize = ComplexHeatmap::set_size(x$cm),
-               setSize_frac = ComplexHeatmap::set_size(x$cm) / (ComplexHeatmap::comb_size(x$cm)[1] / x$overlap_frac[1]))
-  }),
-  idcol = "DS")
-setSize[, c("SetSize", "MZP", "Purpose", "ID") := tstrsplit(DS, "_", type.convert = F)]
-
-mean_setSize <- 
-  setSize[, .(AvgsetSize_frac = mean(setSize_frac)), 
-          by = .(SetSize, MZP, Purpose, Method)][order(SetSize, MZP, Purpose, -AvgsetSize_frac)]
+# # null_comb <- paste0(rep("0", length(set_names) - 1), collapse = "")
+# 
+# ## top bar annotation data
+# # selected_comb_sizes_dt <- mean_ovlp_frac[Comb_degree > 1, 
+# #                                          .(SetSize, MZP, Purpose, Comb, 
+# #                                            AvgOvlpFrac)][order(-AvgOvlpFrac)][1:15, ]
+# selected_comb_sizes_dt <- 
+#   mean_ovlp_frac[Comb_degree > 1][order(SetSize, MZP, Purpose, -AvgOvlpFrac), 
+#                                   lapply(.SD, head, 15),
+#                                   by = .(SetSize, MZP, Purpose),
+#                                   .SDcols = c("SetSize", "MZP", "Purpose", "Comb", 
+#                                               "AvgOvlpFrac")]
+# 
+# ## row annotation data
+# setSize <- 
+#   rbindlist(lapply(cmL, function(x) {
+#     data.table(Method = names(ComplexHeatmap::set_size(x$cm)),
+#                setSize = ComplexHeatmap::set_size(x$cm),
+#                setSize_frac = ComplexHeatmap::set_size(x$cm) / (ComplexHeatmap::comb_size(x$cm)[1] / x$overlap_frac[1]))
+#   }),
+#   idcol = "DS")
+# setSize[, c("SetSize", "MZP", "Purpose", "ID") := tstrsplit(DS, "_", type.convert = F)]
+# 
+# mean_setSize <- 
+#   setSize[, .(AvgsetSize_frac = mean(setSize_frac)), 
+#           by = .(SetSize, MZP, Purpose, Method)][order(SetSize, MZP, Purpose, -AvgsetSize_frac)]
 ```
 
 ```{r upset_plot}
-plot_common_pred_upset <- function(setsize, mzp, purpose, 
-                                   selected_comb_sizes_dt, mean_setSize, 
-                                   ovlp_frac, setSize) {
-  selected_comb_sizes <- setNames(selected_comb_sizes_dt[SetSize == setsize & 
-                                                           MZP == mzp & 
-                                                           Purpose == purpose, 
-                                                         AvgOvlpFrac], 
-                                  nm = selected_comb_sizes_dt[SetSize == setsize & 
-                                                                MZP == mzp & 
-                                                                Purpose == purpose, 
-                                                              Comb])
-  
-  mt <- as.matrix(sapply(names(selected_comb_sizes), 
-                         function(x) as.integer(unlist(strsplit(x, "")))))
-  rownames(mt) <- set_names[1, 2:length(set_names)]
-  
-  cmt <- ComplexHeatmap::make_comb_mat(t(mt), min_set_size = 0)
-  
-  top_boxplot_mat <- 
-    as.matrix(data.frame(dcast(ovlp_frac[Comb %in% ComplexHeatmap::comb_name(cmt) &
-                                           SetSize == setsize & 
-                                           MZP == mzp & 
-                                           Purpose == purpose], 
-                               DS ~ Comb, 
-                               value.var = "OvlpFrac"), 
-                         row.names = "DS", 
-                         check.names = F)) * 100
-  
-  top_anno <- 
-    HeatmapAnnotation("Common\npredictions\n(%)" = anno_boxplot(top_boxplot_mat[, comb_name(cmt)]),
-      annotation_name_side = "left", 
-      annotation_name_rot = 0)
-  
-  ## row annotation
-  mean_set_size <- setNames(mean_setSize[SetSize == setsize & 
-                                           MZP == mzp & 
-                                           Purpose == purpose, 
-                                         AvgsetSize_frac], 
-                            nm = mean_setSize[SetSize == setsize & 
-                                                MZP == mzp & 
-                                                Purpose == purpose, 
-                                              Method])
-  
-  row_boxplot_mat <- 
-    as.matrix(data.frame(dcast(setSize[SetSize == setsize & 
-                                         MZP == mzp & 
-                                         Purpose == purpose], 
-                               DS ~ Method, 
-                               value.var = "setSize_frac"), 
-                         row.names = "DS", 
-                         check.names = F)) * 100
-  
-  row_anno <- 
-    rowAnnotation("Predicted\nDECs (%)" = anno_boxplot(t(row_boxplot_mat[, set_name(cmt)]), 
-                                           axis_param = list(side = "top", 
-                                                             labels_rot = 0),
-                                           width = unit(3, "cm")),
-      annotation_name_side = "top",
-      annotation_name_rot = 0)
-  
-  ## plot Upset
-  UpSet(cmt, 
-        row_title = paste(setsize, mzp, purpose),
-        top_annotation = top_anno, 
-        right_annotation = row_anno, 
-        set_order = order(-mean_set_size[set_name(cmt)]),
-        comb_order = order(-selected_comb_sizes[comb_name(cmt)]))
-}
+# plot_common_pred_upset <- function(setsize, mzp, purpose, 
+#                                    selected_comb_sizes_dt, mean_setSize, 
+#                                    ovlp_frac, setSize) {
+#   selected_comb_sizes <- setNames(selected_comb_sizes_dt[SetSize == setsize & 
+#                                                            MZP == mzp & 
+#                                                            Purpose == purpose, 
+#                                                          AvgOvlpFrac], 
+#                                   nm = selected_comb_sizes_dt[SetSize == setsize & 
+#                                                                 MZP == mzp & 
+#                                                                 Purpose == purpose, 
+#                                                               Comb])
+#   
+#   mt <- as.matrix(sapply(names(selected_comb_sizes), 
+#                          function(x) as.integer(unlist(strsplit(x, "")))))
+#   rownames(mt) <- set_names[1, 2:length(set_names)]
+#   
+#   cmt <- ComplexHeatmap::make_comb_mat(t(mt), min_set_size = 0)
+#   
+#   top_boxplot_mat <- 
+#     as.matrix(data.frame(dcast(ovlp_frac[Comb %in% ComplexHeatmap::comb_name(cmt) &
+#                                            SetSize == setsize & 
+#                                            MZP == mzp & 
+#                                            Purpose == purpose], 
+#                                DS ~ Comb, 
+#                                value.var = "OvlpFrac"), 
+#                          row.names = "DS", 
+#                          check.names = F)) * 100
+#   
+#   top_anno <- 
+#     HeatmapAnnotation("Common\npredictions\n(%)" = anno_boxplot(top_boxplot_mat[, comb_name(cmt)]),
+#       annotation_name_side = "left", 
+#       annotation_name_rot = 0)
+#   
+#   ## row annotation
+#   mean_set_size <- setNames(mean_setSize[SetSize == setsize & 
+#                                            MZP == mzp & 
+#                                            Purpose == purpose, 
+#                                          AvgsetSize_frac], 
+#                             nm = mean_setSize[SetSize == setsize & 
+#                                                 MZP == mzp & 
+#                                                 Purpose == purpose, 
+#                                               Method])
+#   
+#   row_boxplot_mat <- 
+#     as.matrix(data.frame(dcast(setSize[SetSize == setsize & 
+#                                          MZP == mzp & 
+#                                          Purpose == purpose], 
+#                                DS ~ Method, 
+#                                value.var = "setSize_frac"), 
+#                          row.names = "DS", 
+#                          check.names = F)) * 100
+#   
+#   row_anno <- 
+#     rowAnnotation("Predicted\nDECs (%)" = anno_boxplot(t(row_boxplot_mat[, set_name(cmt)]), 
+#                                            axis_param = list(side = "top", 
+#                                                              labels_rot = 0),
+#                                            width = unit(3, "cm")),
+#       annotation_name_side = "top",
+#       annotation_name_rot = 0)
+#   
+#   ## plot Upset
+#   UpSet(cmt, 
+#         row_title = paste(setsize, mzp, purpose),
+#         top_annotation = top_anno, 
+#         right_annotation = row_anno, 
+#         set_order = order(-mean_set_size[set_name(cmt)]),
+#         comb_order = order(-selected_comb_sizes[comb_name(cmt)]))
+# }
 ```
 
 ### Bulk N03
 
 ```{r, fig.height=5.5, fig.width=6.5}
-plot_common_pred_upset(setsize = "N03", mzp = "bulk", purpose = "de", ## N03_bulk_de
-                       selected_comb_sizes_dt, mean_setSize,
-                       ovlp_frac, setSize)
+# plot_common_pred_upset(setsize = "N03", mzp = "bulk", purpose = "de", ## N03_bulk_de
+#                        selected_comb_sizes_dt, mean_setSize,
+#                        ovlp_frac, setSize)
 ```
 
 ### Bulk N05
 
 ```{r, fig.height=5.5, fig.width=6.5}
-plot_common_pred_upset(setsize = "N05", mzp = "bulk", purpose = "de", ## N05_bulk_de
-                       selected_comb_sizes_dt, mean_setSize,
-                       ovlp_frac, setSize)
+# plot_common_pred_upset(setsize = "N05", mzp = "bulk", purpose = "de", ## N05_bulk_de
+#                        selected_comb_sizes_dt, mean_setSize,
+#                        ovlp_frac, setSize)
 ```
 
 ### Bulk N10
 
 ```{r, fig.height=5.5, fig.width=6.5}
-plot_common_pred_upset(setsize = "N10", mzp = "bulk", purpose = "de", ## N10_bulk_de
-                       selected_comb_sizes_dt, mean_setSize,
-                       ovlp_frac, setSize)
+# plot_common_pred_upset(setsize = "N10", mzp = "bulk", purpose = "de", ## N10_bulk_de
+#                        selected_comb_sizes_dt, mean_setSize,
+#                        ovlp_frac, setSize)
 ```
 
 ### Sice N03
 
 ```{r, fig.height=5.5, fig.width=6.5}
-if(params$sice){
-    plot_common_pred_upset(setsize = "N03", mzp = "sice", purpose = "de", 
-                           selected_comb_sizes_dt, mean_setSize, 
-                           ovlp_frac, setSize)
-}
+# if(params$sice){
+#     plot_common_pred_upset(setsize = "N03", mzp = "sice", purpose = "de", 
+#                            selected_comb_sizes_dt, mean_setSize, 
+#                            ovlp_frac, setSize)
+# }
 ```
 
 ### Sice N05
 
 ```{r, fig.height=5.5, fig.width=6.5}
-if(params$sice){
-    plot_common_pred_upset(setsize = "N05", mzp = "sice", purpose = "de", 
-                       selected_comb_sizes_dt, mean_setSize, 
-                       ovlp_frac, setSize)
-}
+# if(params$sice){
+#     plot_common_pred_upset(setsize = "N05", mzp = "sice", purpose = "de", 
+#                        selected_comb_sizes_dt, mean_setSize, 
+#                        ovlp_frac, setSize)
+# }
 ```
 
 ### Sice N10
 
 ```{r, fig.height=5.5, fig.width=6.5}
-if(params$sice){
-    plot_common_pred_upset(setsize = "N10", mzp = "sice", purpose = "de", 
-                       selected_comb_sizes_dt, mean_setSize, 
-                       ovlp_frac, setSize)
-}
+# if(params$sice){
+#     plot_common_pred_upset(setsize = "N10", mzp = "sice", purpose = "de", 
+#                        selected_comb_sizes_dt, mean_setSize, 
+#                        ovlp_frac, setSize)
+# }
 ```
 
 ```{r}
@@ -430,13 +766,14 @@ sbAssayL <-
                      }), 
             idcol = "Dataset")
 
-sbAssayL[, c("SetSize", "MZP", "DsType", "DsId") := tstrsplit(Dataset, "_")]
+sbAssayL[, c("SetSize", "MZP", "DsType", "DsId") := tstrsplit(Dataset, "_"), 
+         by = Dataset]
 
-setnafill(x = sbAssayL, 
-          type = "const", 
-          fill = 1, 
-          nan = NA, 
-          cols = grep("FDR", colnames(sbAssayL), value = T))
+# setnafill(x = sbAssayL, 
+#           type = "const", 
+#           fill = 1, 
+#           nan = NA, 
+#           cols = grep("FDR", colnames(sbAssayL), value = T))
 ```
 
 ```{r}
@@ -470,7 +807,7 @@ datatable(show_dt,
 plot_dt <- melt(mSbAssayL, id.vars = c("SetSize", "MZP", "DsType", "Method"))
 ```
 
-### Recall (TPR)
+### Recall (TPR) aka power
 
 ```{r}
 # pval_tpr_pattern <- "^TPR.[0-9]$"
@@ -488,7 +825,7 @@ ggplot(plot_dt[grep(tpr_pattern, variable)], ## get P-values TPRs
        aes(x = Method, y = value)) +
   geom_line(aes(group = variable, color = variable)) +
   geom_point(aes(shape = variable, color = variable)) +
-  ylab("Average recall") +
+  ylab("Average TPR") +
   scale_color_discrete(Alpha_plot_label, labels = alpha_targets) +
   scale_shape_discrete(Alpha_plot_label, labels = alpha_targets) +
   facet_grid(cols = vars(SetSize), rows = vars(MZP), scales = "free_y") +
@@ -496,6 +833,54 @@ ggplot(plot_dt[grep(tpr_pattern, variable)], ## get P-values TPRs
   theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5),
         legend.position = "top")
 ```
+
+### TPR 3x3
+
+```{r}
+idvars <- c("Dataset", "Method", "SetSize", "MZP", "DsType")
+
+plot_bx_dt <- melt(sbAssayL[, c(idvars,
+                                grep(tpr_pattern, colnames(sbAssayL), value = T)), 
+                            with = F], 
+                   id.vars = idvars)
+## NB: we exploit here the partial matching of rownames, tnr2alpa 
+#       Alpha
+# TNR.1  0.01
+# TNR.2  0.05
+# TNR.3  0.10
+plot_bx_dt$Alpha <- tnr2alpa[plot_bx_dt$variable, ]
+
+# plot_bx_dt[!is.na(value), .N, by = .(SetSize, Method, variable)]
+```
+
+```{r}
+ggplot(plot_bx_dt, 
+       aes(x = Method, y = value, color = Method)) +
+    geom_boxplot(outlier.shape = NA) +
+    geom_jitter(width = .1, size = .6) +
+    ylab("TPR") +
+    scale_color_discrete(guide = "none") +
+    facet_grid(cols = vars(SetSize), rows = vars(Alpha), scales = "free_y") +
+    theme_bw() +
+    theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5),
+          legend.position = "top")
+```
+
+#### TPR N05, 0.05
+
+```{r}
+ggplot(plot_bx_dt[SetSize == "N05" & Alpha == 0.05], 
+       aes(x = Method, y = value, color = Method)) +
+    geom_boxplot(outlier.shape = NA) +
+    geom_jitter(width = .1) +
+    labs(y = "TPR at adjusted P = 0.05", 
+         title = "5 samples per group") +
+    scale_color_discrete(guide = "none") +
+    theme_bw() +
+    theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5),
+          legend.position = "top")
+```
+
 
 ### Precision (1-FDR)
 
@@ -518,10 +903,70 @@ ggplot(plot_dt[grep(fdr_pattern, variable)],
   ylab("Average precision") +
   scale_color_discrete(Alpha_plot_label, labels = alpha_targets) +
   scale_shape_discrete(Alpha_plot_label, labels = alpha_targets) +
-  facet_grid(cols = vars(SetSize), rows = vars(MZP), scales = "free_y") +
+  facet_grid(cols = vars(SetSize), 
+             # rows = vars(MZP), 
+             scales = "free_y") +
   theme_bw() +
   theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5),
         legend.position = "top")
+```
+
+### FDR
+
+```{r}
+idvars <- c("Dataset", "Method", "SetSize", "MZP", "DsType")
+
+plot_bx_dt <- melt(sbAssayL[, c(idvars,
+                                grep(padj_fdr_pattern, colnames(sbAssayL), value = T)), 
+                            with = F], 
+                   id.vars = idvars)
+
+fdr2alpha <- data.frame(Alpha = c(FDR.1.1 = 0.01, FDR.2.1 = 0.05, FDR.3.1 = 0.10))
+plot_bx_dt$Alpha <- fdr2alpha[plot_bx_dt$variable, ]
+
+n_plot_bx_dt <- plot_bx_dt[!is.na(value), .N, by = .(SetSize, Method, Alpha)]
+n_plot_bx_dt[, y := 1.1]
+```
+
+```{r}
+ggplot(plot_bx_dt, 
+       aes(x = Method, y = value, color = Method)) +
+    geom_hline(data = plot_bx_dt[, .N, by = .(SetSize, Alpha)],
+               aes(yintercept = Alpha)) +
+    geom_boxplot(outlier.shape = NA) +
+    geom_jitter(width = .1, size = .6) +
+    ylab("FDP at adjusted P") +
+    scale_color_discrete(guide = "none") +
+    facet_grid(cols = vars(SetSize), rows = vars(Alpha), scales = "free_y") +
+    theme_bw() +
+    theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5),
+          legend.position = "top")
+```
+
+#### FDP N05, 0.05
+
+```{r, fig.height=4, fig.width=7}
+ggplot(plot_bx_dt[SetSize == "N05" & Alpha == 0.05], 
+       aes(x = Method, y = value, color = Method)) +
+    geom_hline(yintercept = .05) +
+    geom_boxplot(outlier.shape = NA) +
+    geom_jitter(width = .1) +
+    geom_text(data = n_plot_bx_dt[SetSize == "N05" & Alpha == 0.05], 
+              aes(y = 1.25, label = paste0("n = ", formatC(N, width = 2, format = "d", flag = "0"))), 
+              angle = 90, hjust = "inward", vjust = .5, 
+              fontface = "italic", size = 3, color = "black") +
+    # geom_text(data = n_plot_bx_dt[SetSize == "N05" & Alpha == 0.05],
+    #           aes(y = y+.1, label = "")) +
+    labs(y = "FDP at adjusted P = 0.05", 
+         x = NULL,
+         title = "5 samples per group") +
+    scale_color_discrete(guide = "none") +
+    scale_y_continuous(breaks = c(.05, .25, .5, .75, 1), limits = c(0, 1.25)) +
+    theme_bw() +
+    theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5),
+          legend.position = "top", 
+          panel.grid.major.x = element_blank(),
+          panel.grid.minor.y = element_blank())
 ```
 
 ## {-}
@@ -568,8 +1013,8 @@ f1s <-
                   idcol = "Dataset"),
         by = "Dataset")
 
-f1s[is.nan(F1), F1 := 0]
-f1s[is.nan(F0.5), F0.5 := 0]
+# f1s[is.nan(F1), F1 := 0]
+# f1s[is.nan(F0.5), F0.5 := 0]
 ```
 
 ```{r}
@@ -643,47 +1088,81 @@ f1_to_draw <- c(.1, .3, .5, .7)
 
 ##### Curve plots
 
-```{r, fig.width=10, fig.height=10}
-ggplot(mf1s, aes(x = TPR, y = 1 - FDR, color = Method, shape = Alpha)) +
+```{r, fig.width=9, fig.height=5.5}
+text2alphas <- c("1.1" = "padj < 0.01", "2.1" = "padj < 0.05", "3.1" = "padj < 0.1")
+plot_dt <- mf1s
+plot_dt$Alpha <- text2alphas[plot_dt$Alpha]
+
+ggplot(plot_dt, 
+       aes(x = TPR, y = 1 - FDR, color = Method, shape = as.character(Alpha))) +
     f1_curves(f1_to_draw) +
     annotate_f1_curves(f1_to_draw, pos.x = .95) +
     geom_point() +
     coord_fixed(clip = "off", xlim = c(0, 1), ylim = c(0, 1.01), expand = F) + 
-    scale_shape_manual("Alpha", values = 2:4, labels = alpha_targets) +
-    guides(shape = guide_legend(direction = "vertical")) +
-    facet_grid(cols = vars(SetSize), rows = vars(MZP)) + 
+    scale_shape_manual("Alpha", values = 2:4, labels = alpha_targets, guide = "none") +
+    # guides(shape = guide_legend(direction = "vertical")) +
+    facet_grid(cols = vars(SetSize), rows = vars(Alpha)) + 
     theme_bw() +
-    theme(legend.position = "top", 
+    theme(legend.position = "right", 
           axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5))
 ```
 
 ##### F1 vs #circRNAs
 
 ```{r, fig.width=10, fig.height=7}
-ggplot(f1s, aes(x = nCircRNAs, y = F1, 
+plot_dt <- f1s
+plot_dt$Alpha <- text2alphas[plot_dt$Alpha]
+
+ggplot(plot_dt, aes(x = nCircRNAs, y = F1, 
                 color = Method)) +
   geom_smooth(se = F, method = "lm", alpha = .5) +
-  facet_wrap(facets = SetSize ~ paste(MZP, Alpha), scales = "free", ncol = 6) +
-  scale_shape_manual("Alpha", values = 2:4, labels = alpha_targets) +
-  guides(shape = guide_legend(direction = "vertical")) +
+  facet_wrap(facets = SetSize ~ Alpha, scales = "free", ncol = 3, labeller = label_wrap_gen(multi_line = F)) +
+  # scale_shape_manual("Alpha", values = 2:4, labels = alpha_targets) +
+  # guides(shape = guide_legend(direction = "vertical")) +
   theme_bw() +
   theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5),
-        legend.position = "top")
+        legend.position = "right")
 ```
 
 ##### Boxplots
 
-```{r, fig.width=10, fig.height=7}
-ggplot(f1s, 
+```{r, fig.width=12, fig.height=7}
+plot_dt <- f1s
+plot_dt$Alpha <- text2alphas[plot_dt$Alpha]
+
+ggplot(plot_dt, 
        aes(x = Method, y = F1)) +
-  geom_boxplot(aes(color = Alpha), 
-               outlier.size = .5) +
-  ylab("F1") +
-  scale_color_discrete(Alpha_plot_label, labels = alpha_targets) +
-  facet_grid(cols = vars(SetSize), rows = vars(paste(MZP, Alpha)), scales = "free_y") +
-  theme_bw() +
-  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5),
-        legend.position = "top")
+    geom_boxplot(aes(color = Method), 
+                 outlier.size = .5) +
+    ylab(expression(F[1])) +
+    # scale_color_discrete(Alpha_plot_label, labels = alpha_targets) +
+    scale_color_discrete(guide = "none") +
+    facet_grid(cols = vars(SetSize), rows = vars(Alpha), scales = "free_y") +
+    theme_bw() +
+    theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5),
+          legend.position = "top")
+```
+
+##### Box N05, adjusted P <= 0.05  
+
+```{r, fig.width=3.5, fig.height=6.5}
+plot_dt <- f1s
+plot_dt$Alpha <- text2alphas[plot_dt$Alpha]
+
+ggplot(plot_dt[SetSize == "N05" & Alpha == "padj < 0.05"], 
+       aes(x = Method, y = F1, color = Method)) +
+    geom_boxplot(outlier.shape = NA) +
+    geom_jitter(width = .2, size = .6) +
+    labs(y = expression(F[1]), x = NULL) +
+    # scale_color_discrete(Alpha_plot_label, labels = alpha_targets) +
+    scale_color_discrete(guide = "none") +
+    # facet_grid(cols = vars(SetSize), rows = vars(Alpha), scales = "free_y") +
+    coord_flip() +
+    scale_x_discrete(limits = rev) +
+    theme_bw() +
+    theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5),
+          legend.position = "top", 
+          panel.grid.major.y = element_blank())
 ```
 
 ##### Average line plot
@@ -708,12 +1187,13 @@ ggplot(plot_dt,
 
 ##### Bulk pointrange 
 
-```{r, fig.height=8}
+```{r, fig.height=12, fig.width=9}
 plot_dt <- mf1s[MZP == "bulk"][, c("baseMethod", "Params", "Test") := tstrsplit(Method, "_")]
 plot_dt[, Params_Test := paste(Params, Test)]
+plot_dt$Alpha <- text2alphas[plot_dt$Alpha]
 
-level_order <- plot_dt[grepl("^3", Alpha) &
-                           SetSize == "N10"][order(-F1),
+level_order <- plot_dt[grepl("0.05", Alpha) &
+                           SetSize == "N05"][order(-F1),
                                              .(Method),
                                              by = baseMethod][, Method]
 
@@ -728,12 +1208,11 @@ ggplot(plot_dt,
            color = Alpha)) +
     geom_pointrange(aes(ymin = F1 - sdF1, ymax = F1 + sdF1),
                     position = position_dodge(width = .7)) +
-    ylab("Average F1") +
-    xlab("Method") +
-    scale_color_discrete(Alpha_plot_label, labels = alpha_targets) +
+    ylab(expression(Average~F[1])) +
+    xlab(NULL) +
+    scale_color_discrete(Alpha_plot_label, labels = alpha_targets, guide = "none") +
     scale_x_discrete(label = function(x){
-        gsub("_", " ", gsub("edgeR_|DESeq2_|voom_|circMeta_", "", x))
-        }) +
+        gsub("_", " ", gsub("[^_]+_(.*)", "\\1", x))}) +
     coord_flip(clip = "off") +
     facet_grid(cols = vars(Alpha, SetSize), 
                rows = vars(baseMethod), 
@@ -742,48 +1221,8 @@ ggplot(plot_dt,
     theme_bw() +
     theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5),
           panel.spacing.y = unit(.01, "lines"),
-          legend.position = "top")
-```
-
-##### Sice pointrange
-
-```{r, fig.height=8}
-if(params$sice){
-    plot_dt <- mf1s[MZP == "sice"][, c("baseMethod", "Params", "Test") := tstrsplit(Method, "_")]
-    plot_dt[, Params_Test := paste(Params, Test)]
-    
-    level_order <- plot_dt[grepl("^3", Alpha) &
-                               SetSize == "N10"][order(-F1),
-                                                 .(Method),
-                                                 by = baseMethod][, Method]
-    
-    plot_dt$Method <-
-        factor(plot_dt$Method,
-               levels = level_order,
-               ordered = T)
-    
-    ggplot(plot_dt, 
-           aes(x = Method, 
-               y = F1, 
-               color = Alpha)) +
-        geom_pointrange(aes(ymin = F1 - sdF1, ymax = F1 + sdF1),
-                        position = position_dodge(width = .7)) +
-        ylab("Average F1") +
-        xlab("Method") +
-        scale_color_discrete(Alpha_plot_label, labels = alpha_targets) +
-        scale_x_discrete(label = function(x){
-            gsub("_", " ", gsub("edgeR_|DESeq2_|voom_|circMeta_", "", x))
-        }) +
-        coord_flip(clip = "off") +
-        facet_grid(cols = vars(Alpha, SetSize), 
-                   rows = vars(baseMethod), 
-                   drop = T, 
-                   scales = "free", space = "free") +
-        theme_bw() +
-        theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5),
-              panel.spacing.y = unit(.01, "lines"),
-              legend.position = "top")
-}
+          legend.position = "top", 
+          panel.grid.major.y = element_blank())
 ```
 
 #### F0.5 {.tabset} 
@@ -791,16 +1230,41 @@ if(params$sice){
 ##### Boxplot
 
 ```{r, fig.width=10, fig.height=7}
-ggplot(f1s, 
+plot_dt <- f1s
+plot_dt$Alpha <- text2alphas[plot_dt$Alpha]
+
+ggplot(plot_dt, 
        aes(x = Method, y = F0.5)) +
   geom_boxplot(aes(color = Alpha), 
                outlier.size = .5) +
-  ylab(expression(F[0.5])) +
-  scale_color_discrete(Alpha_plot_label, labels = alpha_targets) +
-  facet_grid(cols = vars(SetSize), rows = vars(paste(MZP, Alpha)), scales = "free_y") +
+  labs(y = expression(F[0.5]), x = NULL) +
+  scale_color_discrete(Alpha_plot_label, labels = alpha_targets, guide = "none") +
+  facet_grid(cols = vars(SetSize), rows = vars(Alpha), scales = "free_y") +
   theme_bw() +
   theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5),
         legend.position = "top")
+```
+
+##### Box N05, adjusted P <= 0.05  
+
+```{r, fig.width=3.5, fig.height=6.5}
+plot_dt <- f1s
+plot_dt$Alpha <- text2alphas[plot_dt$Alpha]
+
+ggplot(plot_dt[SetSize == "N05" & Alpha == "padj < 0.05"], 
+       aes(x = Method, y = F0.5, color = Method)) +
+    geom_boxplot(outlier.shape = NA) +
+    geom_jitter(width = .2, size = .6) +
+    labs(y = expression(F[0.5]), x = NULL) +
+    # scale_color_discrete(Alpha_plot_label, labels = alpha_targets) +
+    scale_color_discrete(guide = "none") +
+    # facet_grid(cols = vars(SetSize), rows = vars(Alpha), scales = "free_y") +
+    coord_flip() +
+    scale_x_discrete(limits = rev) +
+    theme_bw() +
+    theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5),
+          legend.position = "top", 
+          panel.grid.major.y = element_blank())
 ```
 
 ##### Average lineplot
@@ -825,12 +1289,13 @@ ggplot(plot_dt,
 
 ##### Bulk pointrange 
 
-```{r, fig.height=8}
+```{r, fig.height=12, fig.width=9}
 plot_dt <- mf1s[MZP == "bulk"][, c("baseMethod", "Params", "Test") := tstrsplit(Method, "_")]
 plot_dt[, Params_Test := paste(Params, Test)]
+plot_dt$Alpha <- text2alphas[plot_dt$Alpha]
 
-level_order <- plot_dt[grepl("^3", Alpha) &
-                           SetSize == "N10"][order(-F0.5),
+level_order <- plot_dt[grepl("0.05", Alpha) &
+                           SetSize == "N05"][order(-F0.5),
                                              .(Method),
                                              by = baseMethod][, Method]
 
@@ -846,11 +1311,10 @@ ggplot(plot_dt,
     geom_pointrange(aes(ymin = F0.5 - sdF0.5, ymax = F0.5 + sdF0.5),
                     position = position_dodge(width = .7)) +
     ylab(expression(Average~F[0.5])) +
-    xlab("Method") +
-    scale_color_discrete(Alpha_plot_label, labels = alpha_targets) +
+    xlab(NULL) +
+    scale_color_discrete(Alpha_plot_label, labels = alpha_targets, guide = "none") +
     scale_x_discrete(label = function(x){
-        gsub("_", " ", gsub("edgeR_|DESeq2_|voom_|circMeta_", "", x))
-        }) +
+        gsub("_", " ", gsub("[^_]+_(.*)", "\\1", x))}) +
     coord_flip(clip = "off") +
     facet_grid(cols = vars(Alpha, SetSize), 
                rows = vars(baseMethod), 
@@ -859,50 +1323,9 @@ ggplot(plot_dt,
     theme_bw() +
     theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5),
           panel.spacing.y = unit(.01, "lines"),
-          legend.position = "top")
+          legend.position = "top", 
+          panel.grid.major.y = element_blank())
 ```
-
-##### Sice pointrange
-
-```{r, fig.height=8}
-if(params$sice){
-    plot_dt <- mf1s[MZP == "sice"][, c("baseMethod", "Params", "Test") := tstrsplit(Method, "_")]
-    plot_dt[, Params_Test := paste(Params, Test)]
-    
-    level_order <- plot_dt[grepl("^3", Alpha) &
-                               SetSize == "N10"][order(-F0.5),
-                                                 .(Method),
-                                                 by = baseMethod][, Method]
-    
-    plot_dt$Method <-
-        factor(plot_dt$Method,
-               levels = level_order,
-               ordered = T)
-    
-    ggplot(plot_dt, 
-           aes(x = Method, 
-               y = F0.5, 
-               color = Alpha)) +
-        geom_pointrange(aes(ymin = F0.5 - sdF0.5, ymax = F0.5 + sdF0.5),
-                        position = position_dodge(width = .7)) +
-        ylab(expression(Average~F[0.5])) +
-        xlab("Method") +
-        scale_color_discrete(Alpha_plot_label, labels = alpha_targets) +
-        scale_x_discrete(label = function(x){
-            gsub("_", " ", gsub("edgeR_|DESeq2_|voom_|circMeta_", "", x))
-        }) +
-        coord_flip(clip = "off") +
-        facet_grid(cols = vars(Alpha, SetSize), 
-                   rows = vars(baseMethod), 
-                   drop = T, 
-                   scales = "free", space = "free") +
-        theme_bw() +
-        theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5),
-              panel.spacing.y = unit(.01, "lines"),
-              legend.position = "top")
-}
-```
-
 
 ## Save metrics
 
@@ -934,6 +1357,7 @@ fwrite(pval_deind_dt,
 ```
 
 Performance metrics on P-values have been saved into the file <a href="`r pval_deind_file`">`r pval_deind_file`</a>.  
+
 ```{r}
 eval_metrics_dt <- 
   pval_deind_dt[order(Dataset, Method, preds, 
@@ -1162,10 +1586,17 @@ alpha_fdrtpr_curve <-
                                           lapply(.SD, tail, 1), 
                                           by = DS_meth]), 
               idcol = "Alpha")
+
+alpha_fdrtpr_curve$Method <- factor(alpha_fdrtpr_curve$Method, 
+                                    levels = levels(factor(fdrtpr_curve$Method, ordered = T)), 
+                                    ordered = T)
 ```
 
 ```{r, fig.height=7, fig.width=12}
-ggplot(fdrtpr_curve[MZP == "bulk"][order(Cutoff)], 
+plot_dt <- fdrtpr_curve[MZP == "bulk"][order(Cutoff)]
+plot_dt$Method <- factor(plot_dt$Method, ordered = T)
+
+ggplot(plot_dt, 
        aes(x = FDR, y = TPR, color = Method)) +
     geom_vline(xintercept = .01, linetype = 2, color = "grey25") +
     geom_vline(xintercept = .05, linetype = 2, color = "grey25") +
@@ -1176,12 +1607,13 @@ ggplot(fdrtpr_curve[MZP == "bulk"][order(Cutoff)],
     geom_point(data = alpha_fdrtpr_curve[MZP == "bulk" & (Cutoff <= FDR)], 
                size = 3, aes(shape = Alpha), fill = "white") +
     scale_shape_manual("P-adj \U2264", values = 21:23) +
+    scale_color_discrete() +
     facet_grid(cols = vars(SetSize),
                rows = vars(MZP)) +
     scale_x_continuous(breaks = x.breaks, 
                        labels = c("", tail(x.breaks, -1))) +
-    guides(color = guide_legend(nrow = 3, title.position = "top"),
-           shape = guide_legend(nrow = 3, title.position = "top")) +
+    guides(color = guide_legend(ncol = 7, title.position = "top"),
+           shape = guide_legend(ncol = 1, title.position = "top")) +
     coord_fixed(xlim = c(0, 1), ylim = c(0, 1)) +
     labs(y = "Average TPR", x = "Average FDR") +
     theme_bw() +
@@ -1195,37 +1627,39 @@ ggplot(fdrtpr_curve[MZP == "bulk"][order(Cutoff)],
 
 White fill points when P-adj > empirical FDR   
 
-### Custom average (all methods) Sice
+### Custom average (all methods) N05
 
 ```{r, fig.height=7, fig.width=12}
-if(params$sice){
-    ggplot(fdrtpr_curve[MZP == "sice"][order(Cutoff)], 
-           aes(x = FDR, y = TPR, color = Method)) +
-        geom_vline(xintercept = .01, linetype = 2, color = "grey25") +
-        geom_vline(xintercept = .05, linetype = 2, color = "grey25") +
-        geom_vline(xintercept = .1, linetype = 2, color = "grey25") +
-        geom_path() + 
-        geom_point(data = alpha_fdrtpr_curve[MZP == "sice" & (Cutoff > FDR)], 
-                   size = 3, aes(shape = Alpha, fill = Method), show.legend = F) +
-        geom_point(data = alpha_fdrtpr_curve[MZP == "sice" & (Cutoff <= FDR)], 
-                   size = 3, aes(shape = Alpha), fill = "white") +
-        scale_shape_manual("P-adj \U2264", values = 21:23) +
-        facet_grid(cols = vars(SetSize),
-                   rows = vars(MZP)) +
-        scale_x_continuous(breaks = x.breaks, 
-                           labels = c("", tail(x.breaks, -1))) +
-        guides(color = guide_legend(nrow = 3, title.position = "top"),
-               shape = guide_legend(nrow = 3, title.position = "top")) +
-        coord_fixed(xlim = c(0, 1), ylim = c(0, 1)) +
-        labs(y = "Average TPR", x = "Average FDR") +
-        theme_bw() +
-        theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5), 
-              panel.grid.major.y = element_blank(), 
-              panel.grid.minor.y = element_blank(), 
-              panel.grid.major.x = element_line(linetype = 2, color = "grey75"),
-              panel.grid.minor.x = element_blank(),
-              legend.position = "top")
-}
+plot_dt <- fdrtpr_curve[MZP == "bulk" & SetSize == "N05"][order(Cutoff)]
+plot_dt$Method <- factor(plot_dt$Method, ordered = T)
+
+ggplot(plot_dt, 
+       aes(x = FDR, y = TPR, color = Method)) +
+    geom_vline(xintercept = .01, linetype = 2, color = "grey25") +
+    geom_vline(xintercept = .05, linetype = 2, color = "grey25") +
+    geom_vline(xintercept = .1, linetype = 2, color = "grey25") +
+    geom_path() + 
+    geom_point(data = alpha_fdrtpr_curve[MZP == "bulk" & SetSize == "N05" & (Cutoff > FDR)], 
+               size = 3, aes(shape = Alpha, fill = Method), show.legend = F) +
+    geom_point(data = alpha_fdrtpr_curve[MZP == "bulk" & SetSize == "N05" & (Cutoff <= FDR)], 
+               size = 3, aes(shape = Alpha), fill = "white") +
+    scale_shape_manual("P-adj \U2264", values = 21:23) +
+    scale_color_discrete() +
+    # facet_grid(cols = vars(SetSize),
+    #            rows = vars(MZP)) +
+    scale_x_continuous(breaks = x.breaks, 
+                       labels = c("", tail(x.breaks, -1))) +
+    guides(color = guide_legend(ncol = 2, title.position = "top"),
+           shape = guide_legend(ncol = 3, title.position = "top")) +
+    coord_fixed(xlim = c(0, 1), ylim = c(0, 1)) +
+    labs(y = "Average TPR", x = "Average FDR") +
+    theme_bw() +
+    theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5), 
+          panel.grid.major.y = element_blank(), 
+          panel.grid.minor.y = element_blank(), 
+          panel.grid.major.x = element_line(linetype = 2, color = "grey75"),
+          panel.grid.minor.x = element_blank(),
+          legend.position = "right")
 ```
 
 ## Precision-recall curve {.tabset}
@@ -1258,6 +1692,10 @@ alpha_pr_curve <-
                                           lapply(.SD, tail, 1), 
                                           by = DS_meth]), 
               idcol = "Alpha")
+
+alpha_pr_curve$Method <- factor(alpha_pr_curve$Method, 
+                                    levels = levels(factor(pr_curve$Method, ordered = T)), 
+                                    ordered = T)
 ```
 
 ```{r, fig.height=7, fig.width=12}
@@ -1271,8 +1709,8 @@ ggplot(pr_curve[MZP == "bulk"][order(Cutoff)],
     scale_shape_manual("P-adj \U2264", values = 21:23) +
     facet_grid(cols = vars(SetSize),
                rows = vars(MZP)) +
-    guides(color = guide_legend(nrow = 3, title.position = "top"),
-           shape = guide_legend(nrow = 3, title.position = "top")) +
+    guides(color = guide_legend(ncol = 7, title.position = "top"),
+           shape = guide_legend(ncol = 1, title.position = "top")) +
     coord_fixed(xlim = c(0, 1), ylim = c(0, 1)) +
     labs(x = "Average TPR", y = "Average PPV") +
     theme_bw() +
@@ -1281,30 +1719,6 @@ ggplot(pr_curve[MZP == "bulk"][order(Cutoff)],
 ```
 
 White fill points when P-adj > empirical FDR   
-
-### Custom average (all methods) Sice
-
-```{r, fig.height=7, fig.width=12}
-if(params$sice){
-    ggplot(pr_curve[MZP == "sice"][order(Cutoff)], 
-           aes(x = TPR, y = PPV, color = Method)) +
-        geom_line() +
-        geom_point(data = alpha_pr_curve[MZP == "sice" & (Cutoff > (1 - PPV))], 
-                   size = 3, aes(shape = Alpha, fill = Method)) +
-        geom_point(data = alpha_pr_curve[MZP == "sice" & (Cutoff <= (1 - PPV))], 
-                   size = 3, aes(shape = Alpha), fill = "white") +
-        scale_shape_manual("P-adj \U2264", values = 21:23) +
-        facet_grid(cols = vars(SetSize),
-                   rows = vars(MZP)) +
-        guides(color = guide_legend(nrow = 3, title.position = "top"),
-               shape = guide_legend(nrow = 3, title.position = "top")) +
-        coord_fixed(xlim = c(0, 1), ylim = c(0, 1)) +
-        labs(y = "Average PPV", x = "Average TPR") +
-        theme_bw() +
-        theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5),
-              legend.position = "top")
-}
-```
 
 ## ROC (FPR vs TPR) {.tabset}
 
@@ -1361,24 +1775,6 @@ ggplot(plot_dt[MZP == "bulk"][order(Cutoff)],
     theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5))
 ```
 
-### P-values ROCR sice
-
-```{r, fig.height=7.5, fig.width=5}
-if(params$sice){
-    ggplot(plot_dt[MZP == "sice"][order(Cutoff)], 
-           aes(x = PPV, y = TPR, color = Method)) +
-        geom_abline(slope = 1, linetype = 2) +
-        geom_line() + 
-        facet_grid(rows = vars(SetSize),
-                   cols = vars(MZP)) +
-        guides(color = guide_legend(ncol = 1)) +
-        coord_fixed() +
-        labs(y = "Average TPR", x = "Average FPR") +
-        theme_bw() +
-        theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5))
-}
-```
-
 ```{r}
 ## AUC values
 auROCcs <-
@@ -1411,21 +1807,49 @@ fwrite(auROCcs,
 
 ROC AUC values have been saved into <a href="`r auROCcs_file`">`r auROCcs_file`</a>. 
 
+#### Boxplot
+
 ```{r, fig.width=10}
-plot_dt <- auROCcs
+# plot_dt <- auROCcs
 mean_plot_dt <- mean_auROCcs
-ggplot(plot_dt, aes(x = Method, y = AUC)) +
-    geom_boxplot() +
-    geom_point(data = mean_plot_dt, 
-             shape = 21, fill = "red") +
-    facet_grid(cols = vars(SetSize),
-               rows = vars(MZP), 
-               scales = "free_y") +
+# ggplot(plot_dt, aes(x = Method, y = AUC)) +
+#     geom_boxplot() +
+#     geom_point(data = mean_plot_dt, 
+#              shape = 21, fill = "red") +
+#     facet_grid(cols = vars(SetSize),
+#                rows = vars(MZP), 
+#                scales = "free_y") +
+#     theme_bw() +
+#     theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5))
+
+plot_dt <- auROCcs
+# plot_dt[, .N, by = .(SetSize, Method)]
+
+ggplot(plot_dt, aes(x = Method, y = AUC, color = Method)) +
+    geom_boxplot(outlier.shape = NA) +
+    geom_jitter(width = .1, size = .6) +
+    facet_grid(cols = vars(SetSize)) +
+    scale_color_discrete(guide = "none") +
     theme_bw() +
     theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5))
 ```
 
-### AUC ROCR pointrange
+#### AUROC N05
+
+```{r}
+ggplot(plot_dt[SetSize == "N05"], 
+       aes(x = Method, y = AUC, color = Method)) +
+    geom_boxplot(outlier.shape = NA) +
+    geom_jitter(width = .1, size = .6) +
+    # facet_grid(cols = vars(SetSize)) +
+    labs(y = "AUROC", x = NULL) +
+    scale_color_discrete(guide = "none") +
+    theme_bw() +
+    theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5))
+```
+
+
+#### AUC ROCR pointrange
 
 ```{r, fig.width=10}
 ggplot(mean_plot_dt, aes(x = Method, y = AUC)) +
@@ -1433,7 +1857,7 @@ ggplot(mean_plot_dt, aes(x = Method, y = AUC)) +
   # geom_point(shape = 21, fill = "red") +
   geom_pointrange(aes(ymin = AUC - sdAUC, ymax = AUC + sdAUC),
                   shape = 21, fill = "red") +
-  ylab("Average AUC (FDR, TPR)") +
+  ylab("Average AUROC (FPR, TPR)") +
   facet_grid(cols = vars(SetSize),
              rows = vars(MZP), 
              scales = "free_y") +
@@ -1441,7 +1865,7 @@ ggplot(mean_plot_dt, aes(x = Method, y = AUC)) +
   theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5))
 ```
 
-### AUC ROCR table
+#### AUC ROCR table
 
 ```{r}
 show_dt <- copy(mean_plot_dt)
@@ -1478,8 +1902,7 @@ ggplot(plot_dt[MZP == "bulk"],
        aes(x = PPV, y = TPR, color = Method)) +
     geom_abline(slope = 1, linetype = "dashed") +
     geom_line() + 
-    facet_grid(rows = vars(SetSize),
-               cols = vars(MZP)) +
+    facet_grid(rows = vars(SetSize)) +
     # scale_x_continuous(breaks = x.breaks, 
     #                    labels = c("", tail(x.breaks, -1))) +
     guides(color = guide_legend(ncol = 1)) +
@@ -1489,25 +1912,7 @@ ggplot(plot_dt[MZP == "bulk"],
     theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5))
 ```
 
-### Adjusted P-values ROCR sice
-
-```{r, fig.height=7.5, fig.width=5}
-if(params$sice){
-    ggplot(plot_dt[MZP == "sice"], 
-           aes(x = PPV, y = TPR, color = Method)) +
-        geom_abline(slope = 1, linetype = "dashed") +
-        geom_line() + 
-        facet_grid(rows = vars(SetSize),
-                   cols = vars(MZP)) +
-        guides(color = guide_legend(ncol = 1)) +
-        coord_fixed() +
-        labs(y = "Average TPR", x = "Average FPR") +
-        theme_bw() +
-        theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5))
-}
-```
-
-### AUC ROCR boxplot
+#### AUC ROCR boxplot
 
 ```{r}
 ## AUC values
@@ -1543,19 +1948,27 @@ ROC AUC values have been saved into <a href="`r auROCcs_file`">`r auROCcs_file`<
 
 ```{r, fig.width=10}
 plot_dt <- auROCcs
-mean_plot_dt <- mean_auROCcs
-ggplot(plot_dt, aes(x = Method, y = AUC)) +
-    geom_boxplot() +
-    geom_point(data = mean_plot_dt, 
-             shape = 21, fill = "red") +
-    facet_grid(cols = vars(SetSize),
-               rows = vars(MZP), 
-               scales = "free_y") +
+# mean_plot_dt <- mean_auROCcs
+# ggplot(plot_dt, aes(x = Method, y = AUC)) +
+#     geom_boxplot() +
+#     geom_point(data = mean_plot_dt, 
+#              shape = 21, fill = "red") +
+#     facet_grid(cols = vars(SetSize),
+#                rows = vars(MZP), 
+#                scales = "free_y") +
+#     theme_bw() +
+#     theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5))
+
+ggplot(plot_dt, aes(x = Method, y = AUC, color = Method)) +
+    geom_boxplot(outlier.shape = NA) +
+    geom_jitter(width = .1, size = .6) +
+    facet_grid(cols = vars(SetSize)) +
+    scale_color_discrete(guide = "none") +
     theme_bw() +
     theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5))
 ```
 
-### AUC ROCR pointrange
+#### AUC ROCR pointrange
 
 ```{r, fig.width=10}
 ggplot(mean_plot_dt, aes(x = Method, y = AUC)) +
@@ -1571,7 +1984,7 @@ ggplot(mean_plot_dt, aes(x = Method, y = AUC)) +
   theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5))
 ```
 
-### AUC ROCR table
+#### AUC ROCR table
 
 ```{r}
 show_dt <- copy(mean_plot_dt)
@@ -1643,91 +2056,6 @@ ggplot(plot_dt, aes(x = F0.5, y = mTime, color = Method, shape = baseMethod)) +
   scale_shape_manual(values = 1:length(unique(plot_dt$baseMethod))) +
   theme_bw() +
   theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5))
-```
-
-# Mock data set
-
-```{r}
-sbL <- sbL_all[grepl("_mock", names(sbL_all))]
-```
-
-## Performance {.tabset}
-
-```{r}
-## FPR = 1 - TNR
-sbAssayL <- 
-  rbindlist(lapply(sbL, 
-                   function(x){
-                     data.table(as.data.frame(colData(x)), 
-                                keep.rownames = "Method")
-                     }), 
-            idcol = "Dataset")
-
-sbAssayL[, c("SetSize", "MZP", "DsType", "DsId") := tstrsplit(Dataset, "_")]
-
-setnafill(x = sbAssayL, 
-          type = "const", 
-          fill = 0, 
-          nan = NA, 
-          cols = grep("TNR", colnames(sbAssayL), value = T))
-```
-
-```{r}
-value_cols <- 
-  c(grep("rejections", colnames(sbAssayL), value = T),
-    # grep("TPR", colnames(sbAssayL), value = T),
-    # grep("FDR", colnames(sbAssayL), value = T),
-    grep("TNR", colnames(sbAssayL), value = T))
-
-mSbAssayL <- 
-  sbAssayL[, lapply(.SD, mean, na.rm = T), 
-           .SDcols = value_cols,
-           by = .(SetSize, MZP, DsType, Method)]
-```
-
-```{r}
-show_dt <- copy(mSbAssayL)
-show_dt$SetSize <- factor(show_dt$SetSize)
-show_dt$MZP <- factor(show_dt$MZP)
-show_dt$DsType <- factor(show_dt$DsType)
-show_dt$Method <- factor(show_dt$Method)
-
-datatable(show_dt, 
-          caption = paste("Alphas:", paste(alpha_targets, collapse = "/")),
-          rownames = F, 
-          filter = "top") %>%
-  formatRound(value_cols, 3)
-```
-
-```{r}
-plot_dt <- melt(mSbAssayL, id.vars = c("SetSize", "MZP", "DsType", "Method"))
-```
-
-### FPR
-
-```{r}
-pval_tnr_pattern <- "^TNR.[0-9]$"
-padj_tnr_pattern <- "^TNR.[0-9].[0-9]$"
-tnr_pattern <- pval_tnr_pattern #padj_tnr_pattern
-Alpha_plot_label <- "P-value \U2264"
-if(tnr_pattern == padj_tnr_pattern){
-  Alpha_plot_label <- "P-adj \U2264"
-}
-```
-
-```{r, fig.width=10}
-## Avg FPR = 1 - TNR
-ggplot(plot_dt[grepl(tnr_pattern, variable)], 
-       aes(x = Method, y = 1 - value)) +
-  geom_line(aes(group = variable, color = variable)) +
-  geom_point(aes(shape = variable, color = variable)) +
-  ylab("Average FPR") +
-  scale_color_discrete(Alpha_plot_label, labels = alpha_targets) +
-  scale_shape_discrete(Alpha_plot_label, labels = alpha_targets) +
-  facet_grid(cols = vars(SetSize), rows = vars(MZP), scales = "free_y") +
-  theme_bw() +
-  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5),
-        legend.position = "top")
 ```
 
 # Session info
