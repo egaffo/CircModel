@@ -8,36 +8,35 @@ output:
     toc_float: yes
     code_folding: hide
 params:
-  outdir: "MS_updated_benchmark_results"
-  inputData: "./MS_benchmark_results/sumBenchs.qs"
+  outdir: "DM1_updated_benchmark_results"
+  inputData: "./DM1_benchmark_results/sumBenchs.qs"
 editor_options: 
   chunk_output_type: console
 ---
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
-library(SummarizedBenchmark)
-library("magrittr")
-# library(plotROC)
+# library(SummarizedBenchmark)
+# library("magrittr")
 library(data.table)
 library(qs)
 library(DT)
 
-library("limma")
-library("edgeR")
-library("DESeq2")
-library("tximport")
-library(glmGamPoi)
-library(zinbwave)
-library(scran)
-
 library(BiocParallel)
 library(batchtools)
+
+# library("limma")
+# library("edgeR")
+# library("DESeq2")
+# library("tximport")
+# library(glmGamPoi)
+# library(zinbwave)
+# library(scran)
 
 # install.packages("devtools", Ncpus = multicoreWorkers())
 # library(devtools)
 # install_github("lichen-lab/circMeta", Ncpus = multicoreWorkers())
-library(circMeta)
+# library(circMeta)
 # library(lncDIFF)
 # library(ShrinkBayes)
 # library(samr)
@@ -51,8 +50,8 @@ dir.create(path = outdir, recursive = T, showWarnings = F)
 ```
 
 ```{r}
-# nWorkers <- multicoreWorkers()
-nWorkers <- 12
+nWorkers <- multicoreWorkers()
+# nWorkers <- 12
 
 prev_output <- file.path(outdir, "updated_sumBenchs.qs")
 sumBench_perf_metrics_qs <- prev_output
@@ -79,16 +78,16 @@ sbL <- sbL[grep("bulk", names(sbL))]
 ```{r}
 ## set scheduler for cluster computing
 # ncpus <- 1
-# bpparam <- BatchtoolsParam(workers = length(sbL), 
+# bpparam <- BatchtoolsParam(workers = length(sbL),
 #                            saveregistry = F,
 #                            cluster = "slurm",
-#                            resources = list(ncpus = ncpus, 
+#                            resources = list(ncpus = ncpus,
 #                                             walltime = 3600, # 1h max
 #                                             memory = 2048) # 4Gb, 2048 2GByte, 8192 8Gb
 # )
 
 ## Multithread, single machine
-bpparam <- MulticoreParam(8)
+bpparam <- MulticoreParam(4)
 ```
 
 # Update bench design
@@ -849,7 +848,8 @@ sbL <-
                                                          adj_pv = func_list$apv,
                                                          lfc = func_list$lfc,
                                                          runtime = func_list$time),
-                                             meta = list(pkg_name = "edgeR", pkg_vers = as.character(packageVersion("edgeR"))),
+                                             meta = list(pkg_name = "edgeR", 
+                                                         pkg_vers = as.character(packageVersion("edgeR"))),
                                              params = rlang::quos(countData = cntdat,
                                                                   group = coldat$condition,
                                                                   design = ~coldat$condition))
@@ -897,14 +897,13 @@ The benchmark results have been save into <a href="`r sumBench_perf_metrics_qs`"
 ## Limma + sctransform::vst
 
 ```{r}
-limmaStVst_run <- function(countData, group, design) {
+limmaStVst_run <- function(countData, group) {
 
     tictoc::tic()
 
     sampleTab <- data.frame(condition = setNames(group, colnames(countData)))
     des <- model.matrix(~ condition, data = sampleTab)
-
-    # library(sctransform)
+    
     set.seed(12345)
     vst_out <- sctransform::vst(countData,
                                 cell_attr = sampleTab,
@@ -920,44 +919,109 @@ limmaStVst_run <- function(countData, group, design) {
 
     fit <- limma::eBayes(limma::lmFit(vst_out$y, des))
     
-    hist(fit$p.value, 50)
-    hist(fit$F.p.value, 50)
+    res <- limma::topTable(fit, 
+                           number = nrow(countData))[rownames(countData), ]
     
-    res <- topTable(fit, 
-                     number = nrow(countData))[rownames(countData), ]
-
     runtime <- tictoc::toc(log = F, quiet = T)
 
     list(res = res,
          runtime = runtime$toc - runtime$tic)
 }
 
-# limmaStVst_pv <- function(x) { 
-#     res <- x$res$p.value[, 2] # res <- x$F.p.value	?
-#     res[is.na(res)] <- 1
-#     res
-# }
-# 
-# limmaStVst_apv <- function(x) {
-#     # res <- p.adjust(p = x$p.value[, 2], method = "BH")
-#     res <- limma::topTable(x$res, number = Inf, sort.by = "none")$adj.P.Val
-#     res[is.na(res)] <- 1
-#     res
-# }
-# 
-# limmaStVst_lfc <- function(x) {
-#     # x$coefficients[, 2]
-#     limma::topTable(x$res, number = Inf, sort.by = "none")$logFC
-# }
-# 
-# limmaStVst_time <- function(x) { rep(as.numeric(x$runtime), nrow(x$res)) }
+limmaStVst_pv <- function(x) {
+    res <- x$res$P.Value
+    res[is.na(res)] <- 1
+    res
+}
+
+limmaStVst_apv <- function(x) {
+    # res <- p.adjust(p = x$p.value[, 2], method = "BH")
+    res <- x$res$adj.P.Val
+    res[is.na(res)] <- 1
+    res
+}
+
+limmaStVst_lfc <- function(x) {
+    x$res$logFC
+}
+
+limmaStVst_time <- function(x) { rep(as.numeric(x$runtime), nrow(x$res)) }
 ```
+
+### Update the Build bench list
+
+```{r}
+func_list <- list(run = limmaStVst_run,
+                  pv = limmaStVst_pv,
+                  apv = limmaStVst_apv,
+                  lfc = limmaStVst_lfc,
+                  time = limmaStVst_time)
+
+sbL <-
+    bplapply(sbL, function(sb, func_list) {
+        bd <- SummarizedBenchmark::BenchDesign(sb)
+        
+        bd <- SummarizedBenchmark::addMethod(bd = bd,
+                                             label = "limma_St_Vst",
+                                             func = func_list$run,
+                                             post = list(pv = func_list$pv,
+                                                         adj_pv = func_list$apv,
+                                                         lfc = func_list$lfc,
+                                                         runtime = func_list$time),
+                                             meta = list(pkg_name = "LimmaVst",
+                                                         pkg_vers = paste(as.character(packageVersion("limma")),
+                                                                          as.character(packageVersion("sctransform")),
+                                                                          sep = "/")),
+                                             params = rlang::quos(countData = cntdat,
+                                                                  group = coldat$condition))
+        
+        SummarizedBenchmark::updateBench(sb = sb, bd = bd, dryrun = F)
+    },
+    func_list = func_list,
+    BPPARAM = bpparam)
+# sbL
+```
+
+```{r}
+# error handling
+show_dt <-
+  dcast(melt(rbindlist(lapply(sbL,
+                              function(x)data.table(as.data.frame(simplify2array(metadata(x)$sessions[[1]]$results)),
+                                                    keep.rownames = "Assay")),
+                       idcol = "DS"),
+             id.vars = c("DS", "Assay"),
+             variable.name = "Method"),
+        formula = DS + Method ~ Assay)
+
+show_dt$DS <- factor(show_dt$DS)
+show_dt$Method <- factor(show_dt$Method)
+
+datatable(show_dt[adj_pv != "success" |
+                    lfc != "success" |
+                    pv != "success" |
+                    runtime != "success"],
+          caption = "Methods that failed",
+          filter = "top", rownames = F)
+```
+
+```{r}
+# save the updated summarizedBenchmark
+sumBench_perf_metrics_qs <- file.path(outdir, "updated_sumBenchs.qs")
+qsave(x = sbL,
+      file = sumBench_perf_metrics_qs,
+      nthreads = multicoreWorkers(),
+      preset = "fast")
+```
+
+The benchmark results have been save into <a href="`r sumBench_perf_metrics_qs`">`r sumBench_perf_metrics_qs`</a>.  
 
 ## ROTS
 
 ```{r}
 # https://github.com/csoneson/conquer_comparison/blob/master/scripts/apply_ROTScpm.R
 ROTScpm_run <- function(countData, group) {
+    
+    tictoc::tic()
     
     grp <- as.character(group)
     dge <- edgeR::DGEList(counts = countData)
@@ -970,34 +1034,37 @@ ROTScpm_run <- function(countData, group) {
                        log = FALSE,
                        seed = 123)
     
-    list(session_info = session_info,
-         timing = timing,
-         res = rots,
-         df = data.frame(pval = rots$pvalue,
-                         row.names = rownames(rots$data)))
+    runtime <- tictoc::toc(log = F, quiet = T)
+    
+    list(res = rots, 
+         runtime = runtime$toc - runtime$tic)
 }
 
+ROTScpm_pv <- function(x) {
+    res <- x$res$pvalue
+    res[is.na(res)] <- 1
+    res
+}
+
+ROTScpm_apv <- function(x) {
+    # res <- p.adjust(p = x$res$pvalue, method = "BH")
+    res <- x$res$FDR
+    res[is.na(res)] <- 1
+    res
+}
+
+ROTScpm_lfc <- function(x) {
+    x$res$logfc
+}
+
+ROTScpm_time <- function(x) { rep(as.numeric(x$runtime), nrow(x$res$data)) }
+
 # run_ROTSvoom <- function(L) {
-#   message("ROTS, voom")
-#   session_info <- sessionInfo()
-#   timing <- system.time({
-#     stopifnot(all(names(L$condt) == colnames(L$count)))
 #     grp <- L$condt
 #     dge <- DGEList(counts = L$count)
 #     dge <- edgeR::calcNormFactors(dge)
 #     vm <- voom(dge, design = model.matrix(~ grp))
 #     rots <- ROTS(data = vm$E, groups = grp, B = 1000, K = 1000, log = TRUE, seed = 123)
-#   })
-#   
-#   hist(rots$pvalue, 50)
-#   hist(rots$FDR, 50)
-#   hist(rots$logfc, 50)
-#   print(rots$R)
-#   print(rots$Z)
-#   print(rots$k)
-#   print(rots$a1)
-#   print(rots$a2)
-#   
 #   list(session_info = session_info,
 #        timing = timing,
 #        res = rots,
@@ -1040,101 +1107,927 @@ ROTScpm_run <- function(countData, group) {
 # }
 ```
 
+### Update the Build bench list
+
+```{r}
+func_list <- list(run = ROTScpm_run,
+                  pv = ROTScpm_pv,
+                  apv = ROTScpm_apv,
+                  lfc = ROTScpm_lfc,
+                  time = ROTScpm_time)
+
+sbL <-
+    bplapply(sbL, function(sb, func_list) {
+        bd <- SummarizedBenchmark::BenchDesign(sb)
+        
+        bd <- SummarizedBenchmark::addMethod(bd = bd,
+                                             label = "ROTScpm_Dt_TLT", ## t-like test statistics
+                                             func = func_list$run,
+                                             post = list(pv = func_list$pv,
+                                                         adj_pv = func_list$apv,
+                                                         lfc = func_list$lfc,
+                                                         runtime = func_list$time),
+                                             meta = list(pkg_name = "ROTScpm",
+                                                         pkg_vers = paste(as.character(packageVersion("ROTS")),
+                                                                          as.character(packageVersion("edgeR")),
+                                                                          sep = "/")),
+                                             params = rlang::quos(countData = cntdat,
+                                                                  group = coldat$condition))
+        
+        SummarizedBenchmark::updateBench(sb = sb, bd = bd, dryrun = F)
+    },
+    func_list = func_list,
+    BPPARAM = bpparam)
+# sbL
+```
+
+```{r}
+# error handling
+show_dt <-
+  dcast(melt(rbindlist(lapply(sbL,
+                              function(x)data.table(as.data.frame(simplify2array(metadata(x)$sessions[[1]]$results)),
+                                                    keep.rownames = "Assay")),
+                       idcol = "DS"),
+             id.vars = c("DS", "Assay"),
+             variable.name = "Method"),
+        formula = DS + Method ~ Assay)
+
+show_dt$DS <- factor(show_dt$DS)
+show_dt$Method <- factor(show_dt$Method)
+
+datatable(show_dt[adj_pv != "success" |
+                    lfc != "success" |
+                    pv != "success" |
+                    runtime != "success"],
+          caption = "Methods that failed",
+          filter = "top", rownames = F)
+```
+
+```{r}
+# save the updated summarizedBenchmark
+sumBench_perf_metrics_qs <- file.path(outdir, "updated_sumBenchs.qs")
+qsave(x = sbL,
+      file = sumBench_perf_metrics_qs,
+      nthreads = multicoreWorkers(),
+      preset = "fast")
+```
+
+The benchmark results have been save into <a href="`r sumBench_perf_metrics_qs`">`r sumBench_perf_metrics_qs`</a>.  
 
 ## DESingle
 
 ```{r}
-# https://github.com/csoneson/conquer_comparison/blob/master/scripts/apply_DEsingle.R
-run_DEsingle <- function(countData, group) {
+DEsingle_run <- function(countData, group) {
+    
+    tictoc::tic()
     
     results <- DEsingle::DEsingle(counts = countData, group = group)
     results <- data.frame(results, stringsAsFactors = FALSE)
     
-    list(session_info = session_info,
-         timing = timing,
-         res = results,
-         df = data.frame(pval = results$pvalue,
-                         padj = results$pvalue.adj.FDR,
-                         row.names = rownames(results)))
-
+    runtime <- tictoc::toc(log = F, quiet = T)
+    
+    list(res = results, 
+         runtime = runtime$toc - runtime$tic)
+    
 }
 
-# #TODO
-# _apv <- function(x) {}
-# 
-# _lfc <- function(x) {}
-# 
-# _time <- function(x) {}
+DEsingle_pv <- function(x) {
+    res <- x$res$pvalue
+    res[is.na(res)] <- 1
+    res
+}
 
+DEsingle_apv <- function(x) {
+    # res <- p.adjust(p = x$res$pvalue, method = "BH")
+    res <- x$res$pvalue.adj.FDR
+    res[is.na(res)] <- 1
+    res
+}
 
+DEsingle_lfc <- function(x) {
+    log2(x$res$foldChange)
+}
+
+DEsingle_time <- function(x) { rep(as.numeric(x$runtime), nrow(x$res)) }
 ```
+
+### Update the Build bench list
+
+```{r}
+func_list <- list(run = DEsingle_run,
+                  pv = DEsingle_pv,
+                  apv = DEsingle_apv,
+                  lfc = DEsingle_lfc,
+                  time = DEsingle_time)
+
+sbL <-
+    bplapply(sbL,
+             function(sb,
+                      func_list) {
+                 bd <- SummarizedBenchmark::BenchDesign(sb)
+
+                 bd <- SummarizedBenchmark::addMethod(bd = bd,
+                                                      label = "DEsingle_Dt_LRT",
+                                                      func = func_list$run,
+                                                      post = list(pv = func_list$pv,
+                                                                  adj_pv = func_list$apv,
+                                                                  lfc = func_list$lfc,
+                                                                  runtime = func_list$time),
+                                                      meta = list(pkg_name = "DEsingle",
+                                                                  pkg_vers = as.character(packageVersion("DEsingle"))),
+                                                      params = rlang::quos(countData = cntdat,
+                                                                           group = coldat$condition))
+
+                 SummarizedBenchmark::updateBench(sb = sb, bd = bd, dryrun = F)
+             },
+             func_list = func_list,
+             BPPARAM = bpparam)
+# sbL
+```
+
+```{r}
+# error handling
+show_dt <-
+  dcast(melt(rbindlist(lapply(sbL,
+                              function(x)data.table(as.data.frame(simplify2array(metadata(x)$sessions[[1]]$results)),
+                                                    keep.rownames = "Assay")),
+                       idcol = "DS"),
+             id.vars = c("DS", "Assay"),
+             variable.name = "Method"),
+        formula = DS + Method ~ Assay)
+
+show_dt$DS <- factor(show_dt$DS)
+show_dt$Method <- factor(show_dt$Method)
+
+datatable(show_dt[adj_pv != "success" |
+                    lfc != "success" |
+                    pv != "success" |
+                    runtime != "success"],
+          caption = "Methods that failed",
+          filter = "top", rownames = F)
+```
+
+```{r}
+# save the updated summarizedBenchmark
+sumBench_perf_metrics_qs <- file.path(outdir, "updated_sumBenchs.qs")
+qsave(x = sbL,
+      file = sumBench_perf_metrics_qs,
+      nthreads = multicoreWorkers(),
+      preset = "fast")
+```
+
+The benchmark results have been save into <a href="`r sumBench_perf_metrics_qs`">`r sumBench_perf_metrics_qs`</a>.  
+
+## metagenomeSeq
+
+```{r}
+# https://github.com/csoneson/conquer_comparison/blob/master/scripts/apply_metagenomeSeq.R
+metagenomeSeq_run <- function(countData, group) {
+    
+    tictoc::tic()
+    
+    sampleTable <- data.frame(condition = group, 
+                              row.names = colnames(countData))
+    
+    obj <- metagenomeSeq::newMRexperiment(countData, 
+                                          phenoData = new("AnnotatedDataFrame", 
+                                                          data = sampleTable))
+    p <- metagenomeSeq::cumNormStatFast(obj)
+    obj <- metagenomeSeq::cumNorm(obj, p = p)
+    mod <- model.matrix(~ condition, data = sampleTable) # data = Biobase::pData(obj)
+    res <- metagenomeSeq::fitFeatureModel(obj = obj, mod = mod, coef = 2)
+    tbl <- metagenomeSeq::MRtable(obj = res, number = Inf, by = 2, 
+                                  adjustMethod = "BH")[rownames(countData), ]
+    
+    runtime <- tictoc::toc(log = F, quiet = T)
+    
+    list(res = tbl, 
+         runtime = runtime$toc - runtime$tic)
+}
+
+metagenomeSeq_pv <- function(x) {
+    res <- x$res$pvalues
+    res[is.na(res)] <- 1
+    res
+}
+
+metagenomeSeq_apv <- function(x) {
+    res <- x$res$adjPvalues
+    res[is.na(res)] <- 1
+    res
+}
+
+metagenomeSeq_lfc <- function(x) {
+    x$res$logFC
+}
+
+metagenomeSeq_time <- function(x) { rep(as.numeric(x$runtime), length(x$res$pvalues)) }
+```
+
+### Update the Build bench list
+
+```{r}
+func_list <- list(run = metagenomeSeq_run,
+                  pv = metagenomeSeq_pv,
+                  apv = metagenomeSeq_apv,
+                  lfc = metagenomeSeq_lfc,
+                  time = metagenomeSeq_time)
+
+sbL <-
+    bplapply(sbL,
+             function(sb,
+                      func_list) {
+                 bd <- SummarizedBenchmark::BenchDesign(sb)
+                 
+                 bd <- SummarizedBenchmark::addMethod(bd = bd,
+                                                      label = "metagenomeSeq_Dt_EBT",
+                                                      func = func_list$run,
+                                                      post = list(pv = func_list$pv,
+                                                                  adj_pv = func_list$apv,
+                                                                  lfc = func_list$lfc,
+                                                                  runtime = func_list$time),
+                                                      meta = list(pkg_name = "metagenomeSeq",
+                                                                  pkg_vers = as.character(packageVersion("metagenomeSeq"))),
+                                                      params = rlang::quos(countData = cntdat,
+                                                                           group = coldat$condition))
+                 
+                 SummarizedBenchmark::updateBench(sb = sb, bd = bd, dryrun = F)
+             },
+             func_list = func_list,
+             BPPARAM = bpparam)
+```
+
+```{r}
+# error handling
+show_dt <-
+  dcast(melt(rbindlist(lapply(sbL,
+                              function(x)data.table(as.data.frame(simplify2array(metadata(x)$sessions[[1]]$results)),
+                                                    keep.rownames = "Assay")),
+                       idcol = "DS"),
+             id.vars = c("DS", "Assay"),
+             variable.name = "Method"),
+        formula = DS + Method ~ Assay)
+
+show_dt$DS <- factor(show_dt$DS)
+show_dt$Method <- factor(show_dt$Method)
+
+datatable(show_dt[adj_pv != "success" |
+                    lfc != "success" |
+                    pv != "success" |
+                    runtime != "success"],
+          caption = "Methods that failed",
+          filter = "top", rownames = F)
+```
+
+```{r}
+# save the updated summarizedBenchmark
+sumBench_perf_metrics_qs <- file.path(outdir, "updated_sumBenchs.qs")
+qsave(x = sbL,
+      file = sumBench_perf_metrics_qs,
+      nthreads = multicoreWorkers(),
+      preset = "fast")
+```
+
+The benchmark results have been save into <a href="`r sumBench_perf_metrics_qs`">`r sumBench_perf_metrics_qs`</a>.  
 
 ## Seurat Bimod
 
 ```{r}
-## Seurat (Tobit)
+## Seurat (Bimod)
 # https://github.com/csoneson/conquer_comparison/blob/master/scripts/apply_SeuratTobit.R
-run_SeuratBimod <- function(countData, group) {
+seuratBimod_run <- function(countData, group) {
+    
+    tictoc::tic()
     
     colnames(countData) <- paste0(group, "__", 1:ncol(countData))
-    # seur <- new("seurat", raw.data = countData)
-    # seur <- Seurat::Setup(seur, 
-    #                       project = "scrnaseq", 
-    #                       do.logNormalize = FALSE,
-    #                       names.field = 1, 
-    #                       names.delim = "__")
+    ##CreateSeuratObject::CreateSeuratObject()
     seur <- Seurat::CreateSeuratObject(counts = countData, 
                                        project = "scrnaseq", 
                                        assay = "RNA", 
                                        names.field = 1, 
                                        names.delim = "__")
     res <- Seurat::FindMarkers(seur, 
+                               min.pct = 0,
+                               verbose = F, 
                                ident.1 = levels(factor(group))[1],
                                ident.2 = levels(factor(group))[2], 
-                               test.use = "bimod")
+                               test.use = "bimod") #"wilcox" "MAST"
     
-    # res <- Seurat::FindMarkers(seur, 
-    #                            ident.1 = levels(factor(group))[1],
-    #                            ident.2 = levels(factor(group))[2], 
-    #                            test.use = "wilcox")
+    ## FindMarkers may return less features than the input
+    ## the following fixes the missing features
+    missed_genes <- rownames(countData)[which(!sub("_", "-", rownames(countData)) %in% rownames(res))]
     
-    # res <- Seurat::FindMarkers(seur,
-    #                            ident.1 = levels(factor(group))[1],
-    #                            ident.2 = levels(factor(group))[2],
-    #                            test.use = "MAST")
+    nadf <- data.frame("p_val" = rep(NA, length(missed_genes)), 
+                       "avg_log2FC" = rep(NA, length(missed_genes)), 
+                       "pct.1" = rep(NA, length(missed_genes)),  
+                       "pct.2" = rep(NA, length(missed_genes)), 
+                       "p_val_adj" = rep(NA, length(missed_genes)), 
+                       row.names = sub("_", "-", missed_genes))
     
-    list(session_info = session_info,
-         timing = timing,
-         res = res,
-         df = data.frame(pval = res$p_val,
-                         padj = p.adjust(res$p_val, method = "BH"),
-                         row.names = rownames(res)))
+    ## attach missed rows and order according to initial names
+    res <- rbind(res, nadf)[sub("_", "-", rownames(countData)), ]
+    rownames(res) <- rownames(countData)
+    
+    runtime <- tictoc::toc(log = F, quiet = T)
+    
+    list(res = res, 
+         runtime = runtime$toc - runtime$tic)
 }
+
+seuratBimod_pv <- function(x) {
+    res <- x$res$p_val
+    res[is.na(res)] <- 1
+    res
+}
+
+seuratBimod_apv <- function(x) {
+    res <- x$res$p_val_adj
+    res[is.na(res)] <- 1
+    res
+}
+
+seuratBimod_lfc <- function(x) {
+    x$res$avg_log2FC
+}
+
+seuratBimod_time <- function(x) { rep(as.numeric(x$runtime), length(x$res$p_val)) }
 ```
+
+### Update the Build bench list
+
+```{r}
+func_list <- list(run = seuratBimod_run,
+                  pv = seuratBimod_pv,
+                  apv = seuratBimod_apv,
+                  lfc = seuratBimod_lfc,
+                  time = seuratBimod_time)
+
+sbL <-
+    bplapply(sbL,
+             function(sb,
+                      func_list) {
+                 bd <- SummarizedBenchmark::BenchDesign(sb)
+                 
+                 bd <- SummarizedBenchmark::addMethod(bd = bd,
+                                                      label = "seurat_Bim_LRT",
+                                                      func = func_list$run,
+                                                      post = list(pv = func_list$pv,
+                                                                  adj_pv = func_list$apv,
+                                                                  lfc = func_list$lfc,
+                                                                  runtime = func_list$time),
+                                                      meta = list(pkg_name = "Seurat",
+                                                                  pkg_vers = as.character(packageVersion("Seurat"))),
+                                                      params = rlang::quos(countData = cntdat,
+                                                                           group = coldat$condition))
+                 
+                 SummarizedBenchmark::updateBench(sb = sb, bd = bd, dryrun = F)
+             },
+             func_list = func_list,
+             BPPARAM = bpparam)
+```
+
+```{r}
+# error handling
+show_dt <-
+  dcast(melt(rbindlist(lapply(sbL,
+                              function(x)data.table(as.data.frame(simplify2array(metadata(x)$sessions[[1]]$results)),
+                                                    keep.rownames = "Assay")),
+                       idcol = "DS"),
+             id.vars = c("DS", "Assay"),
+             variable.name = "Method"),
+        formula = DS + Method ~ Assay)
+
+show_dt$DS <- factor(show_dt$DS)
+show_dt$Method <- factor(show_dt$Method)
+
+datatable(show_dt[adj_pv != "success" |
+                    lfc != "success" |
+                    pv != "success" |
+                    runtime != "success"],
+          caption = "Methods that failed",
+          filter = "top", rownames = F)
+```
+
+```{r}
+# save the updated summarizedBenchmark
+sumBench_perf_metrics_qs <- file.path(outdir, "updated_sumBenchs.qs")
+qsave(x = sbL,
+      file = sumBench_perf_metrics_qs,
+      nthreads = multicoreWorkers(),
+      preset = "fast")
+```
+
+The benchmark results have been save into <a href="`r sumBench_perf_metrics_qs`">`r sumBench_perf_metrics_qs`</a>.  
+
+## Seurat Wilcoxon
+
+```{r}
+## Seurat (Bimod)
+# https://github.com/csoneson/conquer_comparison/blob/master/scripts/apply_SeuratTobit.R
+seuratWilcox_run <- function(countData, group) {
+    
+    tictoc::tic()
+    
+    colnames(countData) <- paste0(group, "__", 1:ncol(countData))
+    ##CreateSeuratObject::CreateSeuratObject()
+    seur <- Seurat::CreateSeuratObject(counts = countData, 
+                                       project = "scrnaseq", 
+                                       assay = "RNA", 
+                                       names.field = 1, 
+                                       names.delim = "__")
+    res <- Seurat::FindMarkers(seur, 
+                               min.pct = 0,
+                               verbose = F, 
+                               ident.1 = levels(factor(group))[1],
+                               ident.2 = levels(factor(group))[2], 
+                               test.use = "wilcox")
+    
+    ## FindMarkers may return less features than the input
+    ## the following fixes the missing features
+    missed_genes <- rownames(countData)[which(!sub("_", "-", rownames(countData)) %in% rownames(res))]
+    
+    nadf <- data.frame("p_val" = rep(NA, length(missed_genes)), 
+                       "avg_log2FC" = rep(NA, length(missed_genes)), 
+                       "pct.1" = rep(NA, length(missed_genes)),  
+                       "pct.2" = rep(NA, length(missed_genes)), 
+                       "p_val_adj" = rep(NA, length(missed_genes)), 
+                       row.names = sub("_", "-", missed_genes))
+    
+    ## attach missed rows and order according to initial names
+    res <- rbind(res, nadf)[sub("_", "-", rownames(countData)), ]
+    rownames(res) <- rownames(countData)
+    
+    runtime <- tictoc::toc(log = F, quiet = T)
+    
+    list(res = res, 
+         runtime = runtime$toc - runtime$tic)
+}
+
+seuratWilcox_pv <- function(x) {
+    res <- x$res$p_val
+    res[is.na(res)] <- 1
+    res
+}
+
+seuratWilcox_apv <- function(x) {
+    res <- x$res$p_val_adj
+    res[is.na(res)] <- 1
+    res
+}
+
+seuratWilcox_lfc <- function(x) {
+    x$res$avg_log2FC
+}
+
+seuratWilcox_time <- function(x) { rep(as.numeric(x$runtime), length(x$res$p_val)) }
+```
+
+### Update the Build bench list
+
+```{r}
+func_list <- list(run = seuratWilcox_run,
+                  pv = seuratWilcox_pv,
+                  apv = seuratWilcox_apv,
+                  lfc = seuratWilcox_lfc,
+                  time = seuratWilcox_time)
+
+sbL <-
+    bplapply(sbL,
+             function(sb,
+                      func_list) {
+                 bd <- SummarizedBenchmark::BenchDesign(sb)
+                 
+                 bd <- SummarizedBenchmark::addMethod(bd = bd,
+                                                      label = "seurat_Dt_WLX",
+                                                      func = func_list$run,
+                                                      post = list(pv = func_list$pv,
+                                                                  adj_pv = func_list$apv,
+                                                                  lfc = func_list$lfc,
+                                                                  runtime = func_list$time),
+                                                      meta = list(pkg_name = "Seurat",
+                                                                  pkg_vers = as.character(packageVersion("Seurat"))),
+                                                      params = rlang::quos(countData = cntdat,
+                                                                           group = coldat$condition))
+                 
+                 SummarizedBenchmark::updateBench(sb = sb, bd = bd, dryrun = F)
+             },
+             func_list = func_list,
+             BPPARAM = bpparam)
+```
+
+```{r}
+# error handling
+show_dt <-
+  dcast(melt(rbindlist(lapply(sbL,
+                              function(x)data.table(as.data.frame(simplify2array(metadata(x)$sessions[[1]]$results)),
+                                                    keep.rownames = "Assay")),
+                       idcol = "DS"),
+             id.vars = c("DS", "Assay"),
+             variable.name = "Method"),
+        formula = DS + Method ~ Assay)
+
+show_dt$DS <- factor(show_dt$DS)
+show_dt$Method <- factor(show_dt$Method)
+
+datatable(show_dt[adj_pv != "success" |
+                    lfc != "success" |
+                    pv != "success" |
+                    runtime != "success"],
+          caption = "Methods that failed",
+          filter = "top", rownames = F)
+```
+
+```{r}
+# save the updated summarizedBenchmark
+sumBench_perf_metrics_qs <- file.path(outdir, "updated_sumBenchs.qs")
+qsave(x = sbL,
+      file = sumBench_perf_metrics_qs,
+      nthreads = multicoreWorkers(),
+      preset = "fast")
+```
+
+The benchmark results have been save into <a href="`r sumBench_perf_metrics_qs`">`r sumBench_perf_metrics_qs`</a>.  
 
 ## MAST
 
 ```{r}
 # MAST (on CPM counts)
 # https://github.com/csoneson/conquer_comparison/blob/master/scripts/apply_MASTcpm.R
-run_MASTcpm <- function(countData, group) {
+MASTcpm_run <- function(countData, group) {
   
+    tictoc::tic()
+    
     grp <- group
     dge <- edgeR::DGEList(counts = countData)
     dge <- edgeR::calcNormFactors(dge, method = "TMM")
-    cpms <- edgeR::cpm(dge)
-    sca <- MAST::FromMatrix(exprsArray = log2(cpms + 1),
-                            cData = data.frame(wellKey = colnames(cpms),
+    # cpms <- edgeR::cpm(dge)
+    lgcpms <- edgeR::cpm(dge, log = T)
+    sca <- MAST::FromMatrix(exprsArray = lgcpms, #log2(cpms + 1),
+                            cData = data.frame(wellKey = colnames(lgcpms),
                                                grp = grp))
     # zlmdata <- MAST::zlm.SingleCellAssay(~grp, sca)
     zlmdata <- MAST::zlm(~ grp, sca)
     mast <- MAST::lrTest(zlmdata, "grp")
     
+    lfc <- MAST::getLogFC(zlmdata)
+    
+    runtime <- tictoc::toc(log = F, quiet = T)
+    
+    list(res = list(mast = mast, lfc = lfc), 
+         runtime = runtime$toc - runtime$tic)
+}
+
+MASTcpm_pv <- function(x) {
+    res <- x$res$mast[, "hurdle", "Pr(>Chisq)"]
+    res[is.na(res)] <- 1
+    res
+}
+
+MASTcpm_apv <- function(x) {
+    res <- p.adjust(x$res$mast[, "hurdle", "Pr(>Chisq)"], method = "BH")
+    res[is.na(res)] <- 1
+    res
+}
+
+MASTcpm_lfc <- function(x) {
+    x$res$lfc$logFC
+}
+
+MASTcpm_time <- function(x) { rep(as.numeric(x$runtime), dim(x$res$mast)[1]) }
+```
+
+### Update the Build bench list
+
+```{r}
+func_list <- list(run = MASTcpm_run,
+                  pv = MASTcpm_pv,
+                  apv = MASTcpm_apv,
+                  lfc = MASTcpm_lfc,
+                  time = MASTcpm_time)
+
+sbL <-
+    bplapply(sbL,
+             function(sb,
+                      func_list) {
+                 bd <- SummarizedBenchmark::BenchDesign(sb)
+                 
+                 bd <- SummarizedBenchmark::addMethod(bd = bd,
+                                                      label = "MAST_CPM_LRT",
+                                                      func = func_list$run,
+                                                      post = list(pv = func_list$pv,
+                                                                  adj_pv = func_list$apv,
+                                                                  lfc = func_list$lfc,
+                                                                  runtime = func_list$time),
+                                                      meta = list(pkg_name = "MAST",
+                                                                  pkg_vers = as.character(packageVersion("MAST"))),
+                                                      params = rlang::quos(countData = cntdat,
+                                                                           group = coldat$condition))
+                 
+                 SummarizedBenchmark::updateBench(sb = sb, bd = bd, dryrun = F)
+             },
+             func_list = func_list,
+             BPPARAM = bpparam)
+```
+
+```{r}
+# error handling
+show_dt <-
+  dcast(melt(rbindlist(lapply(sbL,
+                              function(x)data.table(as.data.frame(simplify2array(metadata(x)$sessions[[1]]$results)),
+                                                    keep.rownames = "Assay")),
+                       idcol = "DS"),
+             id.vars = c("DS", "Assay"),
+             variable.name = "Method"),
+        formula = DS + Method ~ Assay)
+
+show_dt$DS <- factor(show_dt$DS)
+show_dt$Method <- factor(show_dt$Method)
+
+datatable(show_dt[adj_pv != "success" |
+                    lfc != "success" |
+                    pv != "success" |
+                    runtime != "success"],
+          caption = "Methods that failed",
+          filter = "top", rownames = F)
+```
+
+```{r}
+# save the updated summarizedBenchmark
+sumBench_perf_metrics_qs <- file.path(outdir, "updated_sumBenchs.qs")
+qsave(x = sbL,
+      file = sumBench_perf_metrics_qs,
+      nthreads = multicoreWorkers(),
+      preset = "fast")
+```
+
+The benchmark results have been save into <a href="`r sumBench_perf_metrics_qs`">`r sumBench_perf_metrics_qs`</a>.  
+
+## Monocle
+
+```{r}
+# https://github.com/csoneson/conquer_comparison/blob/master/scripts/apply_monocle.R
+# https://github.com/csoneson/conquer_comparison/blob/master/scripts/apply_monoclecount.R
+monocle_run <- function(countData, group) {
+    
+    tictoc::tic()
+    
+    dge <- edgeR::DGEList(counts = countData)
+    dge <- edgeR::calcNormFactors(dge, method = "TMM")
+    lgcpms <- edgeR::cpm(dge, log = T)
+    
+    # # cpms <- edgeR::cpm(countData)
+    # mon <- monocle::newCellDataSet(cpms,#as.matrix(L$tpm), 
+    #                                phenoData = new("AnnotatedDataFrame", 
+    #                                                data = data.frame(condition = group, 
+    #                                                                  row.names = colnames(countData))),
+    #                                expressionFamily = VGAM::tobit())
+    mon <- monocle::newCellDataSet(as.matrix(countData), 
+                          phenoData = new("AnnotatedDataFrame", 
+                                          data = data.frame(condition = group, 
+                                                            row.names = colnames(countData))),
+                          lowerDetectionLimit = 0.5,
+                          expressionFamily = VGAM::negbinomial())
+    mon <- BiocGenerics::estimateSizeFactors(mon)
+    mon <- BiocGenerics::estimateDispersions(mon)
+    monres <- monocle::differentialGeneTest(mon, fullModelFormulaStr = " ~ condition")
+    
+    lfc <- rowMeans(lgcpms[, group[group == levels(group)[1]]]) - 
+        rowMeans(lgcpms[, group[group == levels(group)[2]]])
+    
+    runtime <- tictoc::toc(log = F, quiet = T)
+    
+    list(res = monres, 
+         lfc = lfc,
+         runtime = runtime$toc - runtime$tic)
+}
+
+monocle_pv <- function(x) {
+    res <- x$res$pval
+    res[is.na(res)] <- 1
+    res
+}
+
+monocle_apv <- function(x) {
+    res <- x$res$qval
+    res[is.na(res)] <- 1
+    res
+}
+
+monocle_lfc <- function(x) {
+    x$lfc
+}
+
+monocle_time <- function(x) { rep(as.numeric(x$runtime), length(x$res$pval)) }
+```
+
+### Update the Build bench list
+
+```{r}
+func_list <- list(run = monocle_run,
+                  pv = monocle_pv,
+                  apv = monocle_apv,
+                  lfc = monocle_lfc,
+                  time = monocle_time)
+
+sbL <-
+    bplapply(sbL,
+             function(sb,
+                      func_list) {
+                 bd <- SummarizedBenchmark::BenchDesign(sb)
+                 
+                 bd <- SummarizedBenchmark::addMethod(bd = bd,
+                                                      label = "monocle_Dt_LRT",
+                                                      func = func_list$run,
+                                                      post = list(pv = func_list$pv,
+                                                                  adj_pv = func_list$apv,
+                                                                  lfc = func_list$lfc,
+                                                                  runtime = func_list$time),
+                                                      meta = list(pkg_name = "monocle",
+                                                                  pkg_vers = as.character(packageVersion("monocle"))),
+                                                      params = rlang::quos(countData = cntdat,
+                                                                           group = coldat$condition))
+                 
+                 SummarizedBenchmark::updateBench(sb = sb, bd = bd, dryrun = F)
+             },
+             func_list = func_list,
+             BPPARAM = bpparam)
+```
+
+```{r}
+# error handling
+show_dt <-
+  dcast(melt(rbindlist(lapply(sbL,
+                              function(x)data.table(as.data.frame(simplify2array(metadata(x)$sessions[[1]]$results)),
+                                                    keep.rownames = "Assay")),
+                       idcol = "DS"),
+             id.vars = c("DS", "Assay"),
+             variable.name = "Method"),
+        formula = DS + Method ~ Assay)
+
+show_dt$DS <- factor(show_dt$DS)
+show_dt$Method <- factor(show_dt$Method)
+
+datatable(show_dt[adj_pv != "success" |
+                    lfc != "success" |
+                    pv != "success" |
+                    runtime != "success"],
+          caption = "Methods that failed",
+          filter = "top", rownames = F)
+```
+
+```{r}
+# save the updated summarizedBenchmark
+sumBench_perf_metrics_qs <- file.path(outdir, "updated_sumBenchs.qs")
+qsave(x = sbL,
+      file = sumBench_perf_metrics_qs,
+      nthreads = multicoreWorkers(),
+      preset = "fast")
+```
+
+The benchmark results have been save into <a href="`r sumBench_perf_metrics_qs`">`r sumBench_perf_metrics_qs`</a>.  
+
+
+## BPSC
+
+```{r}
+# https://github.com/csoneson/conquer_comparison/blob/master/scripts/apply_BPSC.R
+
+BPSC_run <- function(countData, group) {
+  
+    tictoc::tic()
+    
+    cpms <- edgeR::cpm(countData, 
+                       lib.size = colSums(countData) * edgeR::calcNormFactors(countData))
+    controlIds <- which(group == levels(factor(group))[1])
+    design <- model.matrix(~ group)
+    coef <- 2
+    resbp <- BPSC::BPglm(data = cpms, 
+                         controlIds = controlIds,
+                         design = design, 
+                         coef = coef, 
+                         estIntPar = FALSE)
+    
+    
+    runtime <- tictoc::toc(log = F, quiet = T)
+    
+    list(res = resbp, 
+         runtime = runtime$toc - runtime$tic)
+}
+
+BPSC_pv <- function(x) {
+    res <- x$res$PVAL
+    res[is.na(res)] <- 1
+    res
+}
+
+BPSC_apv <- function(x) {
+    res <- p.adjust(x$res$PVAL, method = "BH")
+    res[is.na(res)] <- 1
+    res
+}
+
+BPSC_lfc <- function(x) {
+    ##TODO
+    # x$res$avg_log2FC
+    x
+}
+
+BPSC_time <- function(x) { rep(as.numeric(x$runtime), length(x$res$PVAL)) }
+```
+
+### Update the Build bench list
+
+NOT RUN 
+
+```{r}
+# func_list <- list(run = BPSC_run,
+#                   pv = BPSC_pv,
+#                   apv = BPSC_apv,
+#                   lfc = BPSC_lfc,
+#                   time = BPSC_time)
+
+# sbL <-
+#     bplapply(sbL,
+#              function(sb,
+#                       func_list) {
+#                  bd <- SummarizedBenchmark::BenchDesign(sb)
+#                  
+#                  bd <- SummarizedBenchmark::addMethod(bd = bd,
+#                                                       label = "BPSC_Dt_LRT",
+#                                                       func = func_list$run,
+#                                                       post = list(pv = func_list$pv,
+#                                                                   adj_pv = func_list$apv,
+#                                                                   lfc = func_list$lfc,
+#                                                                   runtime = func_list$time),
+#                                                       meta = list(pkg_name = "BPSC",
+#                                                                   pkg_vers = as.character(packageVersion("BPSC"))),
+#                                                       params = rlang::quos(countData = cntdat,
+#                                                                            group = coldat$condition))
+#                  
+#                  SummarizedBenchmark::updateBench(sb = sb, bd = bd, dryrun = F)
+#              },
+#              func_list = func_list,
+#              BPPARAM = bpparam)
+```
+
+```{r}
+# # error handling
+# show_dt <-
+#   dcast(melt(rbindlist(lapply(sbL,
+#                               function(x)data.table(as.data.frame(simplify2array(metadata(x)$sessions[[1]]$results)),
+#                                                     keep.rownames = "Assay")),
+#                        idcol = "DS"),
+#              id.vars = c("DS", "Assay"),
+#              variable.name = "Method"),
+#         formula = DS + Method ~ Assay)
+# 
+# show_dt$DS <- factor(show_dt$DS)
+# show_dt$Method <- factor(show_dt$Method)
+# 
+# datatable(show_dt[adj_pv != "success" |
+#                     lfc != "success" |
+#                     pv != "success" |
+#                     runtime != "success"],
+#           caption = "Methods that failed",
+#           filter = "top", rownames = F)
+```
+
+```{r}
+# save the updated summarizedBenchmark
+# sumBench_perf_metrics_qs <- file.path(outdir, "updated_sumBenchs.qs")
+# qsave(x = sbL,
+#       file = sumBench_perf_metrics_qs,
+#       nthreads = multicoreWorkers(),
+#       preset = "fast")
+
+
+# The benchmark results have been save into <a href="`r sumBench_perf_metrics_qs`">`r sumBench_perf_metrics_qs`</a>. 
+```
+
+## Wilcoxon
+
+```{r}
+# https://github.com/csoneson/conquer_comparison/blob/master/scripts/apply_Wilcoxon.R
+# suppressPackageStartupMessages(library(edgeR))
+# 
+wilcoxon_run <- function(countData, group) {
+    
+    tictoc::tic()
+    
+    dge <- edgeR::calcNormFactors(countData, method = "TMM")
+    cpms <- edgeR::cpm(dge)
+    idx <- 1:nrow(cpms)
+    names(idx) <- rownames(cpms)
+    wilcox_p <- sapply(idx, function(i) {
+        wilcox.test(countData[i, ] ~ group)$p.value
+    })
+    
+    hist(wilcox_p, 50)
+
     list(session_info = session_info,
          timing = timing,
-         res = mast,
-         df = data.frame(pval = mast[, "hurdle", "Pr(>Chisq)"],
-                         row.names = names(mast[, "hurdle", "Pr(>Chisq)"])))
+         df = data.frame(pval = wilcox_p,
+                         row.names = names(wilcox_p)))
 }
 ```
 
@@ -1147,6 +2040,8 @@ run_MASTcpm <- function(countData, group) {
 # 
 run_SCDE <- function(countData, group) {
     
+    tictoc::tic()
+    
     intcount <- apply(countData, 2, 
                       function(x) {
                           storage.mode(x) <- 'integer'
@@ -1156,6 +2051,7 @@ run_SCDE <- function(countData, group) {
     
     o.ifm <- scde::scde.error.models(counts = intcount, 
                                      groups = group, 
+                                     linear.fit = T,
                                      min.count.threshold = 1,
                                      n.cores = 1,
                                      threshold.segmentation = TRUE,
@@ -1195,119 +2091,11 @@ run_SCDE <- function(countData, group) {
 }
 ```
 
-## Wilcoxon
-
-```{r}
-# https://github.com/csoneson/conquer_comparison/blob/master/scripts/apply_Wilcoxon.R
-# suppressPackageStartupMessages(library(edgeR))
-# 
-run_Wilcoxon <- function(countData, group) {
-    
-    dge <- edgeR::calcNormFactors(countData, method = "TMM")
-    cpms <- edgeR::cpm(dge)
-    idx <- 1:nrow(cpms)
-    names(idx) <- rownames(cpms)
-    wilcox_p <- sapply(idx, function(i) {
-      wilcox.test(countData[i, ] ~ group)$p.value
-    })
-  
-  hist(wilcox_p, 50)
-
-  list(session_info = session_info,
-       timing = timing,
-       df = data.frame(pval = wilcox_p,
-                       row.names = names(wilcox_p)))
-}
-```
-
-## BPSC
-
-```{r}
-# https://github.com/csoneson/conquer_comparison/blob/master/scripts/apply_BPSC.R
-
-run_BPSC <- function(countData, group) {
-  
-    cpms <- edgeR::cpm(countData, 
-                       lib.size = colSums(countData) * edgeR::calcNormFactors(countData))
-    controlIds <- which(group == levels(factor(group))[1])
-    design <- model.matrix(~ group)
-    coef <- 2
-    resbp <- BPSC::BPglm(data = cpms, 
-                         controlIds = controlIds,
-                         design = design, 
-                         coef = coef, 
-                         estIntPar = FALSE)
-
-  list(session_info = session_info,
-       timing = timing,
-       res = resbp,
-       df = data.frame(pval = resbp$PVAL,
-                       row.names = rownames(L$count)))
-}
-```
-
-## metagenomeSeq
-
-```{r}
-# https://github.com/csoneson/conquer_comparison/blob/master/scripts/apply_metagenomeSeq.R
-run_metagenomeSeq <- function(countData, group) {
-    
-    obj <- metagenomeSeq::newMRexperiment(countData, 
-                                          phenoData = new("AnnotatedDataFrame", 
-                                                          data = data.frame(condition = group, 
-                                                                            row.names = colnames(countData))))
-    p <- metagenomeSeq::cumNormStatFast(obj)
-    obj <- metagenomeSeq::cumNorm(obj, p = p)
-    mod <- model.matrix(~ condition, data = pData(obj))
-    res <- metagenomeSeq::fitFeatureModel(obj = obj, mod = mod, coef = 2)
-    tbl <- metagenomeSeq::MRtable(obj = res, number = Inf, by = 2, adjustMethod = "BH")
-    
-    list(session_info = session_info,
-         timing = timing,
-         res = res,
-         df = data.frame(pval = tbl$pvalues,
-                         padj = tbl$adjPvalues,
-                         row.names = rownames(tbl)))
-}
-```
-
-## Monocle
-
-```{r}
-# https://github.com/csoneson/conquer_comparison/blob/master/scripts/apply_monocle.R
-# suppressPackageStartupMessages(library(monocle))
-# suppressPackageStartupMessages(library(edgeR))
-
-run_monocle <- function(countData, group) {
-    
-    dge <- edgeR::DGEList(counts = countData)
-    dge <- edgeR::calcNormFactors(dge, method = "TMM")
-    cpms <- edgeR::cpm(dge)
-    # cpms <- edgeR::cpm(countData)
-    mon <- monocle::newCellDataSet(cpms,#as.matrix(L$tpm), 
-                                   phenoData = new("AnnotatedDataFrame", 
-                                                   data = data.frame(condition = group, 
-                                                                     row.names = colnames(countData))),
-                                   expressionFamily = VGAM::tobit())
-    monres <- monocle::differentialGeneTest(mon, fullModelFormulaStr = " ~ condition")
-    
-    
-    list(session_info = session_info,
-         timing = timing,
-         res = monres,
-         df = data.frame(pval = monres$pval, 
-                         padj = monres$qval,
-                         row.names = rownames(monres)))
-}
-```
-
-
 ## baySeq
 
 ```{r}
-
 # baySeq <- function(countData, group, design) {
-#     
+#     tictoc::tic()
 #     baySeq.cd <- new('countData',
 #                      data = countData,
 #                      replicates = group,
