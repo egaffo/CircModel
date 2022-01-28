@@ -154,7 +154,7 @@ sbL <-
   bplapply(sbL, 
            add_performance_metrics,
            # BPPARAM = bpparam)
-           BPPARAM = BiocParallel::MulticoreParam(min(24, nWorkers)))
+           BPPARAM = BiocParallel::MulticoreParam(min(8, nWorkers)))
 ```
 
 ## Estimate performance
@@ -163,17 +163,26 @@ sbL <-
 alpha_targets <- c("0.01" = 0.01, "0.05" = 0.05, "0.1" = 0.1) 
 add_weights <- c(FALSE, TRUE)
 
-sbL <- bplapply(sbL, function(x, alphas, add_weights) {
-  SummarizedBenchmark::estimatePerformanceMetrics(x, 
-                                                  rerun = T,
-                                                  alpha = alphas, 
-                                                  add_weight_time = add_weights,
-                                                  addColData = T)},
-  alphas = alpha_targets,
-  add_weights = add_weights,
-  # BPPARAM = BiocParallel::SerialParam())
-  BPPARAM = BiocParallel::MulticoreParam(2))
-  # BPPARAM = bpparam)
+# sbL <- bplapply(sbL, function(x, alphas, add_weights) {
+#     SummarizedBenchmark::estimatePerformanceMetrics(x, 
+#                                                     rerun = T,
+#                                                     alpha = alphas, 
+#                                                     add_weight_time = add_weights,
+#                                                     addColData = T)},
+#     alphas = alpha_targets,
+#     add_weights = add_weights,
+#     # BPPARAM = BiocParallel::SerialParam())
+#     BPPARAM = BiocParallel::MulticoreParam(2))
+# # BPPARAM = bpparam)
+
+sbL <- lapply(sbL, function(x, alphas, add_weights) {
+    SummarizedBenchmark::estimatePerformanceMetrics(x, 
+                                                    rerun = T,
+                                                    alpha = alphas, 
+                                                    add_weight_time = add_weights,
+                                                    addColData = T)},
+    alphas = alpha_targets,
+    add_weights = add_weights)
 
 # View(rbindlist(lapply(sbL,
 #                       function(x)data.table(as.data.frame(colData(x)),
