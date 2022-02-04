@@ -1,0 +1,12 @@
+.Rproj.user
+.Rhistory
+*.RData
+.RData
+*.RDS
+*.bk
+*.png
+*.svg
+*/Figure/*
+*/*.RData
+.Ruserdata
+*.Rmd
