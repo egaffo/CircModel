@@ -154,7 +154,7 @@ sbL <-
   bplapply(sbL, 
            add_performance_metrics,
            # BPPARAM = bpparam)
-           BPPARAM = BiocParallel::MulticoreParam(min(8, nWorkers)))
+           BPPARAM = BiocParallel::MulticoreParam(min(4, nWorkers)))
 ```
 
 ## Estimate performance
