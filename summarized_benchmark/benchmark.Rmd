@@ -8,8 +8,8 @@ output:
     toc_float: yes
     code_folding: hide
 params:
-  outdir: "DM1_benchmark_results"
-  inputData: "./DM1_prep_ds/datasetList.qs"
+  outdir: "MS_benchmark_results"
+  inputData: "./MS_prep_ds/datasetList.qs"
 editor_options: 
   chunk_output_type: console
 ---
@@ -109,23 +109,33 @@ compute_weights <- function(countdata, coldat, ...) {
 #                91:93, 121:123, 151:153) # { sice 3, 5, 10 } x 3
 # subsetIdx <- c(1:2, 31:32, 61:62, 91:92, 121:122, 151:152)
 # subsetIdx <- 1:2
-subsetIdx <- 1:length(datasetList) # all
+# subsetIdx <- 1:length(datasetList) # all
+subsetIdx <- which(grepl(pattern = "_bulk_", names(datasetList))) ## do not consider "sice" simulations
 datasetList <- datasetList[subsetIdx]
+
+# countData <- datasetList$N03_bulk_de_01$cntdat
+# group <- datasetList$N03_bulk_de_01$coldat$condition
 ```
 
 ```{r}
 ## set scheduler for cluster computing
 zwcpus <- 8
+
+walltime <- 14400 # 4h max time
+minmem <- 2048 # 4096 = 4Gb, 2048 = 2GByte, 8192 = 8Gb #Minimum memory required per allocated CPU.
 bpparam <- BatchtoolsParam(workers = length(datasetList), 
                            saveregistry = F,
                            cluster = "slurm",
                            resources = list(ncpus = zwcpus, 
-                                            walltime = 7200, # 2h max
-                                            memory = 8192) # 4Gb, 2048 2GByte, 8192 8Gb
+                                            walltime = walltime,
+                                            memory = minmem) 
 )
 
 ## Multithread, single machine
 # bpparam <- MulticoreParam(nWorkers)
+
+## set max runtime allowed (set a lower value than the scheduler)
+# bptimeout(bpparam) <- walltime - 10
 ```
 
 ## Compute weigths
@@ -133,26 +143,32 @@ bpparam <- BatchtoolsParam(workers = length(datasetList),
 ```{r prepare_datasets}
 ## prepare dataset and input parameters
 datasetList <- 
-  bplapply(datasetList, 
-           function(x, compute_weights, zwcpus) {
-             
-             ## keep track of runtime spent computing weights with ZinbWave; 
-             ## it will be sum up to the running time of methods using weights
-             tictoc::tic(msg = "Weights")
-             weights <- compute_weights(countdata = x$cntdat,
-                                        coldat = x$coldat[[1]],
-                                        BPPARAM = BiocParallel::MulticoreParam(workers = zwcpus))
-             # weights = NULL, ## only for quick testing. Uncomment above for real weights
-             time_weights <- tictoc::toc(log = F, quiet = T)
-             
-             x$weights <- weights
-             x$time_weights <- setNames(rep(time_weights$toc - time_weights$tic, nrow(x$cntdat)), NULL)
-             x
-             
-           }, 
-           compute_weights = compute_weights,
-           zwcpus = zwcpus,
-           BPPARAM = bpparam)
+    bplapply(datasetList, 
+             function(x, compute_weights, zwcpus, walltime = 1800) {
+                 
+                 inner_bpparam <- BiocParallel::MulticoreParam(workers = zwcpus)
+                 
+                 # BiocParallel::bptimeout(inner_bpparam) <- 
+                 #     walltime ## do not use. There is no timeout error handling
+                 
+                 ## keep track of runtime spent computing weights with ZinbWave; 
+                 ## it will be sum up to the running time of methods using weights
+                 tictoc::tic(msg = "Computing weights")
+                 weights <- compute_weights(countdata = x$cntdat,
+                                            coldat = x$coldat[[1]],
+                                            BPPARAM = inner_bpparam)
+                 # weights = NULL, ## only for quick testing. Uncomment above for real weights
+                 time_weights <- tictoc::toc(log = F, quiet = T)
+                 
+                 x$weights <- weights
+                 x$time_weights <- setNames(rep(time_weights$toc - time_weights$tic, nrow(x$cntdat)), NULL)
+                 x
+                 
+             }, 
+             # walltime = walltime, ## do not limit time in computing ZinbWave weights
+             compute_weights = compute_weights,
+             zwcpus = zwcpus,
+             BPPARAM = bpparam)
 ```
 
 ```{r save_datasets}
@@ -179,23 +195,26 @@ bd <- BenchDesign()
 
 ## 1. DESeq2 defaults
 deseq2_run <- function(countData, colData, design, contrast) {
-
+  
+  # message("Start DESeq2 default")
   tictoc::tic()
   
   dds <- DESeq2::DESeqDataSetFromMatrix(countData, colData = colData, design = design)
   dds <- DESeq2::DESeq(dds)
   res <- DESeq2::results(dds, 
-                 contrast = contrast, 
-                 test = "Wald", 
-                 independentFiltering = F)
+                         contrast = contrast, 
+                         test = "Wald", 
+                         independentFiltering = F)
   # or to shrink log fold changes association with condition:
   # lfcShrink(dds, coef="condition_trt_vs_untrt", type="apeglm")
   
   runtime <- tictoc::toc(log = F, quiet = T)
   
+  # message("End DESeq2 default")
+  
   list(res = res, 
        runtime = runtime$toc - runtime$tic)
-
+  
 }
 
 ## 2. use LRT 
@@ -205,8 +224,8 @@ deseq2lrt_run <- function(countData, colData, design, contrast) {
   
   dds <- DESeq2::DESeqDataSetFromMatrix(countData, colData = colData, design = design)
   dds <- DESeq2::DESeq(dds, 
-               test = "LRT",
-               reduced = ~ 1)
+                       test = "LRT",
+                       reduced = ~ 1)
   
   res <- DESeq2::results(dds, independentFiltering = F)
   
@@ -223,7 +242,7 @@ deseq2bp_run <- function(countData, colData, design, contrast) {
   
   dds <- DESeq2::DESeqDataSetFromMatrix(countData, colData = colData, design = design)
   dds <- DESeq2::DESeq(dds, 
-               betaPrior = T)
+                       betaPrior = T)
   res <- DESeq2::results(dds, 
                          contrast = contrast, 
                          test = "Wald", 
@@ -407,13 +426,13 @@ deseq2zw_run <- function(countData, colData, design, contrast, weights) {
 ## post functions
 deseq2_pv <- function(x) { 
   res <- x$res$pvalue 
-  res[is.na(res)] <- 1
+  # res[is.na(res)] <- 1
   res
 }
 
 deseq2_apv <- function(x) { 
   res <- x$res$padj
-  res[is.na(res)] <- 1
+  # res[is.na(res)] <- 1
   res
 }
 
@@ -548,7 +567,7 @@ edgeRql_run <- function(countData, group, design, weights) {
   tictoc::tic()
   
   y <- edgeR::DGEList(countData, group = group)
-  y <- edgeR::calcNormFactors(y) # method = "TMMwsp" for zero counts?
+  y <- edgeR::calcNormFactors(y) 
   # des <- model.matrix(design)
   des <- model.matrix(~group, data = y$samples)
   y <- edgeR::estimateDisp(y = y, design = des, robust = TRUE)
@@ -561,23 +580,63 @@ edgeRql_run <- function(countData, group, design, weights) {
        runtime = runtime$toc - runtime$tic)
 }
 
+#### edgeR TMMwsp robust
+edgeRrbstTMMswp_run <- function(countData, group, design) {
+  
+  tictoc::tic()
+  
+  y <- edgeR::DGEList(countData, group = group)
+  y <- edgeR::calcNormFactors(y, method = "TMMwsp") ## "TMMwsp" for zero counts
+  des <- model.matrix(~group, data = y$samples)
+  y <- edgeR::estimateGLMRobustDisp(y, des) 
+  fit <- edgeR::glmQLFit(y = y, 
+                         dispersion = y$tagwise.dispersion, 
+                         robust = TRUE, 
+                         design = des)
+  res <- edgeR::glmLRT(fit, coef = 2)
+  
+  runtime <- tictoc::toc(log = F, quiet = T)
+  
+  list(res = res, 
+       runtime = runtime$toc - runtime$tic)
+}
+
 ## post functions
 edgeR_pv <- function(x) { 
   res <- x$res$table$PValue 
-  res[is.na(res)] <- 1
+  # res[is.na(res)] <- 1
   res
 }
 
 edgeR_apv <- function(x) {
   res <- p.adjust(p = x$res$table$PValue, method = "BH")
   # res <- topTags(x, number = Inf, sort.by = "none")$table$FDR
-  res[is.na(res)] <- 1
+  # res[is.na(res)] <- 1
   res
 }
 
 edgeR_lfc <- function(x) { x$res$table$logFC }
 
 edgeR_time <- function(x) { rep(as.numeric(x$runtime), nrow(x$res)) }
+
+
+# ## post functions
+# edgeR_pv <- function(x) { 
+#   res <- x$res$table$PValue 
+#   res[is.na(res)] <- 1
+#   res
+# }
+# 
+# edgeR_apv <- function(x) {
+#   res <- p.adjust(p = x$res$table$PValue, method = "BH")
+#   # res <- topTags(x, number = Inf, sort.by = "none")$table$FDR
+#   res[is.na(res)] <- 1
+#   res
+# }
+# 
+# edgeR_lfc <- function(x) { x$res$table$logFC }
+# 
+# edgeR_time <- function(x) { rep(as.numeric(x$runtime), nrow(x$res)) }
 ```
 
 ### limma-voom family
@@ -714,14 +773,14 @@ voomZw_run <- function(countData, group, design, weights) {
 ## post functions
 voom_pv <- function(x) { 
   res <- x$res$p.value[, 2] # res <- x$F.p.value	?
-  res[is.na(res)] <- 1
+  # res[is.na(res)] <- 1
   res
 }
 
 voom_apv <- function(x) {
   # res <- p.adjust(p = x$p.value[, 2], method = "BH")
   res <- limma::topTable(x$res, number = Inf, sort.by = "none")$adj.P.Val
-  res[is.na(res)] <- 1
+  # res[is.na(res)] <- 1
   res
 }
 
@@ -812,13 +871,13 @@ cMetaLc_run <- function(countData, group, sf = TRUE) {
 ## post functions
 cMeta_pv <- function(x) { 
   res <- x$res$p.value
-  res[is.na(res)] <- 1
+  # res[is.na(res)] <- 1
   res
 }
 
 cMeta_apv <- function(x) {
   res <- p.adjust(x$res$p.value, method = "BH")
-  res[is.na(res)] <- 1
+  # res[is.na(res)] <- 1
   res
 }
 
@@ -827,293 +886,1254 @@ cMeta_lfc <- function(x) { x$res$logFC }
 cMeta_time <- function(x) { rep(as.numeric(x$runtime), nrow(x$res)) }
 ```
 
+### lncDIFF
+
+```{r}
+lncdiff_run <- function(countData, group) {
+  
+  tictoc::tic()
+
+  dgeList <- edgeR::DGEList(counts = countData)
+  # calculate normalization factors
+  dgeList <- edgeR::calcNormFactors(object = dgeList, method = "TMM")
+  ## normalize counts
+  norm_data <- edgeR::cpm(dgeList, 
+                          normalized.lib.sizes = TRUE, 
+                          log = F)
+  
+  res <- lncDIFF::lncDIFF(edata = norm_data, 
+                          group = as.character(group), 
+                          covariate = NULL, 
+                          link.function = 'log', 
+                          CompareGroups = unique(as.character(group)),
+                          simulated.pvalue = FALSE, 
+                          permutation = 100)
+  
+  runtime <- tictoc::toc(log = F, quiet = T)
+  
+  list(res = res, 
+       runtime = runtime$toc - runtime$tic)
+  
+}
+
+lncdiff_pv <- function(x) {
+    res <- x$res$DE.results$Pvalue
+    # res[is.na(res)] <- 1
+    res
+}
+
+lncdiff_apv <- function(x) {
+  res <- p.adjust(x$res$DE.results$Pvalue, method = "BH")
+  # res[is.na(res)] <- 1
+  res
+}
+
+lncdiff_lfc <- function(x) {
+  x$res$DE.results$Log2.Fold.Change
+}
+
+lncdiff_time <- function(x) { rep(as.numeric(x$runtime), length(x$res$DE.results$Pvalue)) }
+```
+
+### SAMseq
+
+```{r}
+samseq_run <- function(countData, group) {
+  
+  library(samr)
+  
+  tictoc::tic()
+  
+  condition.12 <- rep(1, length(group))
+  condition.12[which(group == levels(factor(group))[2])] <- 2
+  
+  SAMseq.test <- samr::SAMseq(countData, 
+                              condition.12, 
+                              resp.type = 'Two class unpaired', 
+                              geneid = rownames(countData), 
+                              genenames = rownames(countData), 
+                              nperms = 100, 
+                              nresamp = 20,
+                              fdr.output = 1)
+  pv <- samr.pvalues.from.perms(tt = SAMseq.test$samr.obj$tt, 
+                                ttstar = SAMseq.test$samr.obj$ttstar)
+  
+  SAMseq.result <- rbind(SAMseq.test$siggenes.table$genes.up,
+                         SAMseq.test$siggenes.table$genes.lo)
+  
+  SAMseq.statistic <- rep(0, nrow(countData))
+  
+  SAMseq.statistic[match(SAMseq.result[, 1], 
+                         rownames(countData))] <- as.numeric(SAMseq.result[, 3])
+  
+  SAMseq.FDR <- rep(1, nrow(countData))
+  
+  SAMseq.FDR[match(SAMseq.result[, 1], 
+                   rownames(countData))] <- as.numeric(SAMseq.result[, 5]) / 100
+  
+  SAMseq.FC <- rep(NA, nrow(countData))
+  
+  SAMseq.FC[match(SAMseq.result[, 1], 
+                   rownames(countData))] <- as.numeric(SAMseq.result[, 4])
+  
+  SAMseq.score <- 1 - SAMseq.FDR
+  
+  res <- data.frame('statistic' = SAMseq.statistic, 
+                    'Pvalue' = pv,
+                    'FDR' = SAMseq.FDR, 
+                    'FC' = SAMseq.FC,
+                    'score' = SAMseq.score)
+  
+  runtime <- tictoc::toc(log = F, quiet = T)
+  
+  list(res = res, 
+       runtime = runtime$toc - runtime$tic)
+}
+
+samseq_pv <- function(x) {
+  res <- x$res$Pvalue
+  # res[is.na(res)] <- 1
+  res
+}
+
+
+samseq_apv <- function(x) {
+  # p.adjust(x$res$Pvalue, "BH")
+  res <- x$res$FDR
+  # res[is.na(res)] <- 1
+  res
+}
+
+samseq_lfc <- function(x) {
+  log2(x$res$FC)
+}
+
+samseq_time <- function(x) { rep(as.numeric(x$runtime), nrow(x$res)) }
+```
+
+### NBID
+
+```{r}
+nbid_run <- function(countData, group) {
+    
+    tictoc::tic()
+    
+    res <- NBID::DEUsingNBID(countData, group, ncore = 1)
+    
+    runtime <- tictoc::toc(log = F, quiet = T)
+    
+    list(res = res, 
+         runtime = runtime$toc - runtime$tic)
+}
+
+## use NBID with scran size factors
+nbid_sc_run <- function(countData, group) {
+    
+    tictoc::tic()
+    
+    # sf <- scran::calculateSumFactors(countData, clusters = group)
+    sf <- scuttle::pooledSizeFactors(countData, clusters = group)
+    # sf <- scuttle::pooledSizeFactors(countData) # this reduces to librarySizeFactors(countData)
+    res <- NBID::DEUsingNBID(countData, group, ncore = 1, countPerCell = sf)
+    
+    runtime <- tictoc::toc(log = F, quiet = T)
+    
+    list(res = res, 
+         runtime = runtime$toc - runtime$tic)
+}
+
+nbid_pv <- function(x) {
+    res <- x$res[, "pvalue"]
+    # res[is.na(res)] <- 1
+    res
+}
+
+nbid_apv <- function(x) {
+    res <- p.adjust(x$res[, "pvalue"], method = "BH")
+    # res[is.na(res)] <- 1
+    res
+}
+
+nbid_lfc <- function(x) {
+    x$res[, "log2FC2"]
+}
+
+nbid_time <- function(x) {
+    rep(as.numeric(x$runtime), length(x$res[, "pvalue"]))
+}
+```
+
+### NOISeqBIO
+
+```{r}
+noiseqbio_run <- function(countData, group) {
+    
+    tictoc::tic()
+    
+    res <- NOISeq::noiseqbio(NOISeq::readData(countData, group), 
+                             k = 0.5, 
+                             norm = "tmm", 
+                             factor = "condition",
+                             lc = 0,
+                             adj = 1.5, 
+                             plot = FALSE, 
+                             a0per = 0.9, 
+                             random.seed = 12345,
+                             filter = 0) #disabled filter
+    
+    runtime <- tictoc::toc(log = F, quiet = T)
+    
+    list(res = res, 
+         runtime = runtime$toc - runtime$tic)
+}
+
+noiseqbio_pv <- function(x) {
+    
+    ## NB: NOISeq does not provide P-values, but only "adjusted p-value"-like probabilities
+    res <- 1 - x$res@results[[1]]$prob
+    # res[is.na(res)] <- 1
+    res
+}
+
+noiseqbio_apv <- function(x) {
+    
+    # res@results[[1]]$prob gives the estimated probability of differential 
+    # expression for each feature. Note that when using NOISeq, these probabilities 
+    # are not equivalent to p-values. The higher the probability, the more likely 
+    # that the difference in expression is due to the change in the experimental 
+    # condition and not to chance.
+    # when using NOISeqBIO, the probability of differential expression would be 
+    # equivalent to 1 − FDR, where FDR can be considered as an adjusted p-value. 
+    
+    res <- 1 - x$res@results[[1]]$prob
+    # res[is.na(res)] <- 1
+    res
+}
+
+noiseqbio_lfc <- function(x) {
+    x$res@results[[1]]$log2FC
+}
+
+noiseqbio_time <- function(x) {
+    rep(as.numeric(x$runtime), length(x$res@results[[1]]$log2FC))
+}
+```
+
+### PoissonSeq
+
+```{r}
+poissonSeq_run <- function(countData, group) {
+    
+    # library(PoissonSeq)
+    library(splines)
+    tictoc::tic()
+    
+    dat <- list(n = countData,
+                y = as.numeric(group),
+                pair = FALSE,
+                type = 'twoclass',
+                gname = rownames(countData))
+    
+    ## prevent concurrent parallel access to the pow.txt file
+    pow_filename <- tempfile(pattern = "poissonSeq_pow.txt", tmpdir = tempdir())
+    
+    res <- PoissonSeq::PS.Main(dat = dat, 
+                               para = list(ct.sum = 2,
+                                           ct.mean = 0.1,
+                                           pow.file = pow_filename))
+    
+    res <- res[rownames(countData), ]
+    
+    runtime <- tictoc::toc(log = F, quiet = T)
+    
+    if (file.exists(pow_filename)) {
+        #Delete file if it exists
+        file.remove(pow_filename)
+    }
+    
+    list(res = res, 
+         runtime = runtime$toc - runtime$tic)
+}
+
+poissonSeq_pv <- function(x) {
+    res <- x$res$pval
+    # res[is.na(res)] <- 1
+    res
+}
+
+poissonSeq_apv <- function(x) {
+    res <- x$res$fdr
+    # res[is.na(res)] <- 1
+    res
+}
+
+poissonSeq_lfc <- function(x) {
+    x$res$log.fc
+}
+
+poissonSeq_time <- function(x) { 
+    rep(as.numeric(x$runtime), length(x$res$pval))
+}
+```
+
+### Limma + sctransform::vst
+
+```{r}
+limmaStVst_run <- function(countData, group) {
+
+    tictoc::tic()
+
+    sampleTab <- data.frame(condition = setNames(group, colnames(countData)))
+    des <- model.matrix(~ condition, data = sampleTab)
+    
+    set.seed(12345)
+    vst_out <- sctransform::vst(countData,
+                                cell_attr = sampleTab,
+                                latent_var = c("condition"), #c("log_umi"),
+                                method = "glmGamPoi",
+                                # method = "glmGamPoi_offset",
+                                # method = "offset",
+                                return_gene_attr = TRUE,
+                                return_cell_attr = TRUE,
+                                min_cells = 3,
+                                n_genes = NULL,
+                                verbosity = 1)
+
+    fit <- limma::eBayes(limma::lmFit(vst_out$y, des))
+    
+    res <- limma::topTable(fit, 
+                           number = nrow(countData))[rownames(countData), ]
+    
+    runtime <- tictoc::toc(log = F, quiet = T)
+
+    list(res = res,
+         runtime = runtime$toc - runtime$tic)
+}
+
+limmaStVst_pv <- function(x) {
+    res <- x$res$P.Value
+    # res[is.na(res)] <- 1
+    res
+}
+
+limmaStVst_apv <- function(x) {
+    # res <- p.adjust(p = x$p.value[, 2], method = "BH")
+    res <- x$res$adj.P.Val
+    # res[is.na(res)] <- 1
+    res
+}
+
+limmaStVst_lfc <- function(x) {
+    x$res$logFC
+}
+
+limmaStVst_time <- function(x) { rep(as.numeric(x$runtime), nrow(x$res)) }
+```
+
+### ROTS CPM
+
+```{r}
+# https://github.com/csoneson/conquer_comparison/blob/master/scripts/apply_ROTScpm.R
+ROTScpm_run <- function(countData, group) {
+    
+    tictoc::tic()
+    
+    grp <- as.character(group)
+    dge <- edgeR::DGEList(counts = countData, group = group)
+    dge <- edgeR::calcNormFactors(dge, method = "TMM")
+    cpms <- edgeR::cpm(dge)
+    rots <- ROTS::ROTS(data = cpms,
+                       groups = grp,
+                       B = 1000,
+                       K = 1000,
+                       log = FALSE,
+                       seed = 123)
+    
+    runtime <- tictoc::toc(log = F, quiet = T)
+    
+    list(res = rots, 
+         runtime = runtime$toc - runtime$tic)
+}
+
+ROTScpm_pv <- function(x) {
+    res <- x$res$pvalue
+    # res[is.na(res)] <- 1
+    res
+}
+
+ROTScpm_apv <- function(x) {
+    # res <- p.adjust(p = x$res$pvalue, method = "BH")
+    res <- x$res$FDR
+    # res[is.na(res)] <- 1
+    res
+}
+
+ROTScpm_lfc <- function(x) {
+    x$res$logfc
+}
+
+ROTScpm_time <- function(x) { rep(as.numeric(x$runtime), nrow(x$res$data)) }
+```
+
+### DESingle
+
+```{r}
+DEsingle_run <- function(countData, group) {
+    
+    tictoc::tic()
+    
+    results <- DEsingle::DEsingle(counts = countData, group = group)
+    results <- data.frame(results, stringsAsFactors = FALSE)
+    
+    runtime <- tictoc::toc(log = F, quiet = T)
+    
+    list(res = results, 
+         runtime = runtime$toc - runtime$tic)
+    
+}
+
+DEsingle_pv <- function(x) {
+    res <- x$res$pvalue
+    # res[is.na(res)] <- 1
+    res
+}
+
+DEsingle_apv <- function(x) {
+    # res <- p.adjust(p = x$res$pvalue, method = "BH")
+    res <- x$res$pvalue.adj.FDR
+    # res[is.na(res)] <- 1
+    res
+}
+
+DEsingle_lfc <- function(x) {
+    log2(x$res$foldChange)
+}
+
+DEsingle_time <- function(x) { rep(as.numeric(x$runtime), nrow(x$res)) }
+```
+
+### metagenomeSeq
+
+```{r}
+# https://github.com/csoneson/conquer_comparison/blob/master/scripts/apply_metagenomeSeq.R
+metagenomeSeq_run <- function(countData, group) {
+    
+    tictoc::tic()
+    
+    sampleTable <- data.frame(condition = group, 
+                              row.names = colnames(countData))
+    
+    obj <- metagenomeSeq::newMRexperiment(countData, 
+                                          phenoData = new("AnnotatedDataFrame", 
+                                                          data = sampleTable))
+    p <- metagenomeSeq::cumNormStatFast(obj)
+    obj <- metagenomeSeq::cumNorm(obj, p = p)
+    mod <- model.matrix(~ condition, data = sampleTable) # data = Biobase::pData(obj)
+    res <- metagenomeSeq::fitFeatureModel(obj = obj, mod = mod, coef = 2)
+    tbl <- metagenomeSeq::MRtable(obj = res, number = Inf, by = 2, 
+                                  adjustMethod = "BH")[rownames(countData), ]
+    
+    runtime <- tictoc::toc(log = F, quiet = T)
+    
+    list(res = tbl, 
+         runtime = runtime$toc - runtime$tic)
+}
+
+metagenomeSeq_pv <- function(x) {
+    res <- x$res$pvalues
+    # res[is.na(res)] <- 1
+    res
+}
+
+metagenomeSeq_apv <- function(x) {
+    res <- x$res$adjPvalues
+    # res[is.na(res)] <- 1
+    res
+}
+
+metagenomeSeq_lfc <- function(x) {
+    x$res$logFC
+}
+
+metagenomeSeq_time <- function(x) { rep(as.numeric(x$runtime), length(x$res$pvalues)) }
+```
+
+### Seurat family
+
+```{r}
+## Seurat Bimod
+# https://github.com/csoneson/conquer_comparison/blob/master/scripts/apply_SeuratTobit.R
+seuratBimod_run <- function(countData, group) {
+    
+    tictoc::tic()
+    
+    colnames(countData) <- paste0(group, "__", 1:ncol(countData))
+    ##CreateSeuratObject::CreateSeuratObject()
+    seur <- Seurat::CreateSeuratObject(counts = countData, 
+                                       project = "scrnaseq", 
+                                       assay = "RNA", 
+                                       names.field = 1, 
+                                       names.delim = "__")
+    res <- Seurat::FindMarkers(seur, 
+                               # min.pct = 0,
+                               verbose = F, 
+                               ident.1 = levels(factor(group))[1],
+                               ident.2 = levels(factor(group))[2], 
+                               test.use = "bimod") #"wilcox" "MAST"
+    
+    ## FindMarkers may return less features than the input
+    ## the following fixes the missing features
+    missed_genes <- rownames(countData)[which(!sub("_", "-", rownames(countData)) %in% rownames(res))]
+    
+    nadf <- data.frame("p_val" = rep(NA, length(missed_genes)), 
+                       "avg_log2FC" = rep(NA, length(missed_genes)), 
+                       "pct.1" = rep(NA, length(missed_genes)),  
+                       "pct.2" = rep(NA, length(missed_genes)), 
+                       "p_val_adj" = rep(NA, length(missed_genes)), 
+                       row.names = sub("_", "-", missed_genes))
+    
+    ## attach missed rows and order according to initial names
+    res <- rbind(res, nadf)[sub("_", "-", rownames(countData)), ]
+    rownames(res) <- rownames(countData)
+    
+    runtime <- tictoc::toc(log = F, quiet = T)
+    
+    list(res = res, 
+         runtime = runtime$toc - runtime$tic)
+}
+```
+
+```{r}
+### Seurat Wilcoxon
+# https://github.com/csoneson/conquer_comparison/blob/master/scripts/apply_SeuratTobit.R
+seuratWilcox_run <- function(countData, group) {
+    
+    tictoc::tic()
+    
+    colnames(countData) <- paste0(group, "__", 1:ncol(countData))
+    ##CreateSeuratObject::CreateSeuratObject()
+    seur <- Seurat::CreateSeuratObject(counts = countData, 
+                                       project = "scrnaseq", 
+                                       assay = "RNA", 
+                                       names.field = 1, 
+                                       names.delim = "__")
+    res <- Seurat::FindMarkers(seur, 
+                               # min.pct = 0,
+                               verbose = F, 
+                               ident.1 = levels(factor(group))[1],
+                               ident.2 = levels(factor(group))[2], 
+                               test.use = "wilcox")
+    
+    ## FindMarkers may return less features than the input
+    ## the following fixes the missing features
+    missed_genes <- rownames(countData)[which(!sub("_", "-", rownames(countData)) %in% rownames(res))]
+    
+    nadf <- data.frame("p_val" = rep(NA, length(missed_genes)), 
+                       "avg_log2FC" = rep(NA, length(missed_genes)), 
+                       "pct.1" = rep(NA, length(missed_genes)),  
+                       "pct.2" = rep(NA, length(missed_genes)), 
+                       "p_val_adj" = rep(NA, length(missed_genes)), 
+                       row.names = sub("_", "-", missed_genes))
+    
+    ## attach missed rows and order according to initial names
+    res <- rbind(res, nadf)[sub("_", "-", rownames(countData)), ]
+    rownames(res) <- rownames(countData)
+    
+    runtime <- tictoc::toc(log = F, quiet = T)
+    
+    list(res = res, 
+         runtime = runtime$toc - runtime$tic)
+}
+
+seurat_pv <- function(x) {
+    res <- x$res$p_val
+    # res[is.na(res)] <- 1
+    res
+}
+
+seurat_apv <- function(x) {
+    res <- x$res$p_val_adj
+    # res[is.na(res)] <- 1
+    res
+}
+
+seurat_lfc <- function(x) {
+    x$res$avg_log2FC
+}
+
+seurat_time <- function(x) { rep(as.numeric(x$runtime), length(x$res$p_val)) }
+```
+
+### MAST
+
+```{r}
+# MAST (on CPM counts)
+# https://github.com/csoneson/conquer_comparison/blob/master/scripts/apply_MASTcpm.R
+MASTcpm_run <- function(countData, group) {
+  
+    tictoc::tic()
+    
+    grp <- group
+    dge <- edgeR::DGEList(counts = countData, group = group)
+    dge <- edgeR::calcNormFactors(dge, method = "TMM")
+    lgcpms <- edgeR::cpm(dge, log = T, prior.count = 1)
+    sca <- MAST::FromMatrix(exprsArray = lgcpms, 
+                            cData = data.frame(wellKey = colnames(lgcpms),
+                                               grp = grp))
+    
+    zlmdata <- MAST::zlm(formula = ~ grp, sca = sca)
+    mast <- MAST::lrTest(zlmdata, "grp")
+    
+    lfc <- MAST::getLogFC(zlmdata)
+    
+    runtime <- tictoc::toc(log = F, quiet = T)
+    
+    list(res = list(mast = mast, lfc = lfc), 
+         runtime = runtime$toc - runtime$tic)
+}
+
+MASTcpm_pv <- function(x) {
+    res <- x$res$mast[, "hurdle", "Pr(>Chisq)"]
+    # res[is.na(res)] <- 1
+    res
+}
+
+MASTcpm_apv <- function(x) {
+    res <- p.adjust(x$res$mast[, "hurdle", "Pr(>Chisq)"], method = "BH")
+    # res[is.na(res)] <- 1
+    res
+}
+
+MASTcpm_lfc <- function(x) {
+    x$res$lfc$logFC
+}
+
+MASTcpm_time <- function(x) { rep(as.numeric(x$runtime), dim(x$res$mast)[1]) }
+```
+
+### Monocle
+
+```{r}
+# https://github.com/csoneson/conquer_comparison/blob/master/scripts/apply_monoclecount.R
+monocle_run <- function(countData, group) {
+    
+    ## this is just to compute the LFCs. Do not count this computation time
+    dge <- edgeR::DGEList(counts = countData, group = group)
+    dge <- edgeR::calcNormFactors(dge, method = "TMM")
+    lgcpms <- edgeR::cpm(dge, log = T, prior.count = 1)
+    
+    tictoc::tic()
+    
+    mon <- monocle::newCellDataSet(as.matrix(countData), 
+                                   phenoData = new("AnnotatedDataFrame", 
+                                                   data = data.frame(condition = group, 
+                                                                     row.names = colnames(countData))),
+                                   lowerDetectionLimit = 0.5,
+                                   expressionFamily = VGAM::negbinomial())
+    mon <- BiocGenerics::estimateSizeFactors(mon)
+    mon <- BiocGenerics::estimateDispersions(mon)
+    monres <- monocle::differentialGeneTest(cds = mon,
+                                            fullModelFormulaStr = " ~ condition", 
+                                            reducedModelFormulaStr = "~1")
+    
+    lfc <- rowMeans(lgcpms[, group[group == levels(group)[1]]]) - 
+        rowMeans(lgcpms[, group[group == levels(group)[2]]])
+    
+    runtime <- tictoc::toc(log = F, quiet = T)
+    
+    list(res = monres, 
+         lfc = lfc,
+         runtime = runtime$toc - runtime$tic)
+}
+
+# monocle3_run <- function(countData, group) {
+#     
+#     ## this is just to compute the LFCs. Do not count this computation time
+#     dge <- edgeR::DGEList(counts = countData, group = group)
+#     dge <- edgeR::calcNormFactors(dge, method = "TMM")
+#     lgcpms <- edgeR::cpm(dge, log = T, prior.count = 1)
+#     
+#     tictoc::tic()
+#     
+#     cds <- monocle3::new_cell_data_set(expression_data = countData,
+#                                        cell_metadata = data.frame(condition = group, 
+#                                                                   row.names = colnames(countData)))
+#     
+#     # Perform differential expression analysis with regression:
+#     gene_fits <- monocle3::fit_models(cds = cds, 
+#                                       # expression_family = "quasipoisson", #the default
+#                                       expression_family = "negbinomial",
+#                                       # expression_family = "poisson",
+#                                       # expression_family = "binomial",
+#                                       # expression_family = "gaussian",
+#                                       # expression_family = "zipoisson",
+#                                       # expression_family = "zinegbinomial",
+#                                       model_formula_str = "~ condition")
+#     
+#     fit_coefs <- monocle3::coefficient_table(gene_fits)
+#     cond_terms <- fit_coefs %>% dplyr::filter(term == "condition2")
+#     cond_terms <- cond_terms %>% dplyr::mutate(q_value = p.adjust(p_value))
+#     
+#     # hist(cond_terms$p_value, 50)
+#     
+#     res <- data.frame(pval = cond_terms$p_value,
+#                       qval = cond_terms$q_value)
+#     rownames(res) <- cond_terms$gene_id
+#     
+#     lfc <- rowMeans(lgcpms[, group[group == levels(group)[1]]]) - 
+#         rowMeans(lgcpms[, group[group == levels(group)[2]]])
+#     
+#     runtime <- tictoc::toc(log = F, quiet = T)
+#     
+#     list(res = res, 
+#          lfc = lfc,
+#          runtime = runtime$toc - runtime$tic)
+# }
+
+monocle_pv <- function(x) {
+    res <- x$res$pval
+    # res[is.na(res)] <- 1
+    res
+}
+
+monocle_apv <- function(x) {
+    res <- x$res$qval
+    # res[is.na(res)] <- 1
+    res
+}
+
+monocle_lfc <- function(x) {
+    x$lfc
+}
+
+monocle_time <- function(x) { rep(as.numeric(x$runtime), length(x$res$pval)) }
+```
+
+### Wilcoxon
+
+```{r}
+# https://github.com/csoneson/conquer_comparison/blob/master/scripts/apply_Wilcoxon.R
+
+wilcoxon_run <- function(countData, group) {
+    
+    tictoc::tic()
+    
+    dge <- edgeR::DGEList(counts = countData, group = group)
+    dge <- edgeR::calcNormFactors(dge, method = "TMM")
+    cpms <- edgeR::cpm(dge)
+    idx <- 1:nrow(cpms)
+    names(idx) <- rownames(cpms)
+    wilcox_p <- sapply(idx, function(i) {
+        wilcox.test(countData[i, ] ~ group, exact = F)$p.value
+    })
+    
+    # hist(wilcox_p, 50)
+    
+    res <- data.frame(pval = wilcox_p,
+                      row.names = names(wilcox_p))
+    
+    lfc <- log2(rowMeans(cpms[, which(group == levels(group)[1])] + 1) / 
+        rowMeans(cpms[, which(group == levels(group)[2])] + 1))
+    
+    runtime <- tictoc::toc(log = F, quiet = T)
+    
+    list(res = res, 
+         lfc = lfc,
+         runtime = runtime$toc - runtime$tic)
+}
+
+# wilcoxonLog_run <- function(countData, group) {
+#     
+#     tictoc::tic()
+#     
+#     dge <- edgeR::DGEList(counts = countData, group = group)
+#     dge <- edgeR::calcNormFactors(dge, method = "TMM")
+#     cpms <- edgeR::cpm(dge, log = T, prior.count = 1) ## log scale
+#     idx <- 1:nrow(cpms)
+#     names(idx) <- rownames(cpms)
+#     wilcox_p <- sapply(idx, function(i) {
+#         wilcox.test(countData[i, ] ~ group, exact = F)$p.value
+#     })
+#     
+#     # hist(wilcox_p, 50)
+#     
+#     res <- data.frame(pval = wilcox_p,
+#                       row.names = names(wilcox_p))
+#     
+#     lfc <- rowMeans(cpms[, which(group == levels(group)[1])] + 1) - 
+#         rowMeans(cpms[, which(group == levels(group)[2])] + 1)
+#     
+#     runtime <- tictoc::toc(log = F, quiet = T)
+#     
+#     list(res = res, 
+#          lfc = lfc,
+#          runtime = runtime$toc - runtime$tic)
+# }
+
+wilcoxon_pv <- function(x) {
+    res <- x$res$pval
+    # res[is.na(res)] <- 1
+    res
+}
+
+wilcoxon_apv <- function(x) {
+    res <- p.adjust(x$res$pval, method = "BH")
+    # res[is.na(res)] <- 1
+    res
+}
+
+wilcoxon_lfc <- function(x) {
+    x$lfc
+}
+
+wilcoxon_time <- function(x) { rep(as.numeric(x$runtime), length(x$res$pval)) }
+```
+
 ## Add memthods to the bench
 
 ```{r}
 ## add memthods to the bench
 bd <- bd %>%
-  addMethod(label = "DESeq2_Dt_WaT", ## DESeq2, default parameters, Wald test
-            func = deseq2_run, 
-            # post = deseq2_pv,
-            post = list(pv = deseq2_pv,
-                        adj_pv = deseq2_apv,
-                        lfc = deseq2_lfc,
-                        runtime = deseq2_time),
-            meta = list(pkg_name = "DESeq2", pkg_vers = as.character(packageVersion("DESeq2"))),
-            params = rlang::quos(countData = cntdat,
-                                 colData = coldat, 
-                                 design = ~condition,
-                                 contrast = c("condition", "2", "1"))) %>%
-  addMethod(label = "DESeq2_Dt_LRT", ## DESeq2, default parameters, likelihood ratio test
-            func = deseq2lrt_run, 
-            # post = deseq2_pv,
-            post = list(pv = deseq2_pv,
-                        adj_pv = deseq2_apv,
-                        lfc = deseq2_lfc,
-                        runtime = deseq2_time),
-            meta = list(pkg_name = "DESeq2", pkg_vers = as.character(packageVersion("DESeq2"))),
-            params = rlang::quos(countData = cntdat,
-                                 colData = coldat, 
-                                 design = ~condition,
-                                 contrast = c("condition", "2", "1"))) %>%
-  addMethod(label = "DESeq2_Lc_LRT", ## DESeq2, parameters for low counts, likelihood ratio test
-            func = deseq2lc_run, 
-            # post = deseq2_pv,
-            post = list(pv = deseq2_pv,
-                        adj_pv = deseq2_apv,
-                        lfc = deseq2_lfc,
-                        runtime = deseq2_time),
-            meta = list(pkg_name = "DESeq2", pkg_vers = as.character(packageVersion("DESeq2"))),
-            params = rlang::quos(countData = cntdat,
-                                 colData = coldat, 
-                                 design = ~condition,
-                                 contrast = c("condition", "2", "1"))) %>%
-  addMethod(label = "DESeq2_Zi_LRT", ## DESeq2, parameters for single-cell data, likelihood ratio test
-            func = deseq2zi_run, 
-            # post = deseq2_pv, 
-            post = list(pv = deseq2_pv,
-                        adj_pv = deseq2_apv,
-                        lfc = deseq2_lfc,
-                        runtime = deseq2_time),
-            meta = list(pkg_name = "DESeq2", pkg_vers = as.character(packageVersion("DESeq2"))),
-            params = rlang::quos(countData = cntdat,
-                                 colData = coldat, 
-                                 design = ~condition,
-                                 contrast = c("condition", "2", "1"))) %>%
-  addMethod(label = "DESeq2_Sc_LRT", ## DESeq2, parameters for single-cell data and scran::computeSumFactors, likelihood ratio test
-            func = deseq2sc_run, 
-            # post = deseq2_pv,
-            post = list(pv = deseq2_pv,
-                        adj_pv = deseq2_apv,
-                        lfc = deseq2_lfc,
-                        runtime = deseq2_time),
-            meta = list(pkg_name = "DESeq2/scran",
-                        pkg_vers = paste(as.character(packageVersion("DESeq2")),
-                                         as.character(packageVersion("scran")),
-                                         sep = "/")),
-            params = rlang::quos(countData = cntdat,
-                                 colData = coldat,
-                                 design = ~condition,
-                                 contrast = c("condition", "2", "1"))) %>%
-  addMethod(label = "DESeq2_GP_LRT", ## DESeq2, Gamma-Poisson, likelihood ratio test
-            func = deseq2gpLrt_run, 
-            # post = deseq2_pv, 
-            post = list(pv = deseq2_pv,
-                        adj_pv = deseq2_apv,
-                        lfc = deseq2_lfc,
-                        runtime = deseq2_time),
-            meta = list(pkg_name = "DESeq2/glmGamPoi", 
-                        pkg_vers = paste(as.character(packageVersion("DESeq2")), 
-                                         as.character(packageVersion("glmGamPoi")), 
-                                         sep = "/")),
-            params = rlang::quos(countData = cntdat,
-                                 colData = coldat, 
-                                 design = ~condition,
-                                 contrast = c("condition", "2", "1"))) %>%
-  addMethod(label = "DESeq2_ZW_LRT", ## DESeq2, ZinbWave, likelihood ratio test
-            func = deseq2zw_run, 
-            # post = deseq2_pv, 
-            post = list(pv = deseq2_pv,
-                        adj_pv = deseq2_apv,
-                        lfc = deseq2_lfc,
-                        runtime = deseq2_time),
-            meta = list(pkg_name = "DESeq2/zinbwave", 
-                        pkg_vers = paste(as.character(packageVersion("DESeq2")), 
-                                         as.character(packageVersion("zinbwave")), 
-                                         sep = "/")),
-            params = rlang::quos(countData = cntdat,
-                                 colData = coldat, 
-                                 design = ~condition,
-                                 contrast = c("condition", "2", "1"),
-                                 weights = weights)) %>%
-  addMethod(label = "DESeq2_BP_WaT", ## DESeq2, betaPrior=T, Wald test
-            func = deseq2bp_run, 
-            # post = deseq2_pv,
-            post = list(pv = deseq2_pv,
-                        adj_pv = deseq2_apv,
-                        lfc = deseq2_lfc,
-                        runtime = deseq2_time),
-            meta = list(pkg_name = "DESeq2", pkg_vers = as.character(packageVersion("DESeq2"))),
-            params = rlang::quos(countData = cntdat,
-                                 colData = coldat, 
-                                 design = ~condition,
-                                 contrast = c("condition", "2", "1"))) %>%
-  addMethod(label = "edgeR_Dt_LRT", ## edgeR, defaults, likelihood ratio test 
-            func = edgeR_run, 
-            # post = edgeR_pv,
-            post = list(pv = edgeR_pv,
-                        adj_pv = edgeR_apv,
-                        lfc = edgeR_lfc,
-                        runtime = edgeR_time),
-            meta = list(pkg_name = "edgeR", pkg_vers = as.character(packageVersion("edgeR"))),
-            params = rlang::quos(countData = cntdat,
-                                 group = coldat$condition,
-                                 design = ~coldat$condition)) %>%
-  addMethod(label = "edgeR_ZW_LRT", ## edgeR, ZinbWave, likelihood ratio test 
-            func = edgeRzw_run, 
-            # post = edgeR_pv,
-            post = list(pv = edgeR_pv,
-                        adj_pv = edgeR_apv,
-                        lfc = edgeR_lfc,
-                        runtime = edgeR_time),
-            meta = list(pkg_name = "edgeR/zinbwave", 
-                        pkg_vers = paste(as.character(packageVersion("edgeR")), 
-                                         as.character(packageVersion("zinbwave")), 
-                                         sep = "/")),
-            params = rlang::quos(countData = cntdat,
-                                 group = coldat$condition,
-                                 design = ~coldat$condition,
-                                 weights = weights)) %>%
-  addMethod(label = "edgeR_rbst_LRT", ## edgeR, robust dispersion estimate, likelihood ratio test 
-            func = edgeRrbst_run, 
-            # post = edgeR_pv,
-            post = list(pv = edgeR_pv,
-                        adj_pv = edgeR_apv,
-                        lfc = edgeR_lfc,
-                        runtime = edgeR_time),
-            meta = list(pkg_name = "edgeR", pkg_vers = as.character(packageVersion("edgeR"))),
-            params = rlang::quos(countData = cntdat,
-                                 group = coldat$condition,
-                                 design = ~coldat$condition)) %>%
-  addMethod(label = "edgeR_rbst50df_LRT", ## edgeR, robust dispersion estimate with 50 degrees of freedom, likelihood ratio test 
-            func = edgeRrbst50df_run, 
-            # post = edgeR_pv,
-            post = list(pv = edgeR_pv,
-                        adj_pv = edgeR_apv,
-                        lfc = edgeR_lfc,
-                        runtime = edgeR_time),
-            meta = list(pkg_name = "edgeR", pkg_vers = as.character(packageVersion("edgeR"))),
-            params = rlang::quos(countData = cntdat,
-                                 group = coldat$condition,
-                                 design = ~coldat$condition)) %>%
-  addMethod(label = "edgeR_rbstEdf_LRT", ## edgeR, robust dispersion estimate with autodetermied number of degrees of freedom, likelihood ratio test 
-            func = edgeRrbstEdf_run, 
-            # post = edgeR_pv,
-            post = list(pv = edgeR_pv,
-                        adj_pv = edgeR_apv,
-                        lfc = edgeR_lfc,
-                        runtime = edgeR_time),
-            meta = list(pkg_name = "edgeR", pkg_vers = as.character(packageVersion("edgeR"))),
-            params = rlang::quos(countData = cntdat,
-                                 group = coldat$condition,
-                                 design = ~coldat$condition)) %>%
+    addMethod(label = "DESeq2_Dt_WaT", ## DESeq2, default parameters, Wald test
+              func = deseq2_run, 
+              # post = deseq2_pv,
+              post = list(pv = deseq2_pv,
+                          adj_pv = deseq2_apv,
+                          lfc = deseq2_lfc,
+                          runtime = deseq2_time),
+              meta = list(pkg_name = "DESeq2", pkg_vers = as.character(packageVersion("DESeq2"))),
+              params = rlang::quos(countData = cntdat,
+                                   colData = coldat, 
+                                   design = ~condition,
+                                   contrast = c("condition", "2", "1"))) %>%
+    addMethod(label = "DESeq2_Dt_LRT", ## DESeq2, default parameters, likelihood ratio test
+              func = deseq2lrt_run, 
+              # post = deseq2_pv,
+              post = list(pv = deseq2_pv,
+                          adj_pv = deseq2_apv,
+                          lfc = deseq2_lfc,
+                          runtime = deseq2_time),
+              meta = list(pkg_name = "DESeq2", pkg_vers = as.character(packageVersion("DESeq2"))),
+              params = rlang::quos(countData = cntdat,
+                                   colData = coldat, 
+                                   design = ~condition,
+                                   contrast = c("condition", "2", "1"))) %>%
+    addMethod(label = "DESeq2_Lc_LRT", ## DESeq2, parameters for low counts, likelihood ratio test
+              func = deseq2lc_run, 
+              # post = deseq2_pv,
+              post = list(pv = deseq2_pv,
+                          adj_pv = deseq2_apv,
+                          lfc = deseq2_lfc,
+                          runtime = deseq2_time),
+              meta = list(pkg_name = "DESeq2", pkg_vers = as.character(packageVersion("DESeq2"))),
+              params = rlang::quos(countData = cntdat,
+                                   colData = coldat, 
+                                   design = ~condition,
+                                   contrast = c("condition", "2", "1"))) %>%
+    addMethod(label = "DESeq2_Zi_LRT", ## DESeq2, parameters for single-cell data, likelihood ratio test
+              func = deseq2zi_run, 
+              # post = deseq2_pv, 
+              post = list(pv = deseq2_pv,
+                          adj_pv = deseq2_apv,
+                          lfc = deseq2_lfc,
+                          runtime = deseq2_time),
+              meta = list(pkg_name = "DESeq2", pkg_vers = as.character(packageVersion("DESeq2"))),
+              params = rlang::quos(countData = cntdat,
+                                   colData = coldat, 
+                                   design = ~condition,
+                                   contrast = c("condition", "2", "1"))) %>%
+    addMethod(label = "DESeq2_Sc_LRT", ## DESeq2, parameters for single-cell data and scran::computeSumFactors, likelihood ratio test
+              func = deseq2sc_run, 
+              # post = deseq2_pv,
+              post = list(pv = deseq2_pv,
+                          adj_pv = deseq2_apv,
+                          lfc = deseq2_lfc,
+                          runtime = deseq2_time),
+              meta = list(pkg_name = "DESeq2/scran",
+                          pkg_vers = paste(as.character(packageVersion("DESeq2")),
+                                           as.character(packageVersion("scran")),
+                                           sep = "/")),
+              params = rlang::quos(countData = cntdat,
+                                   colData = coldat,
+                                   design = ~condition,
+                                   contrast = c("condition", "2", "1"))) %>%
+    addMethod(label = "DESeq2_GP_LRT", ## DESeq2, Gamma-Poisson, likelihood ratio test
+              func = deseq2gpLrt_run, 
+              # post = deseq2_pv, 
+              post = list(pv = deseq2_pv,
+                          adj_pv = deseq2_apv,
+                          lfc = deseq2_lfc,
+                          runtime = deseq2_time),
+              meta = list(pkg_name = "DESeq2/glmGamPoi", 
+                          pkg_vers = paste(as.character(packageVersion("DESeq2")), 
+                                           as.character(packageVersion("glmGamPoi")), 
+                                           sep = "/")),
+              params = rlang::quos(countData = cntdat,
+                                   colData = coldat, 
+                                   design = ~condition,
+                                   contrast = c("condition", "2", "1"))) %>%
+    addMethod(label = "DESeq2_ZW_LRT", ## DESeq2, ZinbWave, likelihood ratio test
+              func = deseq2zw_run, 
+              # post = deseq2_pv, 
+              post = list(pv = deseq2_pv,
+                          adj_pv = deseq2_apv,
+                          lfc = deseq2_lfc,
+                          runtime = deseq2_time),
+              meta = list(pkg_name = "DESeq2/zinbwave", 
+                          pkg_vers = paste(as.character(packageVersion("DESeq2")), 
+                                           as.character(packageVersion("zinbwave")), 
+                                           sep = "/")),
+              params = rlang::quos(countData = cntdat,
+                                   colData = coldat, 
+                                   design = ~condition,
+                                   contrast = c("condition", "2", "1"),
+                                   weights = weights)) %>%
+    addMethod(label = "DESeq2_BP_WaT", ## DESeq2, betaPrior=T, Wald test
+              func = deseq2bp_run, 
+              # post = deseq2_pv,
+              post = list(pv = deseq2_pv,
+                          adj_pv = deseq2_apv,
+                          lfc = deseq2_lfc,
+                          runtime = deseq2_time),
+              meta = list(pkg_name = "DESeq2", pkg_vers = as.character(packageVersion("DESeq2"))),
+              params = rlang::quos(countData = cntdat,
+                                   colData = coldat, 
+                                   design = ~condition,
+                                   contrast = c("condition", "2", "1"))) %>%
+    addMethod(label = "edgeR_Dt_LRT", ## edgeR, defaults, likelihood ratio test 
+              func = edgeR_run, 
+              # post = edgeR_pv,
+              post = list(pv = edgeR_pv,
+                          adj_pv = edgeR_apv,
+                          lfc = edgeR_lfc,
+                          runtime = edgeR_time),
+              meta = list(pkg_name = "edgeR", pkg_vers = as.character(packageVersion("edgeR"))),
+              params = rlang::quos(countData = cntdat,
+                                   group = coldat$condition,
+                                   design = ~coldat$condition)) %>%
+    addMethod(label = "edgeR_ZW_LRT", ## edgeR, ZinbWave, likelihood ratio test 
+              func = edgeRzw_run, 
+              # post = edgeR_pv,
+              post = list(pv = edgeR_pv,
+                          adj_pv = edgeR_apv,
+                          lfc = edgeR_lfc,
+                          runtime = edgeR_time),
+              meta = list(pkg_name = "edgeR/zinbwave", 
+                          pkg_vers = paste(as.character(packageVersion("edgeR")), 
+                                           as.character(packageVersion("zinbwave")), 
+                                           sep = "/")),
+              params = rlang::quos(countData = cntdat,
+                                   group = coldat$condition,
+                                   design = ~coldat$condition,
+                                   weights = weights)) %>%
+    addMethod(label = "edgeR_rbst_LRT", ## edgeR, robust dispersion estimate, likelihood ratio test 
+              func = edgeRrbst_run, 
+              # post = edgeR_pv,
+              post = list(pv = edgeR_pv,
+                          adj_pv = edgeR_apv,
+                          lfc = edgeR_lfc,
+                          runtime = edgeR_time),
+              meta = list(pkg_name = "edgeR", pkg_vers = as.character(packageVersion("edgeR"))),
+              params = rlang::quos(countData = cntdat,
+                                   group = coldat$condition,
+                                   design = ~coldat$condition)) %>%
+    addMethod(label = "edgeR_rbst50df_LRT", ## edgeR, robust dispersion estimate with 50 degrees of freedom, likelihood ratio test 
+              func = edgeRrbst50df_run, 
+              # post = edgeR_pv,
+              post = list(pv = edgeR_pv,
+                          adj_pv = edgeR_apv,
+                          lfc = edgeR_lfc,
+                          runtime = edgeR_time),
+              meta = list(pkg_name = "edgeR", pkg_vers = as.character(packageVersion("edgeR"))),
+              params = rlang::quos(countData = cntdat,
+                                   group = coldat$condition,
+                                   design = ~coldat$condition)) %>%
+    addMethod(label = "edgeR_rbstEdf_LRT", ## edgeR, robust dispersion estimate with autodetermied number of degrees of freedom, likelihood ratio test 
+              func = edgeRrbstEdf_run, 
+              # post = edgeR_pv,
+              post = list(pv = edgeR_pv,
+                          adj_pv = edgeR_apv,
+                          lfc = edgeR_lfc,
+                          runtime = edgeR_time),
+              meta = list(pkg_name = "edgeR", pkg_vers = as.character(packageVersion("edgeR"))),
+              params = rlang::quos(countData = cntdat,
+                                   group = coldat$condition,
+                                   design = ~coldat$condition)) %>%
     addMethod(label = "edgeR_rbst_QFT", ## edgeR, robust dispersion estimate, empirical Bayes quasi-likelihood F-test 
-            func = edgeRql_run, 
-            # post = edgeR_pv,
-            post = list(pv = edgeR_pv,
-                        adj_pv = edgeR_apv,
-                        lfc = edgeR_lfc,
-                        runtime = edgeR_time),
-            meta = list(pkg_name = "edgeR", pkg_vers = as.character(packageVersion("edgeR"))),
-            params = rlang::quos(countData = cntdat,
-                                 group = coldat$condition,
-                                 design = ~coldat$condition)) %>%
-  addMethod(label = "voom_Dt_MFT", ## limma-voom, defauls, moderated F-statistic (or is it t-stats ?) 
-            func = voom_run, 
-            # post = voom_pv,
-            post = list(pv = voom_pv,
-                        adj_pv = voom_apv,
-                        lfc = voom_lfc,
-                        runtime = voom_time),
-            meta = list(pkg_name = "limma-voom", pkg_vers = as.character(packageVersion("limma"))),
-            params = rlang::quos(countData = cntdat,
-                                 group = coldat$condition,
-                                 design = ~coldat$condition)) %>%
+              func = edgeRql_run, 
+              post = list(pv = edgeR_pv,
+                          adj_pv = edgeR_apv,
+                          lfc = edgeR_lfc,
+                          runtime = edgeR_time),
+              meta = list(pkg_name = "edgeR", pkg_vers = as.character(packageVersion("edgeR"))),
+              params = rlang::quos(countData = cntdat,
+                                   group = coldat$condition,
+                                   design = ~coldat$condition)) %>%
+    addMethod(label = "edgeR_rbstTMMswp_LRT",
+              func = edgeRrbstTMMswp_run,
+              post = list(pv = edgeR_pv,
+                          adj_pv = edgeR_apv,
+                          lfc = edgeR_lfc,
+                          runtime = edgeR_time),
+              meta = list(pkg_name = "edgeR", 
+                          pkg_vers = as.character(packageVersion("edgeR"))),
+              params = rlang::quos(countData = cntdat,
+                                   group = coldat$condition,
+                                   design = ~coldat$condition)) %>%
+    addMethod(label = "voom_Dt_MFT", ## limma-voom, defauls, moderated F-statistic (or is it t-stats ?) 
+              func = voom_run, 
+              # post = voom_pv,
+              post = list(pv = voom_pv,
+                          adj_pv = voom_apv,
+                          lfc = voom_lfc,
+                          runtime = voom_time),
+              meta = list(pkg_name = "limma-voom", pkg_vers = as.character(packageVersion("limma"))),
+              params = rlang::quos(countData = cntdat,
+                                   group = coldat$condition,
+                                   design = ~coldat$condition)) %>%
     addMethod(label = "voom_Rb_MFT", ## limma-voom, use robust est, moderated F-statistic (or is it t-stats ?) 
-            func = voomRbst_run, 
-            # post = voom_pv,
-            post = list(pv = voom_pv,
-                        adj_pv = voom_apv,
-                        lfc = voom_lfc,
-                        runtime = voom_time),
-            meta = list(pkg_name = "limma-voom", pkg_vers = as.character(packageVersion("limma"))),
-            params = rlang::quos(countData = cntdat,
-                                 group = coldat$condition,
-                                 design = ~coldat$condition)) %>%
+              func = voomRbst_run, 
+              # post = voom_pv,
+              post = list(pv = voom_pv,
+                          adj_pv = voom_apv,
+                          lfc = voom_lfc,
+                          runtime = voom_time),
+              meta = list(pkg_name = "limma-voom", pkg_vers = as.character(packageVersion("limma"))),
+              params = rlang::quos(countData = cntdat,
+                                   group = coldat$condition,
+                                   design = ~coldat$condition)) %>%
     addMethod(label = "voom_Qn_MFT", ## limma-voom, use quantile normalization, moderated F-statistic (or is it t-stats ?) 
-            func = voomQn_run, 
-            # post = voom_pv,
-            post = list(pv = voom_pv,
-                        adj_pv = voom_apv,
-                        lfc = voom_lfc,
-                        runtime = voom_time),
-            meta = list(pkg_name = "limma-voom", pkg_vers = as.character(packageVersion("limma"))),
-            params = rlang::quos(countData = cntdat,
-                                 group = coldat$condition,
-                                 design = ~coldat$condition)) %>%
+              func = voomQn_run, 
+              # post = voom_pv,
+              post = list(pv = voom_pv,
+                          adj_pv = voom_apv,
+                          lfc = voom_lfc,
+                          runtime = voom_time),
+              meta = list(pkg_name = "limma-voom", pkg_vers = as.character(packageVersion("limma"))),
+              params = rlang::quos(countData = cntdat,
+                                   group = coldat$condition,
+                                   design = ~coldat$condition)) %>%
     addMethod(label = "voom_Sp_MFT", ## limma-voom, defaults as in vignette, moderated F-statistic (or is it t-stats ?) 
-            func = voomSimple_run, 
-            # post = voom_pv,
-            post = list(pv = voom_pv,
-                        adj_pv = voom_apv,
-                        lfc = voom_lfc,
-                        runtime = voom_time),
-            meta = list(pkg_name = "limma-voom", pkg_vers = as.character(packageVersion("limma"))),
-            params = rlang::quos(countData = cntdat,
-                                 group = coldat$condition,
-                                 design = ~coldat$condition)) %>%
+              func = voomSimple_run, 
+              # post = voom_pv,
+              post = list(pv = voom_pv,
+                          adj_pv = voom_apv,
+                          lfc = voom_lfc,
+                          runtime = voom_time),
+              meta = list(pkg_name = "limma-voom", pkg_vers = as.character(packageVersion("limma"))),
+              params = rlang::quos(countData = cntdat,
+                                   group = coldat$condition,
+                                   design = ~coldat$condition)) %>%
     addMethod(label = "voom_LF_MFT", ## limma-voom, use voomLmFit, moderated F-statistic (or is it t-stats ?) 
-            func = voomLmFit_run, 
-            # post = voom_pv,
-            post = list(pv = voom_pv,
-                        adj_pv = voom_apv,
-                        lfc = voom_lfc,
-                        runtime = voom_time),
-            meta = list(pkg_name = "limma-voom", pkg_vers = as.character(packageVersion("limma"))),
-            params = rlang::quos(countData = cntdat,
-                                 group = coldat$condition,
-                                 design = ~coldat$condition)) %>%
-  addMethod(label = "voom_ZW_MFT", ## limma-voom, use ZinbWave weigths, moderated F-statistic (or is it t-stats ?) 
-            func = voomZw_run, 
-            # post = voom_pv,
-            post = list(pv = voom_pv,
-                        adj_pv = voom_apv,
-                        lfc = voom_lfc,
-                        runtime = voom_time),
-            meta = list(pkg_name = "limma-voom/zinbwave", 
-                        pkg_vers = paste(as.character(packageVersion("limma")), 
-                                         as.character(packageVersion("zinbwave")), 
-                                         sep = "/")),
-            params = rlang::quos(countData = cntdat,
-                                 group = coldat$condition,
-                                 design = ~coldat$condition,
-                                 weights = weights)) %>%
-  addMethod(label = "circMeta_Dt_PZT", ## circMeta, defaults, Poisson z-test
-            func = cMeta_run, 
-            post = list(pv = cMeta_pv,
-                        adj_pv = cMeta_apv,
-                        lfc = cMeta_lfc,
-                        runtime = cMeta_time),
-            meta = list(pkg_name = "circMeta", pkg_vers = as.character(packageVersion("circMeta"))),
-            params = rlang::quos(countData = cntdat,
-                                 group = coldat$condition)) %>%
-  addMethod(label = "circMeta_Lc_PZT", ## circMeta, sqrt of counts, Poisson z-test
-            func = cMetaLc_run, 
-            post = list(pv = cMeta_pv,
-                        adj_pv = cMeta_apv,
-                        lfc = cMeta_lfc,
-                        runtime = cMeta_time),
-            meta = list(pkg_name = "circMeta", pkg_vers = as.character(packageVersion("circMeta"))),
-            params = rlang::quos(countData = cntdat,
-                                 group = coldat$condition)) #%>%
-  # addMethod(label = "lncDIFF_Dt_LRT", ## lncDIFF, defaults, test?
-  #           func = lncdiff_run, 
-  #           post = list(pv = lncdiff_pv,
-  #                       adj_pv = lncdiff_apv,
-  #                       lfc = lncdiff_lfc,
-  #                       runtime = lncdiff_time),
-  #           meta = list(pkg_name = "lncDIFF", pkg_vers = as.character(packageVersion("lncDIFF"))),
-  #           params = rlang::quos(countData = cntdat,
-  #                                group = coldat$condition)) %>%
-  # addMethod(label = "SAMseq_Dt_TT", ## lncDIFF, defaults, test?
-  #           func = samseq_run, 
-  #           post = list(pv = samseq_pv,
-  #                       adj_pv = samseq_apv,
-  #                       lfc = samseq_lfc,
-  #                       runtime = samseq_time),
-  #           meta = list(pkg_name = "samr", pkg_vers = as.character(packageVersion("samr"))),
-  #           params = rlang::quos(countData = cntdat,
-  #                                group = coldat$condition))
+              func = voomLmFit_run, 
+              # post = voom_pv,
+              post = list(pv = voom_pv,
+                          adj_pv = voom_apv,
+                          lfc = voom_lfc,
+                          runtime = voom_time),
+              meta = list(pkg_name = "limma-voom", pkg_vers = as.character(packageVersion("limma"))),
+              params = rlang::quos(countData = cntdat,
+                                   group = coldat$condition,
+                                   design = ~coldat$condition)) %>%
+    addMethod(label = "voom_ZW_MFT", ## limma-voom, use ZinbWave weigths, moderated F-statistic (or is it t-stats ?) 
+              func = voomZw_run, 
+              # post = voom_pv,
+              post = list(pv = voom_pv,
+                          adj_pv = voom_apv,
+                          lfc = voom_lfc,
+                          runtime = voom_time),
+              meta = list(pkg_name = "limma-voom/zinbwave", 
+                          pkg_vers = paste(as.character(packageVersion("limma")), 
+                                           as.character(packageVersion("zinbwave")), 
+                                           sep = "/")),
+              params = rlang::quos(countData = cntdat,
+                                   group = coldat$condition,
+                                   design = ~coldat$condition,
+                                   weights = weights)) %>%
+    addMethod(label = "circMeta_Dt_PZT", ## circMeta, defaults, Poisson z-test
+              func = cMeta_run, 
+              post = list(pv = cMeta_pv,
+                          adj_pv = cMeta_apv,
+                          lfc = cMeta_lfc,
+                          runtime = cMeta_time),
+              meta = list(pkg_name = "circMeta", pkg_vers = as.character(packageVersion("circMeta"))),
+              params = rlang::quos(countData = cntdat,
+                                   group = coldat$condition)) %>%
+    addMethod(label = "circMeta_Lc_PZT", ## circMeta, sqrt of counts, Poisson z-test
+              func = cMetaLc_run, 
+              post = list(pv = cMeta_pv,
+                          adj_pv = cMeta_apv,
+                          lfc = cMeta_lfc,
+                          runtime = cMeta_time),
+              meta = list(pkg_name = "circMeta", pkg_vers = as.character(packageVersion("circMeta"))),
+              params = rlang::quos(countData = cntdat,
+                                   group = coldat$condition)) %>%
+    addMethod(label = "lncDIFF_Dt_LRT", 
+              func = lncdiff_run, 
+              post = list(pv = lncdiff_pv,
+                          adj_pv = lncdiff_apv,
+                          lfc = lncdiff_lfc,
+                          runtime = lncdiff_time),
+              meta = list(pkg_name = "lncDIFF", 
+                          pkg_vers = as.character(packageVersion("lncDIFF"))),
+              params = rlang::quos(countData = cntdat,
+                                   group = coldat$condition)) %>%
+    addMethod(label = "SAMseq_Dt_TT", 
+              func = samseq_run,
+              post = list(pv = samseq_pv,
+                          adj_pv = samseq_apv,
+                          lfc = samseq_lfc,
+                          runtime = samseq_time),
+              meta = list(pkg_name = "samr", 
+                          pkg_vers = as.character(packageVersion("samr"))),
+              params = rlang::quos(countData = cntdat,
+                                   group = coldat$condition)) %>%
+    addMethod(label = "NBID_Dt_LRT", 
+              func = nbid_run,
+              post = list(pv = nbid_pv,
+                          adj_pv = nbid_apv,
+                          lfc = nbid_lfc,
+                          runtime = nbid_time),
+              meta = list(pkg_name = "NBID", 
+                          pkg_vers = as.character(packageVersion("NBID"))),
+              params = rlang::quos(countData = cntdat,
+                                   group = coldat$condition)) %>%
+    addMethod(label = "NBID_Sc_LRT", 
+              func = nbid_sc_run,
+              post = list(pv = nbid_pv,
+                          adj_pv = nbid_apv,
+                          lfc = nbid_lfc,
+                          runtime = nbid_time),
+              meta = list(pkg_name = "NBID/scran", 
+                          pkg_vers = paste(as.character(packageVersion("NBID")),
+                                           as.character(packageVersion("scran")),
+                                           sep = "/")),
+              params = rlang::quos(countData = cntdat,
+                                   group = coldat$condition)) %>%
+    addMethod(label = "NOISeqBIO_TMM_LRT",
+              func = noiseqbio_run,
+              post = list(pv = noiseqbio_pv,
+                          adj_pv = noiseqbio_apv,
+                          lfc = noiseqbio_lfc,
+                          runtime = noiseqbio_time),
+              meta = list(pkg_name = "NOISeqBIO",
+                          pkg_vers = as.character(packageVersion("NOISeq"))),
+              params = rlang::quos(countData = cntdat,
+                                   group = coldat)) %>%
+    addMethod(label = "PoissonSeq_Dt_TT",
+              func = poissonSeq_run,
+              post = list(pv = poissonSeq_pv,
+                          adj_pv = poissonSeq_apv,
+                          lfc = poissonSeq_lfc,
+                          runtime = poissonSeq_time),
+              meta = list(pkg_name = "PoissonSeq",
+                          pkg_vers = as.character(packageVersion("PoissonSeq"))),
+              params = rlang::quos(countData = cntdat,
+                                   group = coldat$condition)) %>%
+    addMethod(label = "limma_St_Vst",
+              func = limmaStVst_run,
+              post = list(pv = limmaStVst_pv,
+                          adj_pv = limmaStVst_apv,
+                          lfc = limmaStVst_lfc,
+                          runtime = limmaStVst_time),
+              meta = list(pkg_name = "LimmaVst",
+                          pkg_vers = paste(as.character(packageVersion("limma")),
+                                           as.character(packageVersion("sctransform")),
+                                           sep = "/")),
+              params = rlang::quos(countData = cntdat,
+                                   group = coldat$condition)) %>%
+    addMethod(label = "ROTScpm_Dt_TLT", ## t-like test statistics
+              func = ROTScpm_run,
+              post = list(pv = ROTScpm_pv,
+                          adj_pv = ROTScpm_apv,
+                          lfc = ROTScpm_lfc,
+                          runtime = ROTScpm_time),
+              meta = list(pkg_name = "ROTScpm",
+                          pkg_vers = paste(as.character(packageVersion("ROTS")),
+                                           as.character(packageVersion("edgeR")),
+                                           sep = "/")),
+              params = rlang::quos(countData = cntdat,
+                                   group = coldat$condition)) %>%
+    addMethod(label = "DEsingle_Dt_LRT",
+              func = DEsingle_run,
+              post = list(pv = DEsingle_pv,
+                          adj_pv = DEsingle_apv,
+                          lfc = DEsingle_lfc,
+                          runtime = DEsingle_time),
+              meta = list(pkg_name = "DEsingle",
+                          pkg_vers = as.character(packageVersion("DEsingle"))),
+              params = rlang::quos(countData = cntdat,
+                                   group = coldat$condition)) %>%
+    addMethod(label = "metagenomeSeq_Dt_EBT",
+              func = metagenomeSeq_run,
+              post = list(pv = metagenomeSeq_pv,
+                          adj_pv = metagenomeSeq_apv,
+                          lfc = metagenomeSeq_lfc,
+                          runtime = metagenomeSeq_time),
+              meta = list(pkg_name = "metagenomeSeq",
+                          pkg_vers = as.character(packageVersion("metagenomeSeq"))),
+              params = rlang::quos(countData = cntdat,
+                                   group = coldat$condition)) %>%
+    addMethod(label = "seurat_Bim_LRT",
+              func = seuratBimod_run,
+              post = list(pv = seurat_pv,
+                          adj_pv = seurat_apv,
+                          lfc = seurat_lfc,
+                          runtime = seurat_time),
+              meta = list(pkg_name = "Seurat",
+                          pkg_vers = as.character(packageVersion("Seurat"))),
+              params = rlang::quos(countData = cntdat,
+                                   group = coldat$condition)) %>%
+    addMethod(label = "seurat_Dt_WLX",
+              func = seuratWilcox_run,
+              post = list(pv = seurat_pv,
+                          adj_pv = seurat_apv,
+                          lfc = seurat_lfc,
+                          runtime = seurat_time),
+              meta = list(pkg_name = "Seurat",
+                          pkg_vers = as.character(packageVersion("Seurat"))),
+              params = rlang::quos(countData = cntdat,
+                                   group = coldat$condition)) %>%
+    addMethod(label = "MAST_CPM_LRT",
+              func = MASTcpm_run,
+              post = list(pv = MASTcpm_pv,
+                          adj_pv = MASTcpm_apv,
+                          lfc = MASTcpm_lfc,
+                          runtime = MASTcpm_time),
+              meta = list(pkg_name = "MAST",
+                          pkg_vers = as.character(packageVersion("MAST"))),
+              params = rlang::quos(countData = cntdat,
+                                   group = coldat$condition)) %>%
+    addMethod(label = "monocle_Dt_LRT",
+              func = monocle_run,
+              post = list(pv = monocle_pv,
+                          adj_pv = monocle_apv,
+                          lfc = monocle_lfc,
+                          runtime = monocle_time),
+              meta = list(pkg_name = "monocle",
+                          pkg_vers = as.character(packageVersion("monocle"))),
+              params = rlang::quos(countData = cntdat,
+                                   group = coldat$condition)) %>%
+    addMethod(label = "wilcoxon_TMM_WLX",
+              func = wilcoxon_run,
+              post = list(pv = wilcoxon_pv,
+                          adj_pv = wilcoxon_apv,
+                          lfc = wilcoxon_lfc,
+                          runtime = wilcoxon_time),
+              meta = list(pkg_name = "stats",
+                          pkg_vers = as.character(packageVersion("stats"))),
+              params = rlang::quos(countData = cntdat,
+                                   group = coldat$condition))# %>%
+    # addMethod(label = "wilcoxon_l1p_WLX",
+    #           func = wilcoxonLog_run,
+    #           post = list(pv = wilcoxon_pv,
+    #                       adj_pv = wilcoxon_apv,
+    #                       lfc = wilcoxon_lfc,
+    #                       runtime = wilcoxon_time),
+    #           meta = list(pkg_name = "stats",
+    #                       pkg_vers = as.character(packageVersion("stats"))),
+    #           params = rlang::quos(countData = cntdat,
+    #                                group = coldat$condition))
 
 bd
 ```
@@ -1128,10 +2148,15 @@ printMethods(bd)
 ## override BPPARAM
 parallel_methods <- 4
 bpparam$resources$ncpus <- parallel_methods
+walltime <- 1800 ## let max 30 min computing time to each method
 
 sbL <- 
   bplapply(datasetList, 
-           function(x, bd, parallel_methods) { 
+           function(x, bd, parallel_methods, walltime = 1800) { 
+             
+             inner_bpparam <- BiocParallel::MulticoreParam(parallel_methods)
+             BiocParallel::bptimeout(inner_bpparam) <- walltime
+             
              SummarizedBenchmark::buildBench(bd, data = x, 
                                              truthCols = c(pv = "status",
                                                            adj_pv = "status", 
@@ -1139,10 +2164,11 @@ sbL <-
                                                            runtime = "time_weights"), 
                                              keepData = T,
                                              parallel = T, 
-                                             BPPARAM = BiocParallel::MulticoreParam(parallel_methods)) 
+                                             BPPARAM = inner_bpparam) 
            }, 
            bd = bd,
            parallel_methods = parallel_methods,
+           walltime = walltime,
            BPPARAM = bpparam)
 # sbL
 ```
@@ -1281,15 +2307,15 @@ alpha_targets <- c(0.01, 0.05, 0.1)
 add_weights <- c(FALSE, TRUE)
 
 sbL <- bplapply(sbL, function(x, alphas, add_weights) {
-  SummarizedBenchmark::estimatePerformanceMetrics(x, 
-                                                  rerun = T,
-                                                  alpha = alphas, 
-                                                  add_weight_time = add_weights,
-                                                  addColData = T)},
-  alphas = alpha_targets,
-  add_weights = add_weights,
-  # BPPARAM = BiocParallel::MulticoreParam(nWorkers))
-  BPPARAM = bpparam)
+    SummarizedBenchmark::estimatePerformanceMetrics(x, 
+                                                    rerun = T,
+                                                    alpha = alphas, 
+                                                    add_weight_time = add_weights,
+                                                    addColData = T)},
+    alphas = alpha_targets,
+    add_weights = add_weights,
+    # BPPARAM = BiocParallel::MulticoreParam(nWorkers))
+    BPPARAM = bpparam)
 
 # View(rbindlist(lapply(sbL,
 #                       function(x)data.table(as.data.frame(colData(x)),
