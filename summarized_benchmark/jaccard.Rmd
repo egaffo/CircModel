@@ -45,7 +45,7 @@ ds_names <- c("DM1", "IPF", "MS", "IDC")
 
 input_dirs <- paste0(ds_names, "_evaluations")
 
-padj <- rbindlist(lapply(setNames(file.path(input_dirs, "adj_pval_deind.csv.gz"), 
+padj <- rbindlist(lapply(setNames(file.path(input_dirs, "adj_pval_deind.csv.gz"), #"pval_deind.csv.gz"
                                   nm = ds_names), 
                fread), 
                idcol = "DS")
