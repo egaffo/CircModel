@@ -121,7 +121,7 @@ datasetList <- datasetList[subsetIdx]
 ## set scheduler for cluster computing
 zwcpus <- 8
 
-walltime <- 14400 # 4h max time
+walltime <-  86400 # 24h; 14400 4h max time
 minmem <- 2048 # 4096 = 4Gb, 2048 = 2GByte, 8192 = 8Gb #Minimum memory required per allocated CPU.
 bpparam <- BatchtoolsParam(workers = length(datasetList), 
                            saveregistry = F,
