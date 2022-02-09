@@ -1353,7 +1353,7 @@ pval_deind_dt <-
                    }),
             idcol = "Dataset")
 
-pval_deind_dt[is.na(preds), preds := 1]
+# pval_deind_dt[is.na(preds), preds := 1]
 
 pval_deind_dt[, c("SetSize", "MZP", "DsType", "DsId") := tstrsplit(Dataset, "_"), 
               by = Dataset]
@@ -1419,7 +1419,7 @@ adj_pval_deind_dt <-
                    }),
             idcol = "Dataset")
 
-adj_pval_deind_dt[is.na(preds), preds := 1]
+# adj_pval_deind_dt[is.na(preds), preds := 1]
 
 adj_pval_deind_dt[, c("SetSize", "MZP", "DsType", "DsId") := tstrsplit(Dataset, "_"), 
                   by = Dataset]
@@ -1486,84 +1486,84 @@ x.breaks <- sort(c(.01, .05, seq(0, 1, by = .1)))
 # https://github.com/ipa-tys/ROCR/blob/master/R/performance_plots.R
 
 get_avg_meas <- function(y, meas.a = "tpr", meas.b = "fdr") {
+  
+  x.measure <- meas.b
+  
+  y_preds <- lapply(split(y[, .(Dataset, preds)], 
+                          by = "Dataset", 
+                          keep.by = F, 
+                          drop = T), 
+                    function(x)x$preds)
+  y_labels <- lapply(split(y[, .(Dataset, true_val)], 
+                           by = "Dataset", 
+                           keep.by = F, 
+                           drop = T), 
+                     function(x)x$true_val)
+  
+  if(meas.b == "fdr"){
     
-    x.measure <- meas.b
+    y_preds <- lapply(y_preds, function(x)1 - x)
+    x.measure <- "ppv"
+  }
+  
+  rocr_pred <- ROCR::prediction(predictions = y_preds,
+                                labels = y_labels)
+  
+  rocr_perf <- ROCR::performance(rocr_pred,
+                                 measure = meas.a, 
+                                 x.measure = x.measure)
+  
+  if(meas.b == "fdr"){
     
-    y_preds <- lapply(split(y[, .(Dataset, preds)], 
-                            by = "Dataset", 
-                            keep.by = F, 
-                            drop = T), 
-                      function(x)x$preds)
-    y_labels <- lapply(split(y[, .(Dataset, true_val)], 
-                             by = "Dataset", 
-                             keep.by = F, 
-                             drop = T), 
-                      function(x)x$true_val)
+    rocr_perf@alpha.values <- lapply(rocr_perf@alpha.values, function(x) 1 - x)
+  }
+  
+  a.vals <- unlist(rocr_perf@alpha.values)
+  alpha.values <- seq(min(a.vals[!is.infinite(a.vals)]),
+                      max(a.vals[!is.infinite(a.vals)]),
+                      length = max( sapply(rocr_perf@alpha.values, length)))
+  
+  perf.sampled <- rocr_perf
+  idx_to_skip <- c()
+  for (i in 1:length(perf.sampled@y.values)) {
     
-    if(meas.b == "fdr"){
-        
-        y_preds <- lapply(y_preds, function(x)1 - x)
-        x.measure <- "ppv"
-    }
-    
-    rocr_pred <- ROCR::prediction(predictions = y_preds,
-                                  labels = y_labels)
-    
-    rocr_perf <- ROCR::performance(rocr_pred,
-                                   measure = meas.a, 
-                                   x.measure = x.measure)
-    
-    if(meas.b == "fdr"){
-        
-        rocr_perf@alpha.values <- lapply(rocr_perf@alpha.values, function(x) 1 - x)
-    }
-    
-    a.vals <- unlist(rocr_perf@alpha.values)
-    alpha.values <- seq(min(a.vals[!is.infinite(a.vals)]),
-                        max(a.vals[!is.infinite(a.vals)]),
-                        length = max( sapply(rocr_perf@alpha.values, length)))
-    
-    perf.sampled <- rocr_perf
-    idx_to_skip <- c()
-    for (i in 1:length(perf.sampled@y.values)) {
-        
-        if(length(rocr_perf@x.values[[i]]) - 
-           sum(is.nan(rocr_perf@x.values[[i]])) >= 2){
-            
-            perf.sampled@x.values[[i]] <-
-                stats::approxfun(rocr_perf@alpha.values[[i]], 
-                                 rocr_perf@x.values[[i]],
-                                 rule = 2, 
-                                 ties = mean)(alpha.values)
-            perf.sampled@y.values[[i]] <-
-                stats::approxfun(rocr_perf@alpha.values[[i]], 
-                                 rocr_perf@y.values[[i]],
-                                 rule = 2, 
-                                 ties = mean)(alpha.values)
-        }else{
-            idx_to_skip <- c(idx_to_skip, i)
-        }
-    }
-    
-    ## compute average curve
-    perf.avg <- perf.sampled
-    ds_to_keep <- !seq_len(length(perf.avg@x.values)) %in% idx_to_skip
-    
-    perf.avg@x.values <- 
-        list( rowMeans( data.frame( perf.avg@x.values[ds_to_keep]), na.rm = T))
-    perf.avg@y.values <- 
-        list(rowMeans( data.frame( perf.avg@y.values[ds_to_keep]), na.rm = T))
-    perf.avg@alpha.values <- list( alpha.values )
-    
-    if(meas.b == "fdr"){
-        res <- list(FDR = 1 - unlist(perf.avg@x.values))
+    if(length(rocr_perf@x.values[[i]]) - 
+       sum(is.nan(rocr_perf@x.values[[i]])) >= 2){
+      
+      perf.sampled@x.values[[i]] <-
+        stats::approxfun(rocr_perf@alpha.values[[i]], 
+                         rocr_perf@x.values[[i]],
+                         rule = 2, 
+                         ties = mean)(alpha.values)
+      perf.sampled@y.values[[i]] <-
+        stats::approxfun(rocr_perf@alpha.values[[i]], 
+                         rocr_perf@y.values[[i]],
+                         rule = 2, 
+                         ties = mean)(alpha.values)
     }else{
-        res <- list(PPV = unlist(perf.avg@x.values))
+      idx_to_skip <- c(idx_to_skip, i)
     }
-    
-    c(res, 
-      list(TPR = unlist(perf.avg@y.values),
-           Cutoff = unlist(perf.avg@alpha.values)))
+  }
+  
+  ## compute average curve
+  perf.avg <- perf.sampled
+  ds_to_keep <- !seq_len(length(perf.avg@x.values)) %in% idx_to_skip
+  
+  perf.avg@x.values <- 
+    list( rowMeans( data.frame( perf.avg@x.values[ds_to_keep]), na.rm = T))
+  perf.avg@y.values <- 
+    list(rowMeans( data.frame( perf.avg@y.values[ds_to_keep]), na.rm = T))
+  perf.avg@alpha.values <- list( alpha.values )
+  
+  if(meas.b == "fdr"){
+    res <- list(FDR = 1 - unlist(perf.avg@x.values))
+  }else{
+    res <- list(PPV = unlist(perf.avg@x.values))
+  }
+  
+  c(res, 
+    list(TPR = unlist(perf.avg@y.values),
+         Cutoff = unlist(perf.avg@alpha.values)))
 }
 ```
 
