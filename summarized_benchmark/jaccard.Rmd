@@ -22,23 +22,28 @@ library(data.table)
 
 # Jaccard
 
+The Jaccard index (or similarity) gives the size of the intersection divided by the size of the union of the sample sets. The Jaccard distance, which measures dissimilarity between sample sets, is complementary to the Jaccard coefficient and is obtained by subtracting the Jaccard coefficient from 1, or, equivalently, by dividing the difference of the sizes of the union and the intersection of two sets by the size of the union.  
+
 ```{r}
-## Jaccard similarity function
-## https://www.r-bloggers.com/2021/11/how-to-calculate-jaccard-similarity-in-r/
-jaccard <- function(a, b) {
-    if(length(a) == 0 & length(b) == 0){
-        return(1)
-    }else{
-        intersection <- length(intersect(a, b))
-        if(is.null(intersection)){
-            return(0)
-        }else{
-            union <- length(a) + length(b) - intersection
-            return(intersection / union)
-        }
-    }
-}
+# ## Jaccard similarity function
+# ## https://www.r-bloggers.com/2021/11/how-to-calculate-jaccard-similarity-in-r/
+# jaccard <- function(a, b) {
+#     if(length(a) == 0 & length(b) == 0){
+#         return(1)
+#     }else{
+#         intersection <- length(intersect(a, b))
+#         if(is.null(intersection)){
+#             return(0)
+#         }else{
+#             union <- length(a) + length(b) - intersection
+#             return(intersection / union)
+#         }
+#     }
+# }
 ```
+
+Here, the Jaccard similarity is computed on the DECs called by each method at 5% FDR.    
+Therefore, 
 
 ```{r}
 ds_names <- c("DM1", "IPF", "MS", "IDC") 
@@ -55,6 +60,7 @@ padj <- padj[MZP == "bulk" & DsType == "de"]
 
 ```{r}
 padj[, Gid := seq_along(preds), by = .(DS, Dataset, Method)]
+padj[is.na(preds), preds := 1]
 
 padj_l <- split(padj, drop = F, by = c("DS", "Dataset"), flatten = F)
 
@@ -68,7 +74,7 @@ jaccard_dists <-
                                              value.var = "preds", 
                                              fill = 0), 
                                        row.names = "Gid"))
-            as.data.table(as.matrix(dist(x = t(mt) <= .1, method = "binary")),
+            as.data.table(as.matrix(dist(x = t(mt) <= .05, method = "binary")),
                           keep.rownames = "Method")
         }), 
         idcol = "Dataset")
@@ -132,7 +138,7 @@ ggd_l <-
     })
 ```
 
-```{r, fig.height=16, fig.width=10}
+```{r, fig.height=20, fig.width=10}
 gg_rows <- lapply(setNames(ds_names, nm = ds_names), 
                   function(x, ggd_l){
                       ggd_l[[x]]$N03 + ggtitle(paste(x, "N03")) +
@@ -146,7 +152,7 @@ gg_rows$DM1 / gg_rows$IPF / gg_rows$MS / gg_rows$IDC
 
 ## Average Jaccard per set size
 
-```{r, warning=FALSE}
+```{r, warning=FALSE, fig.width=9, fig.height=7}
 plots <- 
     lapply(split(avg_jaccard_dists[, .(AvgJDist = mean(AvgJDist)), 
                                    by = .(SetSize, MZP, DsType, Method, Method2)], 
@@ -185,9 +191,16 @@ plots$N03  +
     theme(axis.text.x = element_text(angle = -35, hjust = .5, vjust = -1))
 ```
 
+N05  
+
+```{r, fig.height=5.5, fig.width=3.5}
+plots$N05
+```
+
+
 ## Average Jaccard per data set
 
-```{r, warning=FALSE, fig.height=10}
+```{r, warning=FALSE, fig.height=11, fig.width=7}
 plots <- 
     lapply(split(avg_jaccard_dists[, .(AvgJDist = mean(AvgJDist)), 
                                    by = .(DS, MZP, DsType, Method, Method2)], 
@@ -231,7 +244,7 @@ plots$DM1  +
 
 ## Overall average
 
-```{r, warning=FALSE, fig.width=2.5}
+```{r, warning=FALSE, fig.width=3.5, fig.height=6}
 plot <- avg_jaccard_dists[, .(AvgJDist = mean(AvgJDist)), 
                           by = .(Method, Method2)]
 
@@ -253,7 +266,7 @@ ggplot(segment(ddata), aes(x = x, y = y)) +
     scale_y_reverse(name = "Jaccard distance", expand = c(0, 0.01)) +
     coord_flip() +
     theme_minimal() + 
-    ggtitle("Overall average") + 
+    # ggtitle("Overall average") + 
     theme(axis.text.y = element_text(color = method_colors[label(ddata)$label]),
           axis.text.x = element_text(angle = -35, hjust = .5, vjust = -1),
           panel.grid.major.x = element_blank(),
