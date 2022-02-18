@@ -191,10 +191,11 @@ plots$N03  +
     theme(axis.text.x = element_text(angle = -35, hjust = .5, vjust = -1))
 ```
 
-N05  
+### N05  
 
 ```{r, fig.height=5.5, fig.width=3.5}
-plots$N05
+avg_jdn05 <- plots$N05
+avg_jdn05
 ```
 
 
@@ -203,6 +204,51 @@ plots$N05
 ```{r, warning=FALSE, fig.height=11, fig.width=7}
 plots <- 
     lapply(split(avg_jaccard_dists[, .(AvgJDist = mean(AvgJDist)), 
+                                   by = .(DS, MZP, DsType, Method, Method2)], 
+                 by = c("DS"), flatten = F, keep.by = F), 
+           function(setSize){
+               ddata <- 
+                   dendro_data(as.dendrogram(hclust(as.dist(data.frame(dcast(setSize, 
+                                                                             Method ~ Method2, 
+                                                                             value.var = "AvgJDist"), 
+                                                                       row.names = "Method")))), 
+                               type = "rectangle")
+               
+               ggplot(segment(ddata), aes(x = x, y = y)) +
+                   geom_segment(aes(xend = xend, yend = yend)) +
+                   scale_x_continuous(name = NULL, breaks = label(ddata)$x, 
+                                      labels = label(ddata)$label, 
+                                      position = "top") +
+                   scale_y_reverse(name = "Jaccard distance", expand = c(0, 0.01)) +
+                   coord_flip() +
+                   theme_minimal() +
+                   theme(axis.text.y = element_text(color = method_colors[label(ddata)$label]),
+                         panel.grid.major.x = element_blank(),
+                         panel.grid.minor.x = element_blank(),
+                         panel.grid.major.y = element_blank(),
+                         panel.grid.minor.y = element_blank())
+           })
+
+plots$DM1  + 
+    ggtitle("DM1") + 
+    theme(axis.text.x = element_text(angle = -35, hjust = .5, vjust = -1)) +
+    plots$IPF + 
+    ggtitle("IPF") + 
+    theme(axis.text.x = element_text(angle = -35, hjust = .5, vjust = -1)) +
+    plots$IDC + 
+    ggtitle("IDC") + 
+    theme(axis.text.x = element_text(angle = -35, hjust = .5, vjust = -1)) +
+    plots$MS + 
+    ggtitle("MS") + 
+    theme(axis.text.x = element_text(angle = -35, hjust = .5, vjust = -1))
+```
+
+N05  
+
+```{r, warning=FALSE, fig.height=11, fig.width=7}
+plots <- 
+    lapply(split(avg_jaccard_dists[SetSize == "N05", 
+                                   .(AvgJDist = mean(AvgJDist)), 
                                    by = .(DS, MZP, DsType, Method, Method2)], 
                  by = c("DS"), flatten = F, keep.by = F), 
            function(setSize){
@@ -274,6 +320,147 @@ ggplot(segment(ddata), aes(x = x, y = y)) +
           panel.grid.major.y = element_blank(),
           panel.grid.minor.y = element_blank())
 ```
+
+# Combine other measures
+
+```{r}
+sbAssay_all_dt <- fread(file.path("overall_evaluations/sbAssay_dt.csv.gz"))
+
+sbAssay_dt <- sbAssay_all_dt[DsType == "de" & MZP == "bulk"]
+sbAssay_dt$DsType <- NULL
+sbAssay_dt$MZP <- NULL
+
+colnames(sbAssay_dt) <- 
+  sub("R\\.3", "R_0.10", 
+      sub("R\\.2", "R_0.05", 
+          sub("R\\.1", "R_0.01", 
+              colnames(sbAssay_dt))))
+
+colnames(sbAssay_dt) <- 
+  sub("rejections\\.3", "rejections_0.10", 
+      sub("rejections\\.2", "rejections_0.05", 
+          sub("rejections\\.1", "rejections_0.01", 
+              colnames(sbAssay_dt))))
+
+colnames(sbAssay_dt) <- 
+  sub("([015])\\.1$", "\\1_padj", 
+      colnames(sbAssay_dt))
+
+value_cols <- 
+  c(grep("rejections", colnames(sbAssay_dt), value = T),
+    grep("TPR", colnames(sbAssay_dt), value = T),
+    grep("TNR", colnames(sbAssay_dt), value = T),
+    grep("FDR", colnames(sbAssay_dt), value = T))
+
+## mean by set size
+msbAssay_dt <- 
+  melt(sbAssay_dt[, lapply(.SD, mean, na.rm = T), 
+           .SDcols = value_cols,
+           by = .(SetSize, Method)], 
+       id.vars = c("SetSize", 
+                   "Method"))[, Beta := sub(".*(0\\.[015]{2}).*", "\\1", variable)]
+```
+
+```{r}
+n05_msbAssay <- 
+  dcast(msbAssay_dt[SetSize == "N05" & 
+                      Beta == 0.05 & 
+                      grepl("padj", variable) &
+                      !grepl("rejections", variable)][, Measure := gsub("_|[0-9]|padj|\\.", "", variable)],
+        SetSize + Method ~ Measure, 
+        value.var = "value")[, `:=`(PPV = 1 - FDR,
+                                    SetSize = NULL)][]
+
+
+
+n05jd <- avg_jaccard_dists[SetSize == "N05", 
+                           .(AvgJDist = mean(AvgJDist)), 
+                           by = .(Method, Method2)]
+
+
+jd_clusts <- hclust(as.dist(data.frame(dcast(n05jd, 
+                                             Method ~ Method2, 
+                                             value.var = "AvgJDist"), 
+                                       row.names = "Method")))
+
+##get AUC
+auc <- fread("overall_evaluations/overall_auc.csv.gz")
+```
+
+
+```{r}
+library(viridis)
+# mat <- as.matrix(data.frame(n05_msbAssay, 
+#                             row.names = "Method"))[jd_clusts$labels[jd_clusts$order], 
+#                                                    c("TPR", "PPV")]
+# library(ComplexHeatmap)  
+# measph <- pheatmap(mat,
+#                    color = viridis(255),
+#                    # cluster_rows = jd_clusts, 
+#                    cluster_rows = F,
+#                    cluster_cols = F, 
+#                    cellwidth = 9, cellheight = 9)
+
+plot_dt <- 
+  rbindlist(list(tprppv = melt(n05_msbAssay, 
+                               id.vars = "Method", 
+                               variable.name = "Measure")[Measure %in% c("TPR", "PPV")],
+                 auc = melt(auc[SetSize == "N05"], 
+                            id.vars = c("SetSize", "Source_ds", "DsId", "Method"), 
+                            variable.name = "Measure")[, .(value = mean(value)), 
+                                                       by = .(Measure, Source_ds, 
+                                                              Method)][, .(value = mean(value)), 
+                                                                       by = .(Measure, 
+                                                                              Method)]), 
+            use.names = T)
+
+plot_dt$Method <- factor(x = plot_dt$Method, 
+                         levels = jd_clusts$labels[jd_clusts$order], 
+                         ordered = T)
+
+measph <-
+  ggplot(plot_dt, aes(x = Measure, y = Method, fill = value)) +
+  geom_tile(width = 0.9, height = 0.9) +
+  labs(y = NULL, title = "") +
+  scale_fill_viridis(option = "B", na.value = "grey90") +
+  theme_minimal() +
+  theme(axis.text.y = element_blank(),
+        panel.grid.major.x = element_blank(),
+        panel.grid.minor.x = element_blank(),
+        panel.grid.major.y = element_blank(),
+        panel.grid.minor.y = element_blank())
+```
+
+```{r}
+ddata <- 
+  dendro_data(as.dendrogram(jd_clusts), 
+              type = "rectangle")
+
+avg_jdn05 <- 
+  ggplot(segment(ddata), aes(x = x, y = y)) +
+  geom_segment(aes(xend = xend, yend = yend)) +
+  scale_x_continuous(name = NULL, 
+                     breaks = label(ddata)$x, 
+                     labels = label(ddata)$label, 
+                     position = "top", 
+                     expand = c(0, .7)) +
+  scale_y_reverse(name = "Jaccard distance", expand = c(0, 0.01)) +
+  coord_flip() +
+  theme_minimal() +
+  theme(axis.text.y = element_text(color = method_colors[label(ddata)$label]),
+        panel.grid.major.x = element_blank(),
+        panel.grid.minor.x = element_blank(),
+        panel.grid.major.y = element_blank(),
+        panel.grid.minor.y = element_blank())
+```
+
+```{r, fig.width=4.5, fig.height=6.5}
+avg_jdn05 + 
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  measph +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
 
 # Session info
 
