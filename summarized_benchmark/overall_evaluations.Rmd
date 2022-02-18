@@ -1494,6 +1494,14 @@ auprc_auroc <-
 #   theme_bw()
 ```
 
+```{r}
+## save area under curve
+auc_file <- file.path(output_dir, "overall_auc.csv.gz")
+fwrite(x = auprc_auroc, file = auc_file, row.names = F, sep = "\t")
+```
+
+AUC computed values have been saved into <a href="`r auc_file`">`r auc_file`</a>.  
+
 ## Area under precision-recall curve {.tabset}
 
 ### Table - source ds
