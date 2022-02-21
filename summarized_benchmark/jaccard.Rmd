@@ -98,6 +98,8 @@ library(patchwork)
 library(ggdendro)
 library(ggplot2)
 library(scales)
+library(viridis)
+library(dendsort)
 
 avg_jaccard_dists_l <- split(avg_jaccard_dists, by = c("DS", "SetSize"), flatten = F, keep.by = F)
 
@@ -114,10 +116,11 @@ ggd_l <-
     lapply(avg_jaccard_dists_l, function(ds){
         lapply(ds, function(setSize){
             ddata <- 
-                dendro_data(as.dendrogram(hclust(as.dist(data.frame(dcast(setSize, 
+                dendro_data(as.dendrogram(dendsort(hclust(as.dist(data.frame(dcast(setSize, 
                                                                           Method ~ Method2, 
                                                                           value.var = "AvgJDist"), 
-                                                                    row.names = "Method")))), 
+                                                                    row.names = "Method"))), 
+                                                   isReverse = T)), 
                             type = "rectangle")
             
             ggplot(segment(ddata), aes(x = x, y = y)) +
@@ -159,10 +162,11 @@ plots <-
                  by = c("SetSize"), flatten = F, keep.by = F), 
            function(setSize){
                ddata <- 
-                   dendro_data(as.dendrogram(hclust(as.dist(data.frame(dcast(setSize, 
+                   dendro_data(as.dendrogram(dendsort(hclust(as.dist(data.frame(dcast(setSize, 
                                                                              Method ~ Method2, 
                                                                              value.var = "AvgJDist"), 
                                                                        row.names = "Method")))), 
+                                             isReverse = T), 
                                type = "rectangle")
                
                ggplot(segment(ddata), aes(x = x, y = y)) +
@@ -208,10 +212,11 @@ plots <-
                  by = c("DS"), flatten = F, keep.by = F), 
            function(setSize){
                ddata <- 
-                   dendro_data(as.dendrogram(hclust(as.dist(data.frame(dcast(setSize, 
+                   dendro_data(as.dendrogram(dendsort(hclust(as.dist(data.frame(dcast(setSize, 
                                                                              Method ~ Method2, 
                                                                              value.var = "AvgJDist"), 
                                                                        row.names = "Method")))), 
+                                             isReverse = T), 
                                type = "rectangle")
                
                ggplot(segment(ddata), aes(x = x, y = y)) +
@@ -253,10 +258,11 @@ plots <-
                  by = c("DS"), flatten = F, keep.by = F), 
            function(setSize){
                ddata <- 
-                   dendro_data(as.dendrogram(hclust(as.dist(data.frame(dcast(setSize, 
+                   dendro_data(as.dendrogram(dendsort(hclust(as.dist(data.frame(dcast(setSize, 
                                                                              Method ~ Method2, 
                                                                              value.var = "AvgJDist"), 
                                                                        row.names = "Method")))), 
+                                             isReverse = T), 
                                type = "rectangle")
                
                ggplot(segment(ddata), aes(x = x, y = y)) +
@@ -295,14 +301,13 @@ plot <- avg_jaccard_dists[, .(AvgJDist = mean(AvgJDist)),
                           by = .(Method, Method2)]
 
 ddata <- 
-    dendro_data(as.dendrogram(hclust(as.dist(data.frame(dcast(plot, 
-                                                              Method ~ Method2, 
-                                                              value.var = "AvgJDist"), 
-                                                        row.names = "Method")
-                                             ), 
-                                     method = "complete")
-                              ), 
-                type = "rectangle")
+  dendro_data(as.dendrogram(dendsort(hclust(as.dist(data.frame(dcast(plot, 
+                                                                     Method ~ Method2, 
+                                                                     value.var = "AvgJDist"), 
+                                                               row.names = "Method")),
+                                            method = "complete")), 
+                            isReverse = T),
+              type = "rectangle")
 
 ggplot(segment(ddata), aes(x = x, y = y)) +
     geom_segment(aes(xend = xend, yend = yend)) +
@@ -378,10 +383,11 @@ n05jd <- avg_jaccard_dists[SetSize == "N05",
                            by = .(Method, Method2)]
 
 
-jd_clusts <- hclust(as.dist(data.frame(dcast(n05jd, 
+jd_clusts <- dendsort(hclust(as.dist(data.frame(dcast(n05jd, 
                                              Method ~ Method2, 
                                              value.var = "AvgJDist"), 
-                                       row.names = "Method")))
+                                       row.names = "Method"))), 
+                      isReverse = T)
 
 ##get AUC
 auc <- fread("overall_evaluations/overall_auc.csv.gz")
@@ -389,7 +395,6 @@ auc <- fread("overall_evaluations/overall_auc.csv.gz")
 
 
 ```{r}
-library(viridis)
 # mat <- as.matrix(data.frame(n05_msbAssay, 
 #                             row.names = "Method"))[jd_clusts$labels[jd_clusts$order], 
 #                                                    c("TPR", "PPV")]
