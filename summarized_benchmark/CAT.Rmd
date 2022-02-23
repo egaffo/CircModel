@@ -243,7 +243,7 @@ corrplot::corrplot(corr = maucats_mat[labels_clust_order, labels_clust_order],
                    diag = F)
 ```
 
-## AUCAT plot
+## AUCAT heat plot
 
 ```{r, fig.width=9, fig.height=8.5} 
 plot_dt <- copy(mconc)
@@ -264,29 +264,145 @@ plot_dt$method2 <- factor(plot_dt$method2,
                           levels = rev(labels_clust_order),
                           ordered = T)
 
-ggplot(plot_dt, aes(x = featFrac, y = concordance, fill = AUCAT)) +
-    # geom_line() +
-    geom_area() +
-    facet_grid(rows = vars(method1), cols = vars(method2), drop = F) +
-    scale_fill_viridis() +
-    coord_cartesian(xlim = c(0, 1), ylim = c(0, 1)) +
-    theme_dendro() + ## theme dendro removes almost everything
-    theme(#axis.text = element_blank(),
-          legend.position = "left",
-          # axis.title.y = element_blank(),
-          # axis.ticks = element_blank(),
-          # axis.line.x.bottom = element_blank(),
-          # axis.line.y.right = element_blank(),
-          # # strip.text = element_blank(),
-          strip.text.y = element_text(angle =  0, hjust = 0), #, colour = method_colors[rev(labels_clust_order)]
-          strip.text.x = element_text(angle = 90, hjust = 0), #, colour = method_colors[labels_clust_order]
-          strip.background = element_blank(),
-          panel.spacing = unit(0, "cm"),
-          # panel.grid.major = element_blank(),
-          # panel.grid.minor = element_blank(),
-          # plot.margin = unit(c(0.1, 0.1, 0.1, 0.1), "cm")
-          )
+aucat_heatplot <- 
+  ggplot(plot_dt, aes(x = featFrac, y = concordance, fill = AUCAT)) +
+  geom_area() +
+  facet_grid(rows = vars(method1), cols = vars(method2), drop = F) +
+  scale_fill_viridis() +
+  coord_cartesian(xlim = c(0, 1), ylim = c(0, 1)) +
+  theme_dendro() ## theme dendro removes almost everything
+
+aucat_heatplot + 
+  theme(legend.position = "left",
+        strip.text.y = element_text(angle =  0, hjust = 0), #, colour = method_colors[rev(labels_clust_order)]
+        strip.text.x = element_text(angle = 90, hjust = 0), #, colour = method_colors[labels_clust_order]
+        strip.background = element_blank(),
+        panel.spacing = unit(0, "cm"))
 ```
+
+## AUCAT dendrogram
+
+```{r, warning=FALSE, fig.width=9, fig.height=3}
+ddata <- 
+  dendro_data(as.dendrogram(maucats_clust, isReverse = T),
+              type = "rectangle")
+
+top_dendro <- 
+  ggplot(segment(ddata), aes(x = x, y = y)) +
+  geom_segment(aes(xend = xend, yend = yend)) +
+  scale_x_continuous(name = NULL, 
+                     trans = "reverse",
+                     breaks = label(ddata)$x, 
+                     labels = label(ddata)$label, 
+                     position = "bottom") +
+  # scale_y_reverse(name = NULL, expand = c(0, 0.01)) +
+  scale_y_continuous(name = NULL, expand = c(0, 0.01)) +
+  # coord_flip() +
+  theme_minimal() +  
+  theme(axis.text.x = element_text(color = method_colors[label(ddata)$label], 
+                                   angle = 90, hjust = 1),
+        axis.text.y = element_text(angle = -35, hjust = .5, vjust = -1),
+        panel.grid.major.x = element_blank(),
+        panel.grid.minor.x = element_blank(),
+        panel.grid.major.y = element_blank(),
+        panel.grid.minor.y = element_blank())
+
+top_dendro
+```
+
+```{r, warning=FALSE, fig.width=3, fig.height=9}
+left_dendro <- 
+  ggplot(segment(ddata), aes(x = x, y = y)) +
+  geom_segment(aes(xend = xend, yend = yend)) +
+  scale_x_continuous(name = NULL, 
+                     trans = "reverse",
+                     breaks = label(ddata)$x, 
+                     labels = label(ddata)$label, 
+                     position = "top") +
+  scale_y_reverse(name = NULL, expand = c(0, 0.01)) +
+  # scale_y_continuous(name = NULL, expand = c(0, 0.01)) +
+  coord_flip() +
+  theme_minimal() +  
+  theme(axis.text.y = element_text(color = method_colors[label(ddata)$label], 
+                                   angle = 0, hjust = 1),
+        # axis.text.x = element_text(angle = -35, hjust = .5, vjust = -1),
+        axis.text.x = element_blank(),
+        panel.grid.major.x = element_blank(),
+        panel.grid.minor.x = element_blank(),
+        panel.grid.major.y = element_blank(),
+        panel.grid.minor.y = element_blank())
+
+left_dendro
+```
+
+## Combined plot
+
+```{r, fig.width=8, fig.height=7}
+halfmat <- maucats_mat[labels_clust_order, labels_clust_order]
+halfmat[lower.tri(halfmat, diag = T)] <- NA
+halfmat_m <- melt(data.table(halfmat, keep.rownames = "method1"), 
+                  id.vars = "method1", variable.name = "method2", 
+                  value.name = "concordance")[method1 != method2]
+
+na_pairs <- halfmat_m[is.na(concordance), paste(method1, method2)]
+
+plot_dt <- copy(mconc)
+
+plot_dt <- 
+    rbindlist(list(plot_dt, 
+                   copy(plot_dt)[, tmp := method1][, .(method1 = method2, 
+                                                       method2 = tmp, 
+                                                       featFrac, 
+                                                       concordance, 
+                                                       AUCAT)]))
+plot_dt[, pairname := paste(method1, method2)]
+
+plot_dt[pairname %in% na_pairs, concordance := NA]
+
+plot_dt$method1 <- factor(plot_dt$method1, 
+                          levels = labels_clust_order,
+                          ordered = T)
+
+plot_dt$method2 <- factor(plot_dt$method2, 
+                          levels = rev(labels_clust_order),
+                          ordered = T)
+
+aucat_half_heatplot <- 
+  ggplot(plot_dt, aes(x = featFrac, y = concordance, fill = AUCAT)) +
+  geom_area() +
+  facet_grid(rows = vars(method1), cols = vars(method2), drop = F) +
+  scale_fill_viridis() +
+  coord_cartesian(xlim = c(0, 1), ylim = c(0, 1)) +
+  theme_dendro() + ## theme dendro removes almost everything
+  theme(legend.position = "right",
+        # strip.text = element_blank(),
+        strip.background = element_blank(),
+        panel.spacing = unit(0, "cm"))
+```
+
+
+```{r, fig.width=9, fig.height=8.5} 
+aucat_half_heatplot + 
+  theme(strip.text.y = element_text(angle =  0, hjust = 0),
+        strip.text.x = element_text(angle = 90, hjust = 0))
+```
+
+
+```{r, fig.width=8, fig.height=7}
+library(ggrastr)
+
+rasterise(aucat_half_heatplot + theme(strip.text = element_blank()))
+```
+
+
+```{r, fig.width=9, fig.height=8.5} 
+
+
+# library(patchwork)
+# 
+# top_dendro / aucat_heatplot
+```
+
 
 # Session info
 
