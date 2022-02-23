@@ -1,0 +1,296 @@
+---
+title: "Concordance at the top"
+author: "Enrico Gaffo"
+date: 'Compiled: `r format(Sys.Date(), "%d %B, %Y")`'
+output:
+  html_document:
+    code_folding: hide
+    df_print: kable
+    number_sections: no
+    theme: united
+    toc: yes
+    toc_float: yes
+  pdf_document:
+    toc: yes
+editor_options: 
+  chunk_output_type: console
+---
+
+<style>
+#TOC {
+  top: 1%;
+  opacity: 0.5;
+}
+#TOC:hover {
+  opacity: 1;
+}
+</style>
+
+```{r setup, include=FALSE}
+current.dir = "."
+
+# knitr::opts_chunk$set(echo = TRUE, fig.path = file.path(current.dir, "consinstency/"))
+```
+
+```{r message=FALSE, warning=FALSE}
+library(data.table)
+# library(qs) ## to fast saving the results
+
+library(ggplot2)
+library(viridis)
+library(ggdendro)
+library(dendsort)
+library(scales)
+
+library(ffpe) ## for the CATplot
+library(pracma) ## for the trapezoidal function used to compute AUC
+
+library(BiocParallel)
+```
+
+```{r}
+#' m1, m2 are character strings with the name of the methods to intersect
+#' dt is a sorted data.table of method scores, with 'Method' and 'Cid' columns, 
+#' which are the name of the method's score and the circRNA identifier, respectively.
+getCAT_dt <- function(m1, m2, dt, maxrank = 100) {
+    
+    data.table::data.table(method1 = m1, 
+                           method2 = m2, 
+                           ffpe::CATplot(vec1 = dt[Method == m1, Cid],
+                                         vec2 = dt[Method == m2, Cid], 
+                                         maxrank = maxrank, 
+                                         make.plot = F))
+}
+```
+
+# Between method concordance at the top
+
+```{r}
+## data set names prefix
+Datasets <- c("DM1", "IDC", "IPF","MS")
+
+resDE_datasets <- sapply(Datasets,
+                         function(d) fread(file = file.path(".", 
+                                                            paste0(d, "_evaluations/pval_deind.csv.gz")), 
+                                           showProgress = F),
+                         simplify = F, USE.NAMES = T)
+
+preds_dt <- 
+  rbindlist(resDE_datasets, 
+            use.names = T, 
+            idcol = "DS")[, Cid := seq_along(preds), 
+                          by = .(DS, Dataset,  
+                                 Method)][order(preds, na.last = T), 
+                                          .(DS = paste(DS, Dataset, sep = "_"),
+                                            Cid, Method, preds)]
+
+method_names <- sort(unique(preds_dt$Method))
+
+preds_dt$Method <- factor(preds_dt$Method, 
+                          levels = method_names, 
+                          ordered = T)
+
+method_colors <- setNames(hue_pal()(length(method_names)), method_names)
+```
+
+
+```{r}
+cats <- 
+  rbindlist(bplapply(X = split(x = preds_dt, f = preds_dt$DS), 
+                     FUN = function(dt){
+                       
+                       # m12 <- expand.grid(m1 = unique(dt$Method), 
+                       #                    m2 = unique(dt$Method))
+                       # ## remove method match with itself
+                       # m12 <- m12[!m12$m1 == m12$m2,]
+                       
+                       ## CAT is symmetric, therefore we can exclude half the pairs
+                       m12 <- data.table(t(combn(levels(dt$Method), m = 2)))
+                       
+                       rbindlist(mapply(getCAT_dt, 
+                                        m1 = m12$V1, m2 = m12$V2, 
+                                        MoreArgs = list(dt = dt, maxrank = 100), 
+                                        SIMPLIFY = F))}, 
+                     BPPARAM = MulticoreParam(workers = multicoreWorkers())), 
+            use.names = T, idcol = "Dataset")
+
+cats[, featFrac := rank / max(rank), by = .(Dataset, method1, method2)]
+```
+
+
+```{r}
+## get the area under the CAT curve
+aucats <- cats[, .(AUCAT = pracma::trapz(featFrac, concordance)), 
+               by = .(Dataset, method1, method2)]
+
+## mean AUCAT across all simulated data sets
+maucats <- aucats[, .(MeanAUCAT = mean(AUCAT)), 
+                  by = .(method1, method2)]
+```
+
+
+```{r} 
+## mean concordance score at each rank across all simulated data sets
+mconc <- cats[, .(concordance = mean(concordance)), 
+              by = .(method1, method2, featFrac)]
+
+## AUCAT according to the rank mean concordance
+## NB: attach a new column (with redundant values) to ease later plotting
+mconc[, AUCAT := trapz(featFrac, concordance), 
+      by = .(method1, method2)]
+```
+
+
+```{r} 
+## compose a matrix for clustering and heatmap plotting
+maucats_mat <- as.matrix(data.frame(dcast(maucats,
+                                          method1 ~ method2, 
+                                          value.var = "MeanAUCAT", 
+                                          drop = F,
+                                          fill = NA), 
+                                    row.names = "method1"))
+
+## N.B. only the upper/lower tringular of the matrix is
+maucats_mat <- maucats_mat[sort(rownames(maucats_mat)),
+                           sort(colnames(maucats_mat))]
+
+## add NA diagonal
+cnames <- c(setdiff(rownames(maucats_mat), colnames(maucats_mat)), colnames(maucats_mat))
+rnames <- c(rownames(maucats_mat), setdiff(colnames(maucats_mat), rownames(maucats_mat)))
+
+maucats_mat <- cbind(rep(NA, nrow(maucats_mat)),
+                     maucats_mat)
+maucats_mat <- rbind(maucats_mat,
+                     rep(NA, ncol(maucats_mat)))
+
+colnames(maucats_mat) <- cnames
+rownames(maucats_mat) <- rnames
+# dim(maucats_mat)
+
+maucats_mat[lower.tri(maucats_mat, diag = F)] <- t(maucats_mat)[lower.tri(maucats_mat, diag = F)]
+
+## just check everything is ok
+# isSymmetric(maucats_mat)
+```
+
+## Heatmaps {.tabset}
+
+### Not clustered
+
+```{r, fig.width=8, fig.height=8} 
+## check visually with a heatmap, without any method rearrangement
+pheatmap::pheatmap(maucats_mat, 
+                   main = "Area under concordance at the 100 top ranked DECs",
+                   scale = "none",
+                   color = viridis(255, option = "B"),
+                   cluster_cols = F, 
+                   cellwidth = 10, cellheight = 10,
+                   cluster_rows = F)
+```
+
+### Clustered
+
+```{r} 
+## compute clustering of the methods according to AUCAT: the larger the AUCAT 
+## between methods, the more similar the methods.
+## Use dendsort to improve visualization
+
+# maucats_clust <- hclust(as.dist(1 - maucats_mat))
+maucats_clust <- dendsort(hclust(as.dist(1 - maucats_mat)))
+# plot(maucats_clust)
+
+# maucats_clust
+labels_clust_order <- maucats_clust$labels[maucats_clust$order]
+```
+
+```{r, fig.width=8.5, fig.height=8.5} 
+pheatmap::pheatmap(maucats_mat, 
+                   main = "Area under concordance at the 100 top ranked DECs",
+                   color = viridis(255, option = "B"), 
+                   # cutree_rows = 6, cutree_cols = 6,
+                   cellwidth = 10, cellheight = 10,
+                   cluster_cols = maucats_clust,
+                   cluster_rows = maucats_clust)
+```
+
+
+```{r, fig.width=8.5, fig.height=8.5} 
+# pheatmap::pheatmap(maucats_mat, 
+#                    scale = "none",
+#                    color = viridis(255, option = "B"),
+#                    cellwidth = 10, cellheight = 10,
+#                    cluster_cols = T,
+#                    cluster_rows = T)
+```
+
+### Corrplot unclustered
+
+```{r, fig.width=8.5, fig.height=8.5} 
+corrplot::corrplot(maucats_mat, 
+                   col = viridis(255, option = "B"),
+                   type = "upper", 
+                   is.corr = F, 
+                   diag = F)
+```
+
+### Corrplot clustered
+
+```{r, fig.width=8.5, fig.height=8.5} 
+corrplot::corrplot(corr = maucats_mat[labels_clust_order, labels_clust_order], 
+                   col = viridis(255, option = "B"),
+                   type = "upper", 
+                   is.corr = F, 
+                   diag = F)
+```
+
+## AUCAT plot
+
+```{r, fig.width=9, fig.height=8.5} 
+plot_dt <- copy(mconc)
+
+plot_dt <- 
+    rbindlist(list(plot_dt, 
+                   copy(plot_dt)[, tmp := method1][, .(method1 = method2, 
+                                                       method2 = tmp, 
+                                                       featFrac, 
+                                                       concordance, 
+                                                       AUCAT)]))
+
+plot_dt$method1 <- factor(plot_dt$method1, 
+                          levels = labels_clust_order,
+                          ordered = T)
+
+plot_dt$method2 <- factor(plot_dt$method2, 
+                          levels = rev(labels_clust_order),
+                          ordered = T)
+
+ggplot(plot_dt, aes(x = featFrac, y = concordance, fill = AUCAT)) +
+    # geom_line() +
+    geom_area() +
+    facet_grid(rows = vars(method1), cols = vars(method2), drop = F) +
+    scale_fill_viridis() +
+    coord_cartesian(xlim = c(0, 1), ylim = c(0, 1)) +
+    theme_dendro() + ## theme dendro removes almost everything
+    theme(#axis.text = element_blank(),
+          legend.position = "left",
+          # axis.title.y = element_blank(),
+          # axis.ticks = element_blank(),
+          # axis.line.x.bottom = element_blank(),
+          # axis.line.y.right = element_blank(),
+          # # strip.text = element_blank(),
+          strip.text.y = element_text(angle =  0, hjust = 0), #, colour = method_colors[rev(labels_clust_order)]
+          strip.text.x = element_text(angle = 90, hjust = 0), #, colour = method_colors[labels_clust_order]
+          strip.background = element_blank(),
+          panel.spacing = unit(0, "cm"),
+          # panel.grid.major = element_blank(),
+          # panel.grid.minor = element_blank(),
+          # plot.margin = unit(c(0.1, 0.1, 0.1, 0.1), "cm")
+          )
+```
+
+# Session info
+
+```{r}
+sessionInfo()
+```
+
