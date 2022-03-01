@@ -847,6 +847,61 @@ ggplot(plot_dt,
         legend.position = "top")
 ```
 
+Set size ~ beta = 0.05  
+
+```{r, fig.width=14.5, fig.height=5.5}
+## Avg PPV
+ggplot(plot_dt[variable == 0.05],
+       aes(x = Method, y = value, color = Method)) +
+  geom_boxplot(outlier.size = .5, varwidth = F) + #outlier.shape = NA
+  # geom_jitter(width = .1, size = .5) +
+  geom_text(data = n_points[variable == 0.05], 
+            aes(y = 1.2,
+                label = paste0("n = ", formatC(N, width = 3, format = "d", flag = "0"), " ")), 
+            angle = 90, color = "black",
+            hjust = "inward", #0
+            vjust = .5, 
+            fontface = "italic", size = 3) +
+  labs(x = NULL, y = "PPV at adjusted P = 0.05") +
+  scale_color_discrete(guide = "none") +
+  scale_shape_discrete("Source data set") +
+  scale_y_continuous(breaks = c(0, .25, .5, .75, 1)) +
+  facet_grid(cols = vars(SetSize)) +
+  # scale_y_sqrt() +
+  # coord_cartesian(ylim = c(0, 1)) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5),
+        panel.grid.major.x = element_blank(),
+        legend.position = "top")
+```
+
+N05, beta = 0.05  
+
+```{r, fig.width=7, fig.height=4}
+## PPV N05, beta = 0.05  
+ggplot(plot_dt[SetSize == "N05" & variable == 0.05],
+       aes(x = Method, y = value, color = Method)) +
+  geom_boxplot(outlier.size = .5, varwidth = F) + #outlier.shape = NA
+  # geom_jitter(width = .1, size = .5) +
+  geom_text(data = n_points[SetSize == "N05" & variable == 0.05], 
+            aes(y = 1.25,
+                label = paste0("n = ", formatC(N, width = 3, format = "d", flag = "0"), " ")), 
+            angle = 90, color = "black",
+            hjust = "inward", #0
+            vjust = .5, 
+            fontface = "italic", size = 3) +
+  labs(x = NULL, y = "PPV at adjusted P = 0.05") +
+  scale_color_discrete(guide = "none") +
+  scale_shape_discrete("Source data set") +
+  scale_y_continuous(breaks = c(0, .25, .5, .75, 1)) +
+  # scale_y_sqrt() +
+  # coord_cartesian(ylim = c(0, 1)) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5),
+        panel.grid.major.x = element_blank(),
+        legend.position = "top")
+```
+
 ### FDR
 
 ```{r}
@@ -1141,8 +1196,8 @@ gg_color_hue <- function(n) {
   hcl(h = hues, l = 65, c = 100)[1:n]
 }
 
-method_colors <- setNames(gg_color_hue(length(unique(plot_dt$Method))), 
-                          unique(plot_dt$Method))
+method_colors <- setNames(object = gg_color_hue(length(unique(plot_dt$Method))), 
+                          nm = sort(unique(plot_dt$Method)))
 ```
 
 ```{r, fig.width=14.5}
@@ -1154,18 +1209,22 @@ plot_dt$Method <- factor(plot_dt$Method,
 
 p0.05N03 <- 
     ggplot(plot_dt[SetSize == "N03"], 
-           aes(x = Method, y = F1)) +
+           aes(x = Method, y = F1, color = Method)) +
     # geom_line(aes(group = "1"), color = "grey", linetype = "solid") +
     geom_errorbar(aes(ymin = F1 - sdF1, ymax = F1 + sdF1), 
-                  color = "grey45",
+                  # color = "grey45",
                   width = 0.5) +
-    geom_point(aes(color = Method)) +
+    geom_point() +
     scale_color_manual(values = method_colors, guide = NULL) +
-    labs(y = "Average F1", x = NULL) +
+    labs(y = expression(Average~F[1]), x = NULL) +
     facet_grid(cols = vars(SetSize), 
                rows = vars(Alpha), scales = "free_y") +
     theme_bw() +
-    theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5),
+    theme(axis.text.x = element_text(angle = 90, 
+                                     colour = method_colors[levels(plot_dt$Method)], 
+                                     hjust = 1, vjust = .5),
+          panel.grid.minor.x = element_blank(),
+          panel.grid.major.x = element_blank(),
           legend.position = "top")
 ```
 
@@ -1178,18 +1237,22 @@ plot_dt$Method <- factor(plot_dt$Method,
 
 p0.05N05 <- 
     ggplot(plot_dt[SetSize == "N05"], 
-           aes(x = Method, y = F1)) +
+           aes(x = Method, y = F1, color = Method)) +
     # geom_line(aes(group = "1"), color = "grey", linetype = "solid") +
     geom_errorbar(aes(ymin = F1 - sdF1, ymax = F1 + sdF1), 
-                  color = "grey45",
+                  # color = "grey45",
                   width = 0.5) +
-    geom_point(aes(color = Method)) +
+    geom_point() +
     scale_color_manual(values = method_colors, guide = NULL) +
-    labs(y = "Average F1", x = NULL) +
+    labs(y = expression(Average~F[1]), x = NULL) +
     facet_grid(cols = vars(SetSize), 
                rows = vars(Alpha), scales = "free_y") +
     theme_bw() +
-    theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5),
+    theme(axis.text.x = element_text(angle = 90, 
+                                     colour = method_colors[levels(plot_dt$Method)], 
+                                     hjust = 1, vjust = .5),
+          panel.grid.minor.x = element_blank(),
+          panel.grid.major.x = element_blank(),
           legend.position = "top")
 ```
 
@@ -1202,18 +1265,22 @@ plot_dt$Method <- factor(plot_dt$Method,
 
 p0.05N10 <- 
     ggplot(plot_dt[SetSize == "N10"], 
-           aes(x = Method, y = F1)) +
+           aes(x = Method, y = F1, color = Method)) +
     # geom_line(aes(group = "1"), color = "grey", linetype = "solid") +
     geom_errorbar(aes(ymin = F1 - sdF1, ymax = F1 + sdF1), 
-                  color = "grey45",
+                  # color = "grey45",
                   width = 0.5) +
-    geom_point(aes(color = Method)) +
+    geom_point() +
     scale_color_manual(values = method_colors, guide = NULL) +
-    labs(y = "Average F1", x = NULL) +
+    labs(y = expression(Average~F[1]), x = NULL) +
     facet_grid(cols = vars(SetSize), 
                rows = vars(Alpha), scales = "free_y") +
     theme_bw() +
-    theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5),
+    theme(axis.text.x = element_text(angle = 90, 
+                                     colour = method_colors[levels(plot_dt$Method)], 
+                                     hjust = 1, vjust = .5),
+          panel.grid.minor.x = element_blank(),
+          panel.grid.major.x = element_blank(),
           legend.position = "top")
 ```
 
@@ -1222,19 +1289,55 @@ library(patchwork)
 
 result <- 
     p0.05N03 + labs(x = NULL, y = NULL) + coord_cartesian(ylim = c(0, 1)) +
-    theme(strip.background.y = element_blank(), strip.text.y = element_blank(), 
-          plot.margin = unit(c(0, 0, 0, 0), "lines"), panel.grid.major.x = element_blank()) +
+    theme(strip.background.y = element_blank(), 
+          strip.text.y = element_blank(), 
+          plot.margin = unit(c(0, 0, 0, 0), "lines"), 
+          panel.grid.major.x = element_blank()) +
     p0.05N05 + labs(x = NULL, y = NULL) + coord_cartesian(ylim = c(0, 1)) +
-    theme(axis.text.y = element_blank(), axis.ticks.y = element_blank(),
-          strip.background.y = element_blank(), strip.text.y = element_blank(), 
-          plot.margin = unit(c(0, 0, 0, 0), "lines"), panel.grid.major.x = element_blank()) +
+    theme(axis.text.y = element_blank(), 
+          axis.ticks.y = element_blank(),
+          strip.background.y = element_blank(), 
+          strip.text.y = element_blank(), 
+          plot.margin = unit(c(0, 0, 0, 0), "lines"), 
+          panel.grid.major.x = element_blank()) +
     p0.05N10 + labs(x = NULL, y = NULL) + coord_cartesian(ylim = c(0, 1)) +
-    theme(axis.text.y = element_blank(), axis.ticks.y = element_blank(), 
-          plot.margin = unit(c(0, 0, 0, 0), "lines"), panel.grid.major.x = element_blank())
+    theme(axis.text.y = element_blank(), 
+          axis.ticks.y = element_blank(), 
+          plot.margin = unit(c(0, 0, 0, 0), "lines"), 
+          panel.grid.major.x = element_blank())
 
 gt <- patchwork::patchworkGrob(result)
 gridExtra::grid.arrange(gt, left = "Average F1", bottom = NULL)
 ```
+
+```{r, fig.width=7, fig.height=4}
+plot_dt$Method <- factor(plot_dt$Method, 
+                         levels = plot_dt[SetSize == "N05" & 
+                                              Alpha == "0.05"][order(F1, na.last = F), 
+                                                               as.character(Method)], 
+                         ordered = T)
+
+ggplot(plot_dt[SetSize == "N05" & Alpha == "0.05"], 
+       aes(x = Method, y = F1, color = Method)) +
+  # geom_line(aes(group = "1"), color = "grey", linetype = "solid") +
+  geom_errorbar(aes(ymin = F1 - sdF1, ymax = F1 + sdF1), 
+                # color = "grey45",
+                width = 0.5) +
+  geom_point() +
+  scale_y_continuous(limits = c(0, 1)) +
+  scale_color_manual(values = method_colors, guide = NULL) +
+  labs(y = expression(Average~F[1]), x = NULL) +
+  # facet_grid(cols = vars(SetSize), 
+  #            rows = vars(Alpha), scales = "free_y") +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90, 
+                                   colour = method_colors[levels(plot_dt$Method)], 
+                                   hjust = 1, vjust = .5),
+        panel.grid.minor.x = element_blank(),
+        panel.grid.major.x = element_blank(),
+        legend.position = "top")
+```
+
 
 #### F0.5 {.tabset} 
 
@@ -1274,7 +1377,9 @@ ggplot(f1s,
              rows = vars(Alpha)) +
   coord_cartesian(ylim = c(0, 1)) +
   theme_bw() +
-  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5),
+  theme(axis.text.x = element_text(angle = 90, 
+                                   # colour = method_colors[sort(unique(f1s$Method))], 
+                                   hjust = 1, vjust = .5),
         panel.grid.major.x = element_blank(),
         legend.position = "top")
 ```
@@ -1294,7 +1399,7 @@ gg_color_hue <- function(n) {
 }
 
 method_colors <- setNames(gg_color_hue(length(unique(plot_dt$Method))), 
-                          unique(plot_dt$Method))
+                          sort(unique(plot_dt$Method)))
 ```
 
 ```{r, fig.width=14.5}
@@ -1306,18 +1411,19 @@ plot_dt$Method <- factor(plot_dt$Method,
 
 p0.05N03 <- 
     ggplot(plot_dt[SetSize == "N03"], 
-           aes(x = Method, y = F0.5)) +
+           aes(x = Method, y = F0.5, color = Method)) +
     # geom_line(aes(group = "1"), color = "grey", linetype = "solid") +
     geom_errorbar(aes(ymin = F0.5 - sdF0.5, ymax = F0.5 + sdF0.5), 
-                  color = "grey45",
+                  # color = "grey45",
                   width = 0.5) +
-    geom_point(aes(color = Method)) +
+    geom_point() +
     scale_color_manual(values = method_colors, guide = NULL) +
     labs(y = "Average F0.5", x = NULL) +
     facet_grid(cols = vars(SetSize), 
                rows = vars(Alpha), scales = "free_y") +
     theme_bw() +
-    theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5),
+    theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5, 
+                                     color = method_colors[levels(plot_dt$Method)]),
           legend.position = "top")
 ```
 
@@ -1330,18 +1436,19 @@ plot_dt$Method <- factor(plot_dt$Method,
 
 p0.05N05 <- 
     ggplot(plot_dt[SetSize == "N05"], 
-           aes(x = Method, y = F0.5)) +
+           aes(x = Method, y = F0.5, color = Method)) +
     # geom_line(aes(group = "1"), color = "grey", linetype = "solid") +
     geom_errorbar(aes(ymin = F0.5 - sdF0.5, ymax = F0.5 + sdF0.5), 
-                  color = "grey45",
+                  # color = "grey45",
                   width = 0.5) +
-    geom_point(aes(color = Method)) +
+    geom_point() +
     scale_color_manual(values = method_colors, guide = NULL) +
     labs(y = "Average F0.5", x = NULL) +
     facet_grid(cols = vars(SetSize), 
                rows = vars(Alpha), scales = "free_y") +
     theme_bw() +
-    theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5),
+    theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5, 
+                                     color = method_colors[levels(plot_dt$Method)]),
           legend.position = "top")
 ```
 
@@ -1354,18 +1461,19 @@ plot_dt$Method <- factor(plot_dt$Method,
 
 p0.05N10 <- 
     ggplot(plot_dt[SetSize == "N10"], 
-           aes(x = Method, y = F0.5)) +
+           aes(x = Method, y = F0.5, color = Method)) +
     # geom_line(aes(group = "1"), color = "grey", linetype = "solid") +
     geom_errorbar(aes(ymin = F0.5 - sdF0.5, ymax = F0.5 + sdF0.5), 
-                  color = "grey45",
+                  # color = "grey45",
                   width = 0.5) +
-    geom_point(aes(color = Method)) +
+    geom_point() +
     scale_color_manual(values = method_colors, guide = NULL) +
     labs(y = "Average F0.5", x = NULL) +
     facet_grid(cols = vars(SetSize), 
                rows = vars(Alpha), scales = "free_y") +
     theme_bw() +
-    theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5),
+    theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5, 
+                                     color = method_colors[levels(plot_dt$Method)]),
           legend.position = "top")
 ```
 
@@ -1386,6 +1494,34 @@ result <-
 
 gt <- patchwork::patchworkGrob(result)
 gridExtra::grid.arrange(gt, left = "Average F0.5", bottom = NULL)
+```
+
+```{r, fig.width=7, fig.height=4}
+plot_dt$Method <- factor(plot_dt$Method, 
+                         levels = plot_dt[SetSize == "N05" & 
+                                              Alpha == "0.05"][order(F0.5, na.last = F), 
+                                                               as.character(Method)], 
+                         ordered = T)
+
+ggplot(plot_dt[SetSize == "N05" & Alpha == "0.05"], 
+       aes(x = Method, y = F0.5, color = Method)) +
+  # geom_line(aes(group = "1"), color = "grey", linetype = "solid") +
+  geom_errorbar(aes(ymin = F0.5 - sdF1, ymax = F0.5 + sdF0.5), 
+                # color = "grey45",
+                width = 0.5) +
+  geom_point() +
+  scale_color_manual(values = method_colors, guide = NULL) +
+  scale_y_continuous(limits = c(0, 1)) +
+  labs(y = expression(Average~F[0.5]), x = NULL) +
+  # facet_grid(cols = vars(SetSize), 
+  #            rows = vars(Alpha), scales = "free_y") +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90, 
+                                   colour = method_colors[levels(plot_dt$Method)], 
+                                   hjust = 1, vjust = .5),
+        panel.grid.minor.x = element_blank(),
+        panel.grid.major.x = element_blank(),
+        legend.position = "top")
 ```
 
 # Performance curves
@@ -1741,7 +1877,7 @@ ggplot(plot_dt,
             vjust = .5, 
             fontface = "italic", size = 3) +
   scale_y_continuous(breaks = c(0, .25, .5, .75, 1), expand = c(0, 0)) +
-  labs(x = NULL, y = "AUPRC") +
+  labs(x = NULL, y = "AUROC") +
   scale_color_discrete(guide = "none") +
   # scale_shape_discrete("Source data set") +
   facet_grid(cols = vars(SetSize)) +
