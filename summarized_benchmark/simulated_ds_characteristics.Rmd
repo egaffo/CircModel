@@ -50,7 +50,7 @@ sim_ds_list <- lapply(simulated_datasets_qs_files,
                       nthreads = nWorkers)
 ```
 
-# Are matrix zero-inflated?
+# Data sets characteristics
 
 ## Source data sets
 
@@ -73,6 +73,8 @@ source_ds_dt <-
 ```
 
 ```{r, fig.width=5, fig.height=5}
+library(ggbeeswarm)
+
 source_hist_cnt <- 
     source_ds_dt[, .(histBJR = .N), 
              by = .(DS, BJR = value)][, Frac := histBJR / sum(histBJR), 
@@ -86,40 +88,98 @@ ds_stats <-
                                           nCircs = .N), by = DS]
 
 ch_p <- ggplot(plot_dt, aes(x = BJR, y = AvgFrac)) + 
-    geom_col(position = "identity", alpha = 1) +
-    # facet_wrap(facets = ~ DS, ncol = 1, scales = "free_y") +
-    facet_grid(rows = vars(DS)) +
-    coord_cartesian(xlim = c(0, 15)) +
-    geom_label(data = ds_stats,
-               aes(x = 5, y = .3, 
-                   label = paste("# samples:", nSamples, "\n# circRNAs:", comma(nCircs))), hjust = 0) +
-    scale_y_continuous("Count matrix fraction (%)", 
-                       labels = function(x)round(as.numeric(x)*100)) + #labels = percent
-    scale_x_continuous(breaks = 0:15, 
-                       labels = 0:15) +
-    theme_bw() +
-    theme(legend.position = "top", 
-          axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5), 
-          plot.margin = unit(x = c(.1, .1, .1, .1), units = "lines"), 
-          strip.text = element_blank(), strip.background = element_blank())
+  geom_col(position = "identity", alpha = 1) +
+  # facet_wrap(facets = ~ DS, ncol = 1, scales = "free_y") +
+  facet_grid(rows = vars(DS)) +
+  coord_cartesian(xlim = c(0, 15)) +
+  geom_label(data = ds_stats,
+             aes(x = 5, y = .3, 
+                 label = paste("# samples:", nSamples, "\n# circRNAs:", comma(nCircs))), hjust = 0) +
+  labs(x = "Backsplice-junction reads") +
+  scale_y_continuous("Count matrix fraction (%)", 
+                     labels = function(x)round(as.numeric(x)*100)) + #labels = percent
+  scale_x_continuous(breaks = 0:15, 
+                     labels = 0:15) +
+  theme_bw() +
+  theme(legend.position = "top", 
+        axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5), 
+        plot.margin = unit(x = c(.1, .1, .1, .1), units = "lines"), 
+        strip.text = element_blank(), 
+        panel.grid.major.x = element_blank(),
+        panel.grid.minor.x = element_blank(),
+        strip.background = element_blank())
 
 ls_bxp <- 
-    ggplot(source_ds_dt[, .(LibSize = sum(value)), by = .(DS, sample_id)],
-           aes(x = "", y = LibSize)) +
-    geom_boxplot(varwidth = T, notch = F) +
-    # geom_violin(draw_quantiles = c(.25, .5, .75)) +
-    scale_x_discrete(name = NULL) +
-    scale_y_log10(labels = function(x)sub("000$", "K", x)) +
-    coord_flip() +
-    # facet_wrap(facets = ~ DS, ncol = 1) + #, scales = "free_x"
-    facet_grid(rows = vars(DS)) +
-    theme_bw() +
-    theme(axis.ticks.y = element_blank(), panel.grid.major.y = element_blank(),
-          plot.margin = unit(x = c(.1, .1, .1, .1), units = "lines"))
+  ggplot(source_ds_dt[, .(LibSize = sum(value)), by = .(DS, sample_id)],
+         aes(x = "", y = LibSize)) +
+  geom_boxplot(varwidth = T, notch = F) + #, outlier.shape = NA
+  # geom_quasirandom(groupOnX = T, varwidth = T, alpha = .5, aes(fill = LibSize), shape = 21) +
+  # geom_violin(draw_quantiles = c(.25, .5, .75)) +
+  # scale_fill_viridis_c() +
+  scale_x_discrete(name = NULL) +
+  scale_y_log10(labels = function(x)sub("000$", "K", x)) +
+  labs(x = NULL, y = "Library size") +
+  coord_flip() +
+  # facet_wrap(facets = ~ DS, ncol = 1) + #, scales = "free_x"
+  facet_grid(rows = vars(DS)) +
+  theme_bw() +
+  theme(axis.ticks.y = element_blank(), 
+        panel.grid.major.y = element_blank(),
+        plot.margin = unit(x = c(.1, .1, .1, .1), units = "lines"))
 
 ch_p + ls_bxp +
     plot_layout(widths = c(3, 1), )
 ```
+
+## Simulated data sets
+
+```{r, warning=FALSE}
+melt_cnt <- rbindlist(lapply(sim_ds_list, 
+                        function(sims) {
+                            rbindlist(lapply(sims, 
+                                             function(x) {
+                                                 melt(as.data.table(x$cntdat))
+                                             }), 
+                                      use.names = T, idcol = "dataset")
+                        }), idcol = "DS")
+
+melt_cnt[, c("SetSize", "MZP", "Purpose", "ID") := tstrsplit(dataset, "_", type.convert = F), 
+          by = dataset]
+melt_cnt <- melt_cnt[MZP == "bulk"]
+```
+
+```{r}
+n_sim_circs <- 
+  unique(melt_cnt[, .N, 
+                  by = .(DS, Purpose, SetSize, ID, 
+                         variable)][, .(DS, Purpose, SetSize, ID, N)])
+n_sim_circs[Purpose == "de", Purpose := "Signal"]
+n_sim_circs[Purpose == "mock", Purpose := "Null"]
+
+n_sim_circs$DS <- factor(n_sim_circs$DS)
+n_sim_circs$Purpose <- factor(n_sim_circs$Purpose)
+n_sim_circs$SetSize <- factor(n_sim_circs$SetSize)
+```
+
+```{r}
+datatable(n_sim_circs, caption = "Number of simulated circRNAs per data set", filter = "top")
+```
+
+
+```{r, fig.width=3.5, fig.height=6.5}
+ggplot(n_sim_circs, aes(x = SetSize, y = N)) +
+  geom_boxplot() +
+  labs(y = "Total simulated circRNAs", x = "Set size") +
+  facet_grid(rows = vars(DS), cols = vars(Purpose), scales = "free_y") +
+  # scale_y_log10() +
+  theme_bw() +
+  theme(panel.grid.major.x = element_blank())
+```
+
+ 
+# Are matrix zero-inflated?
+
+## Source data sets
 
 ```{r}
 library(NBID)
@@ -217,26 +277,6 @@ datatable(fitres_dt, rownames = F)
 
 ## Simulated data sets
 
-```{r, warning=FALSE}
-melt_cnt <- rbindlist(lapply(sim_ds_list, 
-                        function(sims) {
-                            rbindlist(lapply(sims, 
-                                             function(x) {
-                                                 melt(as.data.table(x$cntdat))
-                                             }), 
-                                      use.names = T, idcol = "dataset")
-                        }), idcol = "DS")
-
-melt_cnt[, c("SetSize", "MZP", "Purpose", "ID") := tstrsplit(dataset, "_", type.convert = F), 
-          by = dataset]
-melt_cnt <- melt_cnt[MZP == "bulk"]
-
-# ggplot(melt_cnt, aes(x = value)) +
-#     geom_density(aes(group = dataset, color = Purpose)) +
-#     facet_grid(cols = vars(SetSize), rows = vars(DS), scales = "free") +
-#     coord_cartesian(xlim = c(0, 15)) +
-#     theme(legend.position = "top")
-```
 
 ```{r}
 hist_cnt <- 
