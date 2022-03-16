@@ -29,6 +29,16 @@ library(BiocParallel)
 
 library(ROCR)
 
+library(ggthemes)
+
+library(patchwork)
+
+#' A function to mimic the ggplot default palette
+gg_color_hue <- function(n) {
+  hues = seq(15, 375, length = n + 1)
+  hcl(h = hues, l = 65, c = 100)[1:n]
+}
+
 nWorkers <- multicoreWorkers()
 ```
 
@@ -98,6 +108,277 @@ if(file.exists(file.path(output_dir, "sbAssay_dt.csv.gz"))){
 alpha_targets <- c(0.01, 0.05, 0.1) 
 ```
 
+# Methods characteristics {.tabset} 
+
+```{r}
+method_types <- 
+  data.table(Method = c("circMeta_Dt_PZT", "circMeta_Lc_PZT", "DESeq2_BP_WaT", 
+                        "DESeq2_Dt_LRT", "DESeq2_Dt_WaT", "DESeq2_GP_LRT", 
+                        "DESeq2_Lc_LRT", "DESeq2_Sc_LRT", "DESeq2_Zi_LRT", 
+                        "DESeq2_ZW_LRT", "DEsingle_Dt_LRT", "edgeR_Dt_LRT", 
+                        "edgeR_rbst_LRT", "edgeR_rbst_QFT", "edgeR_rbst50df_LRT", 
+                        "edgeR_rbstEdf_LRT", "edgeR_rbstTMMswp_LRT", "edgeR_ZW_LRT", 
+                        "limma_St_Vst", "lncDIFF_Dt_LRT", "MAST_CPM_LRT", 
+                        "metagenomeSeq_Dt_EBT", "monocle_Dt_LRT", "NBID_Dt_LRT", 
+                        "NBID_Sc_LRT", "NOISeqBIO_TMM_LRT", "PoissonSeq_Dt_TT", 
+                        "ROTScpm_Dt_TLT", "SAMseq_Dt_TT", "seurat_Bim_LRT", 
+                        "seurat_Dt_WLX", "voom_Dt_MFT", "voom_LF_MFT", 
+                        "voom_Qn_MFT", "voom_Rb_MFT", "voom_Sp_MFT", 
+                        "voom_ZW_MFT", "wilcoxon_TMM_WLX"),
+             Type = c("Bulk", "Bulk", "Bulk", 
+                      "Bulk", "Bulk", "Single cell / metagenome", 
+                      "Single cell / metagenome", "Single cell / metagenome", "Single cell / metagenome", 
+                      "Single cell / metagenome", "Single cell / metagenome", "Bulk", 
+                      "Bulk", "Bulk", "Bulk", 
+                      "Bulk", "Single cell / metagenome", "Single cell / metagenome", 
+                      "Single cell / metagenome", "Bulk", "Single cell / metagenome", 
+                      "Single cell / metagenome", "Single cell / metagenome", "Single cell / metagenome", 
+                      "Single cell / metagenome", "Bulk", "Bulk", 
+                      "Single cell / metagenome", "Bulk", "Single cell / metagenome", 
+                      "Single cell / metagenome", "Bulk", "Single cell / metagenome",
+                      "Bulk", "Bulk", "Bulk", 
+                      "Single cell / metagenome", "Single cell / metagenome"),
+             BaseMethod = c("circMeta", "circMeta", "DESeq2", 
+                            "DESeq2", "DESeq2", "glmGamPoi", 
+                            "DESeq2", "DESeq2", "DESeq2", 
+                            "DESeq2", "DESingle", "edgeR", 
+                            "edgeR", "edgeR", "edgeR", 
+                            "edgeR", "edgeR", "edgeR", 
+                            "limma", "lncDIFF", "MAST", 
+                            "metagenomeSeq", "monocle", "NBID", 
+                            "NBID", "NOISeqBIO", "PoissonSeq", 
+                            "ROTS", "SAMseq", "Seurat", 
+                            "Seurat", "Voom", "Voom", 
+                            "Voom", "Voom", "Voom", 
+                            "Voom", "Wilcoxon"))
+```
+
+```{r}
+method_colors <- setNames(object = gg_color_hue(length(method_types$Method)), 
+                          nm = method_types$Method)
+
+method_types_colors.dt <- 
+  merge(data.table(data.frame(Color = method_colors), keep.rownames = "Method"), 
+        method_types, 
+        by = "Method")[, .(Color = head(Color, 1)), by = BaseMethod]
+
+# method_types_colors <- sapply(split(method_types_colors.dt, method_types_colors.dt$BaseMethod),
+#                               function(x) setNames(x$Color, x$BaseMethod), USE.NAMES = F)
+method_types_colors <- unlist(split(method_types_colors.dt$Color, method_types_colors.dt$BaseMethod))
+```
+
+## Base tiles
+
+```{r, fig.width=7, fig.height=4}
+plot_dt <- melt(method_types, id.vars = c("Method"))
+
+plot_base_method_tile <-
+  ggplot(plot_dt, aes(x = Method, y = variable, fill = value)) +
+  geom_tile(color = "white", width = 0.9, height = 0.9, size = .5) +
+  coord_cartesian(expand = F) +
+  labs(x = NULL, y = NULL) +
+  scale_fill_manual(values = c(method_types_colors, 
+                               "Bulk" = "black", 
+                               "Single cell / metagenome" = "grey")) +
+  guides(fill = guide_legend(title = "Method base / type", 
+                             title.position = "top", 
+                             title.hjust = .5)) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5),
+        legend.position = "bottom",
+        panel.grid = element_blank())
+
+plot_base_method_tile
+```
+
+## Base tiles borders
+
+```{r, fig.width=7,5, fig.height=3.5}
+plot_dt <- method_types
+
+plot_base_method_tile_wborder <- 
+  ggplot(plot_dt, aes(x = Method, 
+                      y = "",
+                      fill = BaseMethod)) +
+  geom_tile(aes(color = Type, width = 0.7, height = 0.7), size = 1) +
+  coord_cartesian(expand = F) +
+  labs(x = NULL, y = NULL) +
+  scale_fill_manual(values = method_types_colors) +
+  scale_color_manual(values = c("Bulk" = "black", 
+                                "Single cell / metagenome" = "grey")) +
+  guides(fill = guide_legend(title = "Base method", 
+                             title.position = "top", 
+                             title.hjust = .5),
+         color = guide_legend(title = "Method purpose", 
+                              title.position = "top", 
+                              title.hjust = .5, direction = "v", override.aes = list(fill = NA))) +
+  # facet_grid(cols = vars(Type), scales = "free_x", space = "free_x", drop = T) +
+  theme_minimal() +
+  # theme_void() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5),
+        panel.grid = element_blank(),
+        legend.position = "bottom", 
+        panel.spacing.x = unit(.1, "lines"))
+
+plot_base_method_tile_wborder
+```
+
+## Base tile facets
+
+```{r, fig.width=7, fig.height=4}
+plot_dt <- method_types
+
+plot_base_method_tile_facet <- 
+  ggplot(plot_dt, aes(x = Method, 
+                      y = "",
+                      fill = BaseMethod)) +
+  geom_tile(color = "white", width = 0.9, height = 0.9, size = .5) +
+  coord_cartesian(expand = F) +
+  labs(x = NULL, y = NULL) +
+  scale_fill_manual(values = method_types_colors) +
+  scale_color_manual(values = c("Bulk" = "black", 
+                                "Single cell / metagenome" = "grey")) +
+  guides(fill = guide_legend(title = "Base method", 
+                             title.position = "top", 
+                             title.hjust = .5),
+         color = guide_legend(title = "Method purpose", 
+                              title.position = "top", 
+                              title.hjust = .5, direction = "v", override.aes = list(fill = NA))) +
+  facet_grid(cols = vars(Type), scales = "free_x", space = "free_x", drop = T, switch = "x") +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5),
+        panel.border = element_blank(),
+        axis.ticks = element_blank(),
+        panel.grid = element_blank(), 
+        strip.placement = "outside",
+        strip.background = element_rect(fill = NA),
+        legend.position = "bottom", 
+        panel.spacing.x = unit(.1, "lines"))
+
+plot_base_method_tile_facet
+```
+
+## Base text
+
+```{r, fig.width=7, fig.height=3.5}
+plot_dt <- 
+  melt(copy(method_types)[, c("Base", "Parameters", "Test") := tstrsplit(Method, "_")][, .(Method,
+                                                                                           BaseMethod,
+                                                                                           Parameters,
+                                                                                           Test)], 
+                id.vars = c("Method"))
+
+plot_base_method_text <-
+  ggplot(plot_dt, aes(x = Method, y = variable, fill = value)) +
+  # geom_tile(color = "white", width = 0.9, height = 0.9, size = .5) +
+  geom_text(aes(label = value), angle = 90, hjust = 0.5, vjust = .5) +
+  # coord_cartesian(expand = F) +
+  labs(x = NULL, y = NULL) +
+  # scale_fill_manual(values = c(method_types_colors, 
+  #                              "Bulk" = "black", 
+  #                              "Single cell / metagenome" = "grey")) +
+  # guides(fill = guide_legend(title = "Method base / type", 
+  #                            title.position = "top", 
+  #                            title.hjust = .5)) +
+  theme_minimal() +
+  theme(axis.text.x = element_blank(),
+        legend.position = "bottom",
+        panel.grid = element_blank())
+
+plot_base_method_text
+```
+
+## Base text facets
+
+```{r, fig.width=7, fig.height=3.5}
+plot_dt <- 
+  melt(copy(method_types)[, c("Base", "Parameters", "Test") := tstrsplit(Method, "_")][, .(Method,
+                                                                                           Type,
+                                                                                           BaseMethod,
+                                                                                           Parameters,
+                                                                                           Test)], 
+                id.vars = c("Method", "Type"))
+
+plot_base_method_text_facet <-
+  ggplot(plot_dt, aes(x = Method, y = variable, fill = value)) +
+  # geom_tile(color = "white", width = 0.9, height = 0.9, size = .5) +
+  geom_text(aes(label = value), angle = 90, hjust = 0.5, vjust = .5) +
+  # coord_cartesian(expand = F) +
+  labs(x = NULL, y = NULL) +
+  # scale_fill_manual(values = c(method_types_colors, 
+  #                              "Bulk" = "black", 
+  #                              "Single cell / metagenome" = "grey")) +
+  # guides(fill = guide_legend(title = "Method base / type", 
+  #                            title.position = "top", 
+  #                            title.hjust = .5)) +
+  facet_grid(cols = vars(Type), scales = "free_x", space = "free_x", drop = T, switch = "x") +
+  # theme_minimal() +
+  # theme(axis.text.x = element_blank(), 
+  #       legend.position = "bottom",
+  #       panel.grid = element_blank())
+  theme_bw() +
+  theme(axis.text.x = element_blank(), 
+        panel.border = element_blank(),
+        axis.ticks = element_blank(),
+        panel.grid = element_blank(), 
+        strip.placement = "outside",
+        strip.background = element_rect(fill = NA),
+        legend.position = "bottom", 
+        panel.spacing.x = unit(.1, "lines"))
+
+
+plot_base_method_text_facet
+```
+
+## Colored base text facets
+
+```{r, fig.width=7, fig.height=2.5}
+plot_dt <- 
+  melt(copy(method_types)[, c("Base", "Parameters", 
+                              "Test") := tstrsplit(Method, "_")][, .(Method,
+                                                                     Type,
+                                                                     `Base tool` = BaseMethod,
+                                                                     Parameters,
+                                                                     Test)], 
+                id.vars = c("Method", "Type"))
+
+plot_dt$variable <- factor(plot_dt$variable, levels = rev(levels(plot_dt$variable)), ordered = T)
+
+plot_base_method_color_text_facet <-
+  ggplot(plot_dt, 
+         aes(x = Method, 
+             # y = str_wrap(variable, width = 6), 
+             y = variable, 
+             color = Method)) +
+  geom_text(aes(label = value), 
+            angle = 90, 
+            hjust = 0.3, 
+            # vjust = .5, 
+            size = 3) +
+  labs(x = NULL, y = NULL) +
+  coord_cartesian(clip = "off") +
+  scale_color_manual(values = method_colors, guide = "none") +
+  facet_grid(cols = vars(Type), 
+             rows = vars(variable),
+             switch = "x",
+             scales = "free", space = "free", drop = T) +
+  theme_bw() +
+  theme(axis.text.x = element_blank(), 
+        # axis.text.y = element_text(angle = 90, hjust = .5),
+        axis.text.y = element_blank(),
+        text = element_text(size = 10),
+        panel.border = element_blank(),
+        axis.ticks = element_blank(),
+        panel.grid = element_blank(), 
+        # strip.placement = "outside",
+        strip.background = element_rect(fill = NA),
+        # legend.position = "bottom", 
+        panel.spacing.y = unit(0.05, "lines"),
+        panel.spacing.x = unit(.1, "lines"))
+
+plot_base_method_color_text_facet
+```
+
 # Type I error data set
 
 ```{r}
@@ -152,15 +433,27 @@ msbAssay_dt <-
 ### Table
 
 ```{r}
-show_dt <- copy(msbAssay_dt)
+# show_dt <- copy(msbAssay_dt)
+
+show_dt <- 
+  dcast(melt(msbAssay_dt, 
+             id.vars = c("Source_ds", "SetSize", 
+                         "Method"))[grepl("^TNR", variable), 
+                                    `:=`(value = 1 - value)][, `:=`(variable = sub("TNR", "FPR", 
+                                                                                   variable))][], 
+        Source_ds + SetSize + Method ~ variable, value.var = "value")
+
+show_dt <- merge(method_types, show_dt, by = "Method")
 show_dt$SetSize <- factor(show_dt$SetSize)
 show_dt$Method <- factor(show_dt$Method)
+show_dt$BaseMethod <- factor(show_dt$BaseMethod)
+show_dt$Type <- factor(show_dt$Type)
 
-datatable(show_dt, 
+  datatable(show_dt, 
           caption = paste("Alphas:", paste(alpha_targets, collapse = "/")),
           rownames = F, 
           filter = "top") %>%
-  formatRound(value_cols, 3)
+  formatRound(sub("TNR", "FPR", value_cols), 3)
 ```
 
 ### Plot
@@ -237,15 +530,34 @@ msbAssay_dt <-
 ```
 
 ```{r}
-show_dt <- copy(msbAssay_dt)
+# show_dt <- copy(msbAssay_dt)
+# show_dt$SetSize <- factor(show_dt$SetSize)
+# show_dt$Method <- factor(show_dt$Method)
+# 
+# datatable(show_dt, 
+#           caption = paste("Alphas:", paste(alpha_targets, collapse = "/")),
+#           rownames = F, 
+#           filter = "top") %>%
+#   formatRound(value_cols, 3)
+show_dt <- 
+  dcast(melt(msbAssay_dt, 
+             id.vars = c("SetSize", 
+                         "Method"))[grepl("^TNR", variable), 
+                                    `:=`(value = 1 - value)][, `:=`(variable = sub("TNR", "FPR", 
+                                                                                   variable))][], 
+        SetSize + Method ~ variable, value.var = "value")
+
+show_dt <- merge(method_types, show_dt, by = "Method")
 show_dt$SetSize <- factor(show_dt$SetSize)
 show_dt$Method <- factor(show_dt$Method)
+show_dt$BaseMethod <- factor(show_dt$BaseMethod)
+show_dt$Type <- factor(show_dt$Type)
 
-datatable(show_dt, 
+  datatable(show_dt, 
           caption = paste("Alphas:", paste(alpha_targets, collapse = "/")),
           rownames = F, 
           filter = "top") %>%
-  formatRound(value_cols, 3)
+  formatRound(sub("TNR", "FPR", value_cols), 3)
 ```
 
 ### Average dot-line plot
@@ -288,16 +600,23 @@ ggplot(plot_dt, #[grepl(tnr_pattern, variable)],
 ```{r, fig.width=14.5, fig.height=8.5}
 idvars <- c("SetSize", "Method")
 plot_dt <- melt(sbAssay_dt[, c(idvars, 
-                             grep(tnr_pattern, 
-                                  colnames(sbAssay_dt), 
-                                  value = T)), with = F], 
+                               grep(tnr_pattern, 
+                                    colnames(sbAssay_dt), 
+                                    value = T)), with = F], 
                 id.vars = idvars)
 
 plot_dt$Alpha <- sub("TNR_", "", plot_dt$variable)
 
-## no need this: all methods gave results in all the data sets 
-# n_points <- plot_dt[, .N, by = .(SetSize, Method, Alpha)] 
+plot_dt <- merge(method_types, plot_dt, by = "Method")
 
+## NB: all methods gave results in all the data sets. 
+## Plot the numbers for consistency with the other plots below
+n_points <- plot_dt[, .N, by = .(SetSize, Method, Alpha)]
+n_points <- merge(method_types, n_points, by = "Method")
+```
+
+
+```{r, fig.width=14.5, fig.height=8.5}
 ggplot(plot_dt, 
        aes(x = Method, y = 1 - value, color = Method)) +
   geom_hline(data = unique(plot_dt[, c("SetSize", "Alpha"), with = F]), 
@@ -305,13 +624,13 @@ ggplot(plot_dt,
              linetype = "dashed") +
   geom_boxplot(outlier.size = .5, varwidth = T) + #outlier.shape = NA, 
   # geom_jitter(width = .1, size = .6) +
-  # geom_text(data = n_points,
-  #             aes(y = Inf, #y
-  #                 label = paste0("n = ", formatC(N, width = 3, format = "d", flag = "0"), " ")),
-  #             angle = 90, color = "black",
-  #             hjust = "inward", #0
-  #             vjust = .5,
-  #             fontface = "italic", size = 3) +
+  geom_text(data = n_points,
+              aes(y = Inf, #y
+                  label = paste0("n = ", formatC(N, width = 3, format = "d", flag = "0"), " ")),
+              angle = 90, color = "black",
+              hjust = "inward", #0
+              vjust = .5,
+              fontface = "italic", size = 3) +
   labs(y = "FPR (fraction of circRNAs with P \U2264 \U003B1)", x = NULL) +
   scale_color_discrete(guide = "none") +
   facet_grid(cols = vars(SetSize), rows = vars(Alpha), scales = "free_y") +
@@ -336,6 +655,13 @@ ggplot(plot_dt[Alpha == 0.05],
              linetype = "dashed") +
   geom_boxplot(outlier.size = .5, varwidth = T) + #outlier.shape = NA
   # geom_jitter(width = .1, size = .6) +
+  geom_text(data = n_points[Alpha == 0.05],
+              aes(y = Inf, #y
+                  label = paste0("n = ", formatC(N, width = 3, format = "d", flag = "0"), " ")),
+              angle = 90, color = "black",
+              hjust = "inward", #0
+              vjust = .5,
+              fontface = "italic", size = 3) +
   labs(y = "FPR (fraction of circRNAs with P \U2264 0.05)", x = NULL) +
   scale_color_discrete(guide = "none") +
   scale_shape_discrete(Alpha_plot_label, labels = alpha_targets) +
@@ -364,6 +690,13 @@ ggplot(plot_dt[Alpha == 0.05 & SetSize == "N05"],
              linetype = "dashed") +
   geom_boxplot(outlier.size = .5, varwidth = T) + #outlier.shape = NA
   # geom_jitter(width = .1, size = .6) +
+  geom_text(data = n_points[Alpha == 0.05 & SetSize == "N05"],
+              aes(y = Inf, #y
+                  label = paste0("n = ", formatC(N, width = 3, format = "d", flag = "0"), " ")),
+              angle = 90, color = "black",
+              hjust = "inward", #0
+              vjust = .5,
+              fontface = "italic", size = 3) +
   labs(y = "FPR\n(fraction of circRNAs with P \U2264 0.05)", x = NULL) +
   scale_color_discrete(guide = "none") +
   scale_shape_discrete(Alpha_plot_label, labels = alpha_targets) +
@@ -388,6 +721,13 @@ ggplot(plot_dt[Alpha == 0.05 & SetSize == "N05"],
              linetype = "dashed") +
   geom_boxplot(outlier.size = .5, varwidth = T) + #outlier.shape = NA
   # geom_jitter(width = .1, size = .6) +
+  geom_text(data = n_points[Alpha == 0.05 & SetSize == "N05"],
+              aes(y = Inf, #y
+                  label = paste0("n = ", formatC(N, width = 3, format = "d", flag = "0"), " ")),
+              angle = 0, color = "black",
+              hjust = "inward", #0
+              vjust = .5,
+              fontface = "italic", size = 3) +
   labs(y = "FPR (fraction of circRNAs with P \U2264 0.05)", 
        # title = "5 samples per group", 
        x = NULL) +
@@ -401,6 +741,55 @@ ggplot(plot_dt[Alpha == 0.05 & SetSize == "N05"],
         panel.grid.major.y = element_blank(), 
         panel.grid.minor.y = element_blank())
 ```
+
+### Faceted 0.05, N05
+
+```{r, fig.width=7, fig.height=4}
+plot_fpr_n05_005 <- 
+  ggplot(plot_dt[Alpha == 0.05 & SetSize == "N05"], 
+         aes(x = Method, 
+             y = 1 - value, 
+             color = Method)) +
+  geom_hline(data = unique(plot_dt[, c("SetSize", "Alpha"), 
+                                   with = F])[Alpha == 0.05 & SetSize == "N05"], 
+             aes(yintercept = as.numeric(Alpha)), 
+             linetype = "dashed") +
+  geom_boxplot(outlier.size = .5, varwidth = T) + #outlier.shape = NA
+  # geom_jitter(width = .1, size = .6) +
+  geom_text(data = n_points[Alpha == 0.05 & SetSize == "N05"],
+            aes(y = Inf, #y
+                label = paste0("n = ", formatC(N, width = 3, format = "d", flag = "0"), " ")),
+            angle = 90, color = "black",
+            hjust = "inward", #0
+            vjust = .5,
+            fontface = "italic", size = 3) +
+  labs(y = "FPR\n(fraction of circRNAs with P \U2264 0.05)", x = NULL) +
+  scale_color_discrete(guide = "none") +
+  scale_shape_discrete(Alpha_plot_label, labels = alpha_targets) +
+  scale_y_sqrt(breaks = c(0, 0.01, 0.05, 0.1, 0.25, 0.5, 0.75, 1)) +
+  facet_grid(cols = vars(Type), 
+             scales = "free_x", space = "free", drop = T) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5),
+        panel.spacing.x = unit(.1, "lines"),
+        legend.position = "top", 
+        panel.grid.major.x = element_blank(), 
+        panel.grid.minor.x = element_blank())
+
+plot_fpr_n05_005
+```
+
+```{r}
+# library(patchwork)
+# (plot_fpr_n05_005 + 
+#     theme(axis.text.x = element_blank(),
+#           axis.ticks.x = element_blank())) / 
+#   (plot_base_method_text_facet + 
+#      theme(strip.text = element_blank(), 
+#            strip.placement = "inside", 
+#            plot.margin = unit(c(0, 0, 0, 0), "lines")))
+```
+
 
 ## Characteristics of FP {.tabset}
 
@@ -493,6 +882,126 @@ ggplot(plot_dt[SetSize == "N05"],
         # axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5),
         panel.grid.major.y = element_blank(), 
         panel.grid.minor.y = element_blank())
+```
+
+### StN + bars N05 
+
+```{r, fig.height=6, fig.width=6.692}
+plot_dt <- copy(stn_dt)[SetSize == "N05", .(Source_ds, Method, Val, StN)]
+
+plot_dt <- 
+  rbindlist(list(Measures = plot_dt, 
+                 FalsePositives = unique(plot_dt[, .N, 
+                                                 by = .(Method, Val, 
+                                                        Source_ds)][, .(Source_ds, Method, 
+                                                                        Val = "False positives", 
+                                                                        StN = N)])), 
+            use.names = T, idcol = "Datatype")
+
+plot_dt <- merge(method_types, plot_dt, by = "Method", 
+                 all.x = T)[is.na(StN), `:=`(StN = 0, 
+                                             Val = "False positives", 
+                                             Datatype = "FalsePositives")]
+
+plot_dt$Method <- factor(plot_dt$Method, levels = method_types$Method)
+plot_dt$Val <- factor(capitalize(plot_dt$Val), 
+                      levels = c("CV(CPM)", "Fraction zeros", 
+                                 "Average CPM", "Variance CPM", 
+                                 "False positives"), 
+                      ordered = T)
+
+plot_stn <- 
+  ggplot(plot_dt, 
+         aes(x = Method, y = StN)) +
+  geom_hline(data = ~ subset(.x, Datatype == "Measures"), 
+             aes(yintercept = 0), 
+             linetype = "dashed") +
+  geom_boxplot(data = ~ subset(.x, Datatype == "Measures"), 
+               aes(color = Method), 
+               outlier.size = .5, 
+               varwidth = F) + 
+  geom_col(data = ~ subset(.x, Datatype == "FalsePositives"), 
+           aes(fill = Source_ds)) +
+  labs(x = NULL, y = "Signal-to-noise statistics (DECs / not DECs)") +
+  scale_color_discrete(guide = "none") +
+  # scale_fill_brewer(name = "Data set", palette = "Set2", direction = -1) +
+  scale_fill_tableau(name = "Data set", direction = -1, na.translate = F,
+                     guide = guide_legend(title.position = "left", 
+                                          # title.hjust = .5, 
+                                          title.vjust = 1,
+                                          nrow = 1)) +
+  scale_x_discrete(guide = guide_axis(angle = 90)) +
+  facet_grid(rows = vars(Val), 
+             cols = vars(Type),
+             scales = "free", 
+             space = "free_x",
+             drop = T) +
+  theme_bw() +
+  theme(strip.background = element_rect(fill = NA),
+        legend.position = c(.235, .155), 
+        legend.background = element_blank(),
+        legend.direction = "horizontal",
+        legend.key.size = unit(.7, "lines"),
+        text = element_text(size = 10),
+        panel.spacing.x = unit(.05, "lines"),
+        panel.spacing.y = unit(.15, "lines"),        
+        panel.grid.major.x = element_blank(), 
+        panel.grid.minor.x = element_blank(),
+        panel.grid.minor.y = element_blank())
+
+plot_stn
+```
+
+### N05 FPR + Signal-to-noise
+
+```{r, fig.height=8.858, fig.width=6.692}
+wrap_plots((plot_fpr_n05_005 + ylab("FPR (P \U2264 0.05)") +
+             theme(strip.background = element_rect(fill = NA), 
+                   plot.margin = unit(c(0, 0, 0, 0), "lines"),
+                   axis.ticks.x = element_blank(),
+                   axis.text.x = element_blank())), 
+           (plot_stn + 
+             theme(strip.text.x = element_blank(),
+                   plot.margin = unit(c(0, 0, 0, 0), "lines"))), 
+           heights = c(1.85, 5),
+           ncol = 1) & 
+  plot_annotation(tag_levels = 'a') &
+  theme(panel.spacing.x = unit(.05, "lines"),
+        text = element_text(size = 10), 
+        plot.tag = element_text(hjust = -1, vjust = -1, size = 12))
+```
+
+### N05 FPR + Signal-to-noise + namebox
+
+```{r, fig.height=8.858, fig.width=6.692}
+panel_a <- 
+  (plot_fpr_n05_005 + ylab("FPR (P \U2264 0.05)") +
+             theme(strip.text.x = element_blank(),
+                   strip.background = element_rect(fill = NA), 
+                   plot.margin = unit(c(0, 0, 0, 0), "lines"),
+                   axis.ticks.x = element_blank(),
+                   axis.text.x = element_blank()))
+
+panel_b <- 
+  (plot_stn + 
+                theme(strip.text.x = element_blank(),
+                      plot.margin = unit(c(0, 0, 0, 0), "lines"),
+                      # axis.ticks.x = element_blank(),
+                      axis.text.x = element_blank()))
+
+bottom_box <- 
+  (plot_base_method_color_text_facet +
+     theme(plot.margin = unit(c(0, 0, 0, 0), "lines"))) 
+  
+wrap_plots(panel_a, 
+           panel_b,
+           bottom_box, 
+           heights = c(1.5, 5, 2.2),
+           ncol = 1) &
+  plot_annotation(tag_levels = 'a') &
+  theme(panel.spacing.x = unit(.05, "lines"),
+        text = element_text(size = 10), 
+        plot.tag = element_text(hjust = -1, vjust = -1, size = 12))
 ```
 
 
@@ -766,6 +1275,38 @@ ggplot(plot_dt[SetSize == "N05" & variable == 0.05],
   theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5),
         panel.grid.major.x = element_blank(),
         legend.position = "top")
+```
+
+Faceted N05, beta = 0.05  
+
+```{r, fig.width=7, fig.height=4.5}
+## Avg TPR
+ggplot(merge(method_types, 
+             plot_dt[SetSize == "N05" & variable == 0.05], 
+             by = "Method"),
+       aes(x = Method, y = value, color = Method)) +
+  geom_boxplot(outlier.size = .5, varwidth = F) + #outlier.shape = NA
+  # geom_jitter(width = .1, size = .5) +
+  geom_text(data = merge(method_types, 
+                         n_points[SetSize == "N05" & variable == 0.05], 
+                         by = "Method"), 
+            aes(y = 1.25,
+                label = paste0("n = ", formatC(N, width = 3, format = "d", flag = "0"), " ")), 
+            angle = 90, color = "black",
+            hjust = "inward", #0
+            vjust = .5, 
+            fontface = "italic", size = 3) +
+  labs(x = NULL, y = "TPR at adjusted P = 0.05") +
+  scale_color_discrete(guide = "none") +
+  scale_shape_discrete("Source data set") +
+  scale_y_continuous(breaks = c(0, .25, .5, .75, 1)) +
+  facet_grid(cols = vars(Type), scales = "free_x", space = "free_x") +
+  # scale_y_sqrt() +
+  # coord_cartesian(ylim = c(0, 1)) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5),
+        panel.grid.major.x = element_blank(),
+        legend.position = "top", panel.spacing.x = unit(.1, "lines"))
 ```
 
 
