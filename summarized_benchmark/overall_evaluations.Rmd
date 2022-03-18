@@ -455,7 +455,7 @@ msbAssay_dt <-
            by = .(Source_ds, SetSize, Method)]
 ```
 
-### Table
+### Table means
 
 ```{r}
 # show_dt <- copy(msbAssay_dt)
@@ -481,7 +481,7 @@ show_dt$Type <- factor(show_dt$Type)
   formatRound(sub("TNR", "FPR", value_cols), 3)
 ```
 
-### Plot
+### Plot P-val
 
 ```{r}
 tnr_pattern <- "^TNR_0\\.[015]{2}$" 
@@ -514,7 +514,7 @@ ggplot(plot_dt,
         legend.position = "top")
 ```
 
-### Plot
+### Plot source ds
 
 ```{r, fig.width=14.5, fig.height=8.5}
 ## Avg FPR = 1 - TNR
@@ -536,12 +536,12 @@ ggplot(plot_dt,
         legend.position = "top")
 ```
 
-## FPR - overall mean {.tabset}
+## FPR - overall mean / median {.tabset}
 
 Fraction of circRNAs with P-value below the thresholds (0.01, or 0.05, or 0.10)\
 N.B: y-axis are square-root transformed for increased visibility
 
-### Table
+### Table means
 
 ```{r}
 value_cols <- 
@@ -555,15 +555,6 @@ msbAssay_dt <-
 ```
 
 ```{r}
-# show_dt <- copy(msbAssay_dt)
-# show_dt$SetSize <- factor(show_dt$SetSize)
-# show_dt$Method <- factor(show_dt$Method)
-# 
-# datatable(show_dt, 
-#           caption = paste("Alphas:", paste(alpha_targets, collapse = "/")),
-#           rownames = F, 
-#           filter = "top") %>%
-#   formatRound(value_cols, 3)
 show_dt <- 
   dcast(melt(msbAssay_dt, 
              id.vars = c("SetSize", 
@@ -577,29 +568,27 @@ show_dt$SetSize <- factor(show_dt$SetSize)
 show_dt$Method <- factor(show_dt$Method)
 show_dt$BaseMethod <- factor(show_dt$BaseMethod)
 show_dt$Type <- factor(show_dt$Type)
+colnames(show_dt) <- gsub("_", " ", colnames(show_dt))
 
-  datatable(show_dt, 
-          caption = paste("Alphas:", paste(alpha_targets, collapse = "/")),
+datatable(show_dt, 
+          caption = paste("Means. Alphas:", paste(alpha_targets, collapse = "/")),
           rownames = F, 
           filter = "top") %>%
-  formatRound(sub("TNR", "FPR", value_cols), 3)
+  formatRound(sub("TNR", "FPR", gsub("_", " ", value_cols)), 3)
 ```
 
 ### Average dot-line plot
 
-```{r}
+```{r, fig.width=14.5, fig.height=5.5}
 tnr_pattern <- "^TNR_0\\.[015]{2}$" 
-Alpha_plot_label <- "P-value \U2264"
+Alpha_plot_label <- "P-value \U2264 \U003B1"
 
-# plot_dt <- melt(msbAssay_dt, id.vars = c("SetSize", "Method"))
 plot_dt <- melt(msbAssay_dt, 
-                id.vars = c("SetSize", #"Source_ds"
+                id.vars = c("SetSize",
                             "Method"))[grepl(tnr_pattern, variable)]
 
 plot_dt[, variable := sub("TNR_", "", variable)]
-```
 
-```{r, fig.width=14.5, fig.height=5.5}
 ## Avg FPR = 1 - TNR
 ggplot(plot_dt, #[grepl(tnr_pattern, variable)], 
        aes(x = Method, y = 1 - value)) + ## square-root transformed y-axis for increased visibility
@@ -618,6 +607,147 @@ ggplot(plot_dt, #[grepl(tnr_pattern, variable)],
   theme_bw() +
   theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5),
         legend.position = "top")
+```
+
+### Average set size improve
+
+```{r, fig.width=6.69, fig.height=8.85}
+tnr_pattern <- "^TNR_0\\.[015]{2}$" 
+Alpha_plot_label <- "P-value \U2264 \U003B1"
+
+plot_dt <- melt(msbAssay_dt, 
+                id.vars = c("SetSize",
+                            "Method"))[grepl(tnr_pattern, variable)]
+
+plot_dt[, variable := sub("TNR_", "", variable)]
+
+plot_dt <- merge(method_types, plot_dt, by = "Method")
+plot_dt$Method <- str_wrap(gsub("_", " ", plot_dt$Method), 10)
+
+
+## Avg FPR = 1 - TNR
+ggplot(plot_dt, 
+       aes(x = SetSize, y = 1 - value)) + 
+  geom_hline(yintercept = 0.01, 
+             color = brewer_pal(palette = "Set2")(3)[1], #"grey30", 
+             linetype = "dashed") +
+  geom_hline(yintercept = 0.05, 
+             color = brewer_pal(palette = "Set2")(3)[2], #"grey30", 
+             linetype = "dashed") +
+  geom_hline(yintercept = 0.10, 
+             color = brewer_pal(palette = "Set2")(3)[3], #"grey30", 
+             linetype = "dashed") +
+  geom_line(aes(group = variable, color = variable)) +
+  geom_point(aes(shape = variable, color = variable), size = 2, fill = "white") +
+  labs(y = "FPR (average fraction of circRNAs with P \U2264 \U003B1)", x = NULL) +
+  scale_color_brewer(Alpha_plot_label, 
+                     palette = "Set2",
+                     labels = alpha_targets, 
+                     guide = guide_legend(title.position = "left", 
+                                          reverse = T)) +
+  scale_shape_manual(Alpha_plot_label, 
+                     labels = alpha_targets, 
+                     values = 21:23, 
+                     guide = guide_legend(title.position = "left", 
+                                          reverse = T)) +
+  facet_wrap(~ Method, 
+             scales = "fixed") +
+  scale_y_sqrt(breaks = c(0, 0.01, 0.05, 0.1, 
+                          0.25, 0.5, 0.75, 1)) + ## square-root transformed y-axis for increased visibility
+  theme_bw() +
+  theme(legend.position = c(.7, .05), 
+        text = element_text(size = 9),
+        strip.text = element_text(margin = margin(.01, .1, .01, .1, "lines")),
+        panel.spacing.x = unit(.1, "lines"),
+        panel.grid.major.x = element_blank())
+```
+
+### Table medians
+
+```{r}
+value_cols <- 
+  c(grep("rejections", colnames(sbAssay_dt), value = T),
+    grep("TNR", colnames(sbAssay_dt), value = T))
+
+mdsbAssay_dt <- 
+  sbAssay_dt[, lapply(.SD, median, na.rm = T), 
+             .SDcols = value_cols,
+             by = .(SetSize, Method)]
+```
+
+```{r}
+show_dt <- 
+  dcast(melt(mdsbAssay_dt, 
+             id.vars = c("SetSize", 
+                         "Method"))[grepl("^TNR", variable), 
+                                    `:=`(value = 1 - value)][, `:=`(variable = sub("TNR", "FPR", 
+                                                                                   variable))][], 
+        SetSize + Method ~ variable, value.var = "value")
+
+show_dt <- merge(method_types, show_dt, by = "Method")
+show_dt$SetSize <- factor(show_dt$SetSize)
+show_dt$Method <- factor(show_dt$Method)
+show_dt$BaseMethod <- factor(show_dt$BaseMethod)
+show_dt$Type <- factor(show_dt$Type)
+colnames(show_dt) <- gsub("_", " ", colnames(show_dt))
+
+datatable(show_dt, 
+          caption = paste("Alphas:", paste(alpha_targets, collapse = "/")),
+          rownames = F, 
+          filter = "top") %>%
+  formatRound(sub("TNR", "FPR", gsub("_", " ", value_cols)), 3)
+```
+
+### Median set size improve
+
+```{r, fig.width=6.69, fig.height=8.85}
+tnr_pattern <- "^TNR_0\\.[015]{2}$" 
+Alpha_plot_label <- "P-value \U2264 \U003B1"
+
+plot_dt <- melt(mdsbAssay_dt, 
+                id.vars = c("SetSize",
+                            "Method"))[grepl(tnr_pattern, variable)]
+
+plot_dt[, variable := sub("TNR_", "", variable)]
+
+plot_dt <- merge(method_types, plot_dt, by = "Method")
+plot_dt$Method <- str_wrap(gsub("_", " ", plot_dt$Method), 10)
+
+
+ggplot(plot_dt, 
+       aes(x = SetSize, y = 1 - value)) + 
+  geom_hline(yintercept = 0.01, 
+             color = brewer_pal(palette = "Set2")(3)[1], #"grey30", 
+             linetype = "dashed") +
+  geom_hline(yintercept = 0.05, 
+             color = brewer_pal(palette = "Set2")(3)[2], #"grey30", 
+             linetype = "dashed") +
+  geom_hline(yintercept = 0.10, 
+             color = brewer_pal(palette = "Set2")(3)[3], #"grey30", 
+             linetype = "dashed") +
+  geom_line(aes(group = variable, color = variable)) +
+  geom_point(aes(shape = variable, color = variable), size = 2, fill = "white") +
+  labs(y = "FPR (median fraction of circRNAs with P \U2264 \U003B1)", x = NULL) +
+  scale_color_brewer(Alpha_plot_label, 
+                     palette = "Set2",
+                     labels = alpha_targets, 
+                     guide = guide_legend(title.position = "left", 
+                                          reverse = T)) +
+  scale_shape_manual(Alpha_plot_label, 
+                     labels = alpha_targets, 
+                     values = 21:23, 
+                     guide = guide_legend(title.position = "left", 
+                                          reverse = T)) +
+  facet_wrap(~ Method, 
+             scales = "fixed") +
+  scale_y_sqrt(breaks = c(0, 0.01, 0.05, 0.1, 
+                          0.25, 0.5, 0.75, 1)) + ## square-root transformed y-axis for increased visibility
+  theme_bw() +
+  theme(legend.position = c(.7, .05), 
+        text = element_text(size = 9),
+        strip.text = element_text(margin = margin(.01, .1, .01, .1, "lines")),
+        panel.spacing.x = unit(.1, "lines"),
+        panel.grid.major.x = element_blank())
 ```
 
 ### Boxplot SetSize x Alpha
@@ -748,76 +878,7 @@ ggplot(plot_dt[Alpha == 0.05 & SetSize == "N05"],
         panel.grid.minor.x = element_blank())
 ```
 
-### Vert Alpha = 0.05, set size = N05
-
-```{r, fig.height=7, fig.width=5}
-ggplot(plot_dt[Alpha == 0.05 & SetSize == "N05"], 
-       aes(x = Method, 
-           y = 1 - value, 
-           color = Method)) +
-  geom_hline(data = unique(plot_dt[, c("SetSize", "Alpha"), 
-                                   with = F])[Alpha == 0.05 & SetSize == "N05"], 
-             aes(yintercept = as.numeric(Alpha)), 
-             linetype = "dashed") +
-  geom_boxplot(outlier.size = .5, varwidth = T) + #outlier.shape = NA
-  # geom_jitter(width = .1, size = .6) +
-  geom_text(data = n_points[Alpha == 0.05 & SetSize == "N05"],
-              aes(y = Inf, #y
-                  label = paste0("n = ", formatC(N, width = 3, format = "d", flag = "0"), " ")),
-              angle = 0, color = "black",
-              hjust = "inward", #0
-              vjust = .5,
-              fontface = "italic", size = 3) +
-  labs(y = "FPR (fraction of circRNAs with P \U2264 0.05)", 
-       # title = "5 samples per group", 
-       x = NULL) +
-  scale_color_discrete(guide = "none") +
-  scale_x_discrete(limits = rev) +
-  scale_y_sqrt(breaks = c(0, 0.01, 0.05, 0.1, 0.25, 0.5, 0.75, 1)) +
-  coord_flip() +
-  theme_bw() +
-  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5),
-        legend.position = "top", 
-        panel.grid.major.y = element_blank(), 
-        panel.grid.minor.y = element_blank())
-```
-
 ### Faceted 0.05, N05
-
-```{r, fig.width=7, fig.height=4}
-# plot_fpr_n05_005 <- 
-#   ggplot(plot_dt[Alpha == 0.05 & SetSize == "N05"], 
-#          aes(x = Method, 
-#              y = 1 - value, 
-#              color = Method)) +
-#   geom_hline(data = unique(plot_dt[, c("SetSize", "Alpha"), 
-#                                    with = F])[Alpha == 0.05 & SetSize == "N05"], 
-#              aes(yintercept = as.numeric(Alpha)), 
-#              linetype = "dashed") +
-#   geom_boxplot(outlier.size = .5, varwidth = T) + #outlier.shape = NA
-#   # geom_jitter(width = .1, size = .6) +
-#   geom_text(data = n_points[Alpha == 0.05 & SetSize == "N05"],
-#             aes(y = Inf, #y
-#                 label = paste0("n = ", formatC(N, width = 3, format = "d", flag = "0"), " ")),
-#             angle = 90, color = "black",
-#             hjust = "inward", #0
-#             vjust = .5,
-#             fontface = "italic", size = 3) +
-#   labs(y = "FPR\n(fraction of circRNAs with P \U2264 0.05)", x = NULL) +
-#   scale_color_discrete(guide = "none") +
-#   scale_shape_discrete(Alpha_plot_label, labels = alpha_targets) +
-#   scale_y_sqrt(breaks = c(0, 0.01, 0.05, 0.1, 0.25, 0.5, 0.75, 1)) +
-#   facet_grid(cols = vars(Type), 
-#              scales = "free_x", space = "free", drop = T) +
-#   theme_bw() +
-#   theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5),
-#         panel.spacing.x = unit(.1, "lines"),
-#         legend.position = "top", 
-#         panel.grid.major.x = element_blank(), 
-#         panel.grid.minor.x = element_blank())
-# 
-# plot_fpr_n05_005
-```
 
 ```{r, fig.width=7, fig.height=4}
 plot_fpr_n05_005 <- 
@@ -1027,26 +1088,25 @@ plot_stn <-
 plot_stn
 ```
 
-### N05 FPR + Signal-to-noise
-
 ```{r, fig.height=8.858, fig.width=6.692}
-wrap_plots((plot_fpr_n05_005 + ylab("FPR") +
-             theme(strip.background = element_rect(fill = NA), 
-                   plot.margin = unit(c(0, 0, 0, 0), "lines"),
-                   axis.ticks.x = element_blank(),
-                   axis.text.x = element_blank())), 
-           (plot_stn + 
-             theme(strip.text.x = element_blank(),
-                   plot.margin = unit(c(0, 0, 0, 0), "lines"))), 
-           heights = c(1.85, 5),
-           ncol = 1) & 
-  plot_annotation(tag_levels = 'a') &
-  theme(panel.spacing.x = unit(.05, "lines"),
-        text = element_text(size = 10), 
-        plot.tag = element_text(hjust = -1, vjust = -1, size = 12))
+### N05 FPR + Signal-to-noise
+# wrap_plots((plot_fpr_n05_005 + ylab("FPR") +
+#              theme(strip.background = element_rect(fill = NA), 
+#                    plot.margin = unit(c(0, 0, 0, 0), "lines"),
+#                    axis.ticks.x = element_blank(),
+#                    axis.text.x = element_blank())), 
+#            (plot_stn + 
+#              theme(strip.text.x = element_blank(),
+#                    plot.margin = unit(c(0, 0, 0, 0), "lines"))), 
+#            heights = c(1.85, 5),
+#            ncol = 1) & 
+#   plot_annotation(tag_levels = 'a') &
+#   theme(panel.spacing.x = unit(.05, "lines"),
+#         text = element_text(size = 10), 
+#         plot.tag = element_text(hjust = -1, vjust = -1, size = 12))
 ```
 
-### N05 FPR + Signal-to-noise + namebox
+## FPR + Signal-to-noise + namebox N05 
 
 ```{r, fig.height=8.858, fig.width=6.692}
 panel_a <- 
