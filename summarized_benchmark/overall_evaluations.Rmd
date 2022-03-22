@@ -125,18 +125,18 @@ method_types <-
                         "seurat_Dt_WLX", "voom_Dt_MFT", "voom_LF_MFT", 
                         "voom_Qn_MFT", "voom_Rb_MFT", "voom_Sp_MFT", 
                         "voom_ZW_MFT", "wilcoxon_TMM_WLX"),
-             Type = c("Bulk", "Bulk", "Bulk", 
-                      "Bulk", "Bulk", "Single cell / metagenome", 
+             Type = c("Bulk RNA-seq", "Bulk RNA-seq", "Bulk RNA-seq", 
+                      "Bulk RNA-seq", "Bulk RNA-seq", "Single cell / metagenome", 
                       "Single cell / metagenome", "Single cell / metagenome", "Single cell / metagenome", 
-                      "Single cell / metagenome", "Single cell / metagenome", "Bulk", 
-                      "Bulk", "Bulk", "Bulk", 
-                      "Bulk", "Single cell / metagenome", "Single cell / metagenome", 
-                      "Single cell / metagenome", "Bulk", "Single cell / metagenome", 
+                      "Single cell / metagenome", "Single cell / metagenome", "Bulk RNA-seq", 
+                      "Bulk RNA-seq", "Bulk RNA-seq", "Bulk RNA-seq", 
+                      "Bulk RNA-seq", "Single cell / metagenome", "Single cell / metagenome", 
+                      "Single cell / metagenome", "Bulk RNA-seq", "Single cell / metagenome", 
                       "Single cell / metagenome", "Single cell / metagenome", "Single cell / metagenome", 
-                      "Single cell / metagenome", "Bulk", "Bulk", 
-                      "Single cell / metagenome", "Bulk", "Single cell / metagenome", 
-                      "Single cell / metagenome", "Bulk", "Single cell / metagenome",
-                      "Bulk", "Bulk", "Bulk", 
+                      "Single cell / metagenome", "Bulk RNA-seq", "Bulk RNA-seq", 
+                      "Single cell / metagenome", "Bulk RNA-seq", "Single cell / metagenome", 
+                      "Single cell / metagenome", "Bulk RNA-seq", "Single cell / metagenome",
+                      "Bulk RNA-seq", "Bulk RNA-seq", "Bulk RNA-seq", 
                       "Single cell / metagenome", "Single cell / metagenome"),
              BaseMethod = c("circMeta", "circMeta", "DESeq2", 
                             "DESeq2", "DESeq2", "glmGamPoi", 
@@ -177,7 +177,7 @@ plot_base_method_tile <-
   coord_cartesian(expand = F) +
   labs(x = NULL, y = NULL) +
   scale_fill_manual(values = c(method_types_colors, 
-                               "Bulk" = "black", 
+                               "Bulk RNA-seq" = "black", 
                                "Single cell / metagenome" = "grey")) +
   guides(fill = guide_legend(title = "Method base / type", 
                              title.position = "top", 
@@ -203,7 +203,7 @@ plot_base_method_tile_wborder <-
   coord_cartesian(expand = F) +
   labs(x = NULL, y = NULL) +
   scale_fill_manual(values = method_types_colors) +
-  scale_color_manual(values = c("Bulk" = "black", 
+  scale_color_manual(values = c("Bulk RNA-seq" = "black", 
                                 "Single cell / metagenome" = "grey")) +
   guides(fill = guide_legend(title = "Base method", 
                              title.position = "top", 
@@ -235,7 +235,7 @@ plot_base_method_tile_facet <-
   coord_cartesian(expand = F) +
   labs(x = NULL, y = NULL) +
   scale_fill_manual(values = method_types_colors) +
-  scale_color_manual(values = c("Bulk" = "black", 
+  scale_color_manual(values = c("Bulk RNA-seq" = "black", 
                                 "Single cell / metagenome" = "grey")) +
   guides(fill = guide_legend(title = "Base method", 
                              title.position = "top", 
@@ -255,78 +255,6 @@ plot_base_method_tile_facet <-
         panel.spacing.x = unit(.1, "lines"))
 
 plot_base_method_tile_facet
-```
-
-## Base text
-
-```{r, fig.width=7, fig.height=3.5}
-plot_dt <- 
-  melt(copy(method_types)[, c("Base", "Parameters", "Test") := tstrsplit(Method, "_")][, .(Method,
-                                                                                           BaseMethod,
-                                                                                           Parameters,
-                                                                                           Test)], 
-                id.vars = c("Method"))
-
-plot_base_method_text <-
-  ggplot(plot_dt, aes(x = Method, y = variable, fill = value)) +
-  # geom_tile(color = "white", width = 0.9, height = 0.9, size = .5) +
-  geom_text(aes(label = value), angle = 90, hjust = 0.5, vjust = .5) +
-  # coord_cartesian(expand = F) +
-  labs(x = NULL, y = NULL) +
-  # scale_fill_manual(values = c(method_types_colors, 
-  #                              "Bulk" = "black", 
-  #                              "Single cell / metagenome" = "grey")) +
-  # guides(fill = guide_legend(title = "Method base / type", 
-  #                            title.position = "top", 
-  #                            title.hjust = .5)) +
-  theme_minimal() +
-  theme(axis.text.x = element_blank(),
-        legend.position = "bottom",
-        panel.grid = element_blank())
-
-plot_base_method_text
-```
-
-## Base text facets
-
-```{r, fig.width=7, fig.height=3.5}
-plot_dt <- 
-  melt(copy(method_types)[, c("Base", "Parameters", "Test") := tstrsplit(Method, "_")][, .(Method,
-                                                                                           Type,
-                                                                                           BaseMethod,
-                                                                                           Parameters,
-                                                                                           Test)], 
-                id.vars = c("Method", "Type"))
-
-plot_base_method_text_facet <-
-  ggplot(plot_dt, aes(x = Method, y = variable, fill = value)) +
-  # geom_tile(color = "white", width = 0.9, height = 0.9, size = .5) +
-  geom_text(aes(label = value), angle = 90, hjust = 0.5, vjust = .5) +
-  # coord_cartesian(expand = F) +
-  labs(x = NULL, y = NULL) +
-  # scale_fill_manual(values = c(method_types_colors, 
-  #                              "Bulk" = "black", 
-  #                              "Single cell / metagenome" = "grey")) +
-  # guides(fill = guide_legend(title = "Method base / type", 
-  #                            title.position = "top", 
-  #                            title.hjust = .5)) +
-  facet_grid(cols = vars(Type), scales = "free_x", space = "free_x", drop = T, switch = "x") +
-  # theme_minimal() +
-  # theme(axis.text.x = element_blank(), 
-  #       legend.position = "bottom",
-  #       panel.grid = element_blank())
-  theme_bw() +
-  theme(axis.text.x = element_blank(), 
-        panel.border = element_blank(),
-        axis.ticks = element_blank(),
-        panel.grid = element_blank(), 
-        strip.placement = "outside",
-        strip.background = element_rect(fill = NA),
-        legend.position = "bottom", 
-        panel.spacing.x = unit(.1, "lines"))
-
-
-plot_base_method_text_facet
 ```
 
 ## Colored base text facets
@@ -928,6 +856,253 @@ plot_fpr_n05_005 <-
 plot_fpr_n05_005
 ```
 
+### Clustered
+
+```{r}
+library(dendsort)
+
+fpr_mat <- 
+  as.matrix(data.frame(dcast(data = sbAssay_dt[, .(Dataset = paste(Source_ds, Dataset), 
+                                                   Method, FPR = 1 - TNR_0.05)], 
+                             formula = Dataset ~ Method, 
+                             value.var = "FPR"), 
+                       row.names = "Dataset"))
+
+# fpr_dists <- as.dist(1- cor(fpr_mat,
+#                             use = "pairwise.complete.obs",
+#                             method = "pearson"))
+
+# # fpr_dists <- dist(t(fpr_mat), method = "euclidean")
+# fpr_dists <- dist(t(abs(fpr_mat - 0.05)), 
+#                   method = "canberra")
+fpr_dists <- dist(t(fpr_mat - 0.05), 
+                  method = "canberra")
+
+fpr_clusts <- dendsort(hclust(fpr_dists, method = "ward.D2"), 
+                       isReverse = T, 
+                       type = "min")
+```
+
+```{r}
+## prepare the dendrogram plot
+# plot(fpr_clusts)
+
+library(ggdendro)
+
+fpr_dendro_ddata <- 
+  dendro_data(as.dendrogram(fpr_clusts),
+              type = "rectangle")
+
+fpr_dendro <- 
+  ggplot(segment(fpr_dendro_ddata), aes(x = x, y = y)) +
+  geom_segment(aes(xend = xend, yend = yend)) +
+  scale_x_continuous(name = NULL, 
+                     trans = "reverse",
+                     breaks = label(fpr_dendro_ddata)$x, 
+                     labels = label(fpr_dendro_ddata)$label, 
+                     expand = c(0, 0),
+                     position = "top") +
+  # scale_y_reverse(name = NULL, expand = c(0, 0.00)) + 
+    # scale_y_sqrt() +
+  coord_cartesian(xlim = c(.5, 38.5)) +
+  labs(x = NULL, y = NULL) +
+  theme_dendro() +
+  # theme(axis.text.x = element_text(color = method_colors[label(fpr_dendro_ddata)$label], 
+  #                                  angle = 90, hjust = 0),
+  #       axis.text.y = element_blank(),
+  #       panel.grid.major.x = element_blank(),
+  #       panel.grid.minor.x = element_blank(),
+  #       panel.grid.major.y = element_blank(),
+  #       panel.grid.minor.y = element_blank())
+  theme()
+
+# fpr_dendro
+```
+
+
+```{r}
+## prepare the method-type color-coded boxes
+plot_dt <- copy(method_types)
+
+plot_dt$Method <- as.integer(factor(plot_dt$Method, 
+                                    levels = label(fpr_dendro_ddata)$label, 
+                                    ordered = T))
+
+plot_base_method_type_tiles <-
+  ggplot(plot_dt, 
+         aes(x = Method, 
+             y = "", fill = Type)) +
+  geom_tile(color = "white", width = 0.9, height = 0.9, 
+            # position = position_nudge(x = -0.5), 
+            size = .5) +
+  scale_x_continuous(name = NULL, 
+                     # trans = "reverse",
+                     breaks = label(fpr_dendro_ddata)$x, 
+                     labels = label(fpr_dendro_ddata)$label, 
+                     expand = c(0, 0),
+                     position = "top") +
+  # coord_cartesian(expand = F) +
+  labs(x = NULL, y = NULL) +
+  # scale_fill_manual(values = c("Bulk" = "black", 
+  #                              "Single cell / metagenome" = "grey")) +
+  scale_fill_manual(values = setNames(tableau_color_pal(palette = "Nuriel Stone")(2),
+                                      c("Bulk RNA-seq", "Single cell / metagenome"))) +
+  guides(fill = guide_legend(title = "Method purpose", 
+                             title.position = "left", 
+                             title.hjust = .5)) +
+  theme_dendro() +
+  # theme_minimal() +
+  # theme(axis.text.x = element_text(angle = 90, hjust = 0, vjust = .5),
+  #       legend.position = "bottom",
+  #       panel.grid = element_blank())
+  theme(legend.position = "bottom")
+
+# plot_base_method_type_tiles
+```
+
+```{r}
+## prepare the colored method text
+plot_dt <- 
+  melt(copy(method_types)[, c("Base", "Parameters", 
+                              "Test") := tstrsplit(Method, "_")][, .(Method,
+                                                                     Type,
+                                                                     `Base tool` = BaseMethod,
+                                                                     Parameters,
+                                                                     Test)], 
+                id.vars = c("Method", "Type"))
+
+plot_dt$Method <- factor(plot_dt$Method,
+                         levels = label(fpr_dendro_ddata)$label,
+                         ordered = T)
+
+colored_method_text <- 
+  ggplot(plot_dt, 
+         aes(x = Method, 
+             # y = str_wrap(variable, width = 6), 
+             y = variable, 
+             color = Method)) +
+  geom_text(aes(label = value), 
+            angle = 90, vjust = .5, 
+            hjust = 0.5,  
+            size = 3) +
+  scale_x_discrete(expand = c(0, 0)) +
+  labs(x = NULL, y = NULL) +
+  coord_cartesian(clip = "off", xlim = c(.5, 38.5)) +
+  scale_color_manual(values = method_colors, guide = "none") +
+  theme(axis.text.x = element_blank(),
+        # axis.text.y = element_text(angle = 90, hjust = .5),
+        axis.text.y = element_blank(),
+        axis.ticks = element_blank(),
+        text = element_text(size = 10),
+        # strip.placement = "outside",
+        strip.background = element_rect(fill = NA),
+        # legend.position = "bottom",
+        panel.border = element_blank(), 
+        panel.background = element_blank(),
+        panel.grid = element_blank(),
+        panel.spacing.y = unit(0.05, "lines"),
+        panel.spacing.x = unit(.1, "lines"))
+ # theme()
+
+# colored_method_text
+```
+
+```{r, fig.width=14.5, fig.height=8.5}
+idvars <- c("SetSize", "Method")
+plot_dt <- melt(sbAssay_dt[, c(idvars, 
+                               grep(tnr_pattern, 
+                                    colnames(sbAssay_dt), 
+                                    value = T)), with = F], 
+                id.vars = idvars)
+
+plot_dt$Alpha <- sub("TNR_", "", plot_dt$variable)
+
+plot_dt <- merge(method_types, plot_dt, by = "Method")
+
+rejections_pval_pattern <- "rejections_0\\.[015]{2}$"
+
+n_points <- 
+  melt(sbAssay_dt[, c(idvars, 
+                      grep(rejections_pval_pattern, 
+                           colnames(sbAssay_dt), 
+                           value = T)), 
+                  with = F], 
+       id.vars = idvars)
+
+n_points$Alpha <- sub("rejections_", "", n_points$variable)
+
+n_points <- n_points[!is.na(value), .N, by = .(SetSize, Method, Alpha)]
+
+n_points <- merge(method_types, n_points, by = "Method")
+
+plot_dt$Method <- factor(plot_dt$Method,
+                         levels = label(fpr_dendro_ddata)$label,
+                         ordered = T)
+
+fpr_dendro_ordered_plot <- 
+  ggplot(plot_dt[Alpha == 0.05 & SetSize == "N05"], 
+         aes(x = Method, 
+             y = 1 - value, 
+             color = Method)) +
+  geom_hline(data = unique(plot_dt[, c("SetSize", "Alpha"), 
+                                   with = F])[Alpha == 0.05 & SetSize == "N05"], 
+             aes(yintercept = as.numeric(Alpha)), 
+             linetype = "dashed") +
+  geom_boxplot(outlier.size = .5, varwidth = T) + 
+  geom_point(data = n_points[Alpha == 0.05 & SetSize == "N05"], 
+           aes(fill = N, size = N, y = 1.2), 
+           color = "black",
+           shape = 21) +
+  scale_fill_viridis_c("Instances", 
+                       breaks = sort(unique(n_points[Alpha == 0.05 & SetSize == "N05", N])),
+                       guide = guide_legend(ncol = 1, title.vjust = 0.5, 
+                                            title.position = "top", label.vjust = .5),
+                       begin = .70, end = .95,
+                       option = "C") +
+  scale_size_continuous("Instances", 
+                        breaks = sort(unique(n_points[Alpha == 0.05 & SetSize == "N05", N])),
+                        guide = guide_legend(ncol = 1, title.vjust = 0.5, 
+                                            title.position = "top", label.vjust = .5),
+                        # breaks = c(30, 90, 120),
+                        range = c(2, 3)) +
+  labs(y = "FPR", x = NULL) +
+  # scale_color_discrete(guide = "none") +
+  scale_color_manual(values = method_colors, guide = "none") +
+  scale_shape_discrete(Alpha_plot_label, labels = alpha_targets) +
+  scale_y_sqrt(breaks = c(0, 0.01, 0.05, 0.1, 0.25, 0.5, 0.75, 1)) +
+  theme_bw() +
+  theme(#axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5),
+    axis.text.x = element_blank(),
+    panel.spacing.x = unit(.1, "lines"), 
+    legend.box.margin = unit(c(-0.5, 0, -.5, 0), "lines"),
+    legend.margin = margin(0, 0, 0, 0, "pt"),
+    legend.background = element_blank(),
+    # legend.position = "top", 
+    legend.position = c(.9, .65), 
+    panel.grid.major.x = element_blank(), 
+    panel.grid.minor.x = element_blank())
+```
+
+```{r, fig.height=8.85, fig.width=6.69}
+## wrap all panels
+fpr_dendro_wrap_plot <- 
+  wrap_plots(wrap_plots(fpr_dendro + theme_void() + 
+                 theme(plot.margin = margin(0, 0, 0, 0, "lines")), 
+             plot_base_method_type_tiles + theme_void() + 
+                 theme(plot.margin = margin(0, 0, 0, 0, "lines")), 
+             ncol = 1, guides = "collect") & 
+               theme(legend.position = "top"), 
+             fpr_dendro_ordered_plot + theme(plot.margin = margin(0, 0, 0, 0, "lines"),
+                                             panel.grid.minor.y = element_blank()), 
+             colored_method_text + theme_void() + 
+                 theme(plot.margin = margin(0, 0, 0, 0, "lines")), 
+             ncol = 1, 
+             heights = c(1.25, 2.5, 3.5))
+
+fpr_dendro_wrap_plot
+```
+
+
 ## Characteristics of FP {.tabset}
 
 ### Signal-to-noise
@@ -1106,7 +1281,9 @@ plot_stn
 #         plot.tag = element_text(hjust = -1, vjust = -1, size = 12))
 ```
 
-## FPR + Signal-to-noise + namebox N05 
+## FPR + Signal-to-noise + namebox N05 {.tabset}
+
+### Faceted
 
 ```{r, fig.height=8.858, fig.width=6.692}
 panel_a <- 
@@ -1139,6 +1316,108 @@ wrap_plots(panel_a,
         plot.tag = element_text(hjust = -1, vjust = -1, size = 12))
 ```
 
+### Clustered 
+
+```{r, fig.height=8.858, fig.width=6.692}
+##############
+n_points <- unique(plot_dt[, .N, 
+                           by = .(Method, Val, 
+                                  Source_ds)][, .(Source_ds, Method, 
+                                                  Val = "Instances", 
+                                                  StN = N)])
+n_points$Method <- 
+  factor(n_points$Method,
+         levels = label(fpr_dendro_ddata)$label,
+         ordered = T)
+
+n_points$Val <- factor(capitalize(n_points$Val), 
+                      levels = c("CV(CPM)", "Fraction zeros", 
+                                 "Average CPM", "Variance CPM",
+                                 "Instances"), 
+                      ordered = T)
+##############
+
+plot_dt <- copy(stn_dt)[SetSize == "N05", .(Source_ds, Method, Val, StN)]
+
+plot_dt$Val <- factor(capitalize(plot_dt$Val), 
+                      levels = c("CV(CPM)", "Fraction zeros", 
+                                 "Average CPM", "Variance CPM",
+                                 "Instances"), 
+                      ordered = T)
+
+plot_dt <- merge(method_types, plot_dt, by = "Method", 
+                 all.x = T)[is.na(StN), `:=`(Val = "Fraction zeros")]
+
+plot_dt$Method <- factor(plot_dt$Method,
+                         levels = label(fpr_dendro_ddata)$label,
+                         ordered = T)
+
+plot_stn_clustered <- 
+  ggplot(plot_dt, 
+         aes(x = Method, y = StN)) +
+  geom_hline(aes(yintercept = 0), 
+             linetype = "dashed") +
+  geom_boxplot(aes(color = Method), 
+               outlier.size = .5, 
+               varwidth = F) + 
+  geom_col(data = n_points,
+           aes(fill = Source_ds),
+           position = position_stack()) +
+  labs(x = NULL, y = "Signal-to-noise statistics (DECs / not DECs)") +
+  scale_color_manual(values = method_colors, guide = "none") +
+  scale_fill_tableau(name = "Origin", direction = -1, na.translate = F,
+                     guide = guide_legend(title.position = "left",
+                                          # title.hjust = .5,
+                                          title.vjust = 1,
+                                          nrow = 1)) +
+  # scale_x_discrete(guide = guide_axis(angle = 90)) +
+  facet_grid(rows = vars(Val), 
+             # cols = vars(Type),
+             scales = "free_y", 
+             # space = "free_x",
+             drop = F) +
+  theme_bw() +
+  theme(strip.background = element_rect(fill = NA),
+        axis.text.x = element_text(angle = 90, vjust = .5, hjust = 1),
+        legend.position = c(.735, .155), 
+        legend.background = element_blank(),
+        legend.direction = "horizontal",
+        legend.key.size = unit(.7, "lines"),
+        text = element_text(size = 10),
+        panel.spacing.x = unit(.05, "lines"),
+        panel.spacing.y = unit(.15, "lines"),        
+        panel.grid.major.x = element_blank(), 
+        panel.grid.minor.x = element_blank(),
+        panel.grid.minor.y = element_blank())
+
+# plot_stn_clustered
+```
+
+```{r, fig.height=8.85, fig.width=6.69}
+## wrap all panels
+fpr_dendro_wrap_plot <- 
+  wrap_plots(wrap_plots(fpr_dendro + theme_void() + 
+                          theme(plot.margin = margin(0, 0, 0, 0, "lines")), 
+                        plot_base_method_type_tiles + theme_void() + 
+                          theme(plot.margin = margin(0, 0, 0, 0, "lines")), 
+                        ncol = 1, heights = c(1, .25),
+                        guides = "collect") & 
+               theme(legend.position = "top"), 
+             fpr_dendro_ordered_plot + theme(plot.margin = margin(0, 0, 0, 0, "lines"),
+                                             axis.ticks.x = element_blank(),
+                                             panel.grid.minor.y = element_blank()), 
+             plot_stn_clustered + theme(plot.margin = margin(0, 0, 0, 0, "lines"),
+                                        axis.text.x = element_blank()),
+             colored_method_text + theme_void() + 
+                 theme(plot.margin = margin(0, 0, 0, 0, "lines")), 
+             ncol = 1, 
+             heights = c(1.25, 2.5, 7, 3.5)) &
+  theme(text = element_text(size = 10))
+  
+
+fpr_dendro_wrap_plot
+```
+
 # DE data sets
 
 ```{r}
@@ -1147,7 +1426,7 @@ sbAssay_dt$DsType <- NULL
 sbAssay_dt$MZP <- NULL
 ```
 
-## Performance {.tabset}
+## Performance
 
 ```{r}
 # setnafill(x = sbAssay_dt, 
@@ -1202,7 +1481,8 @@ n_points <- n_points[!is.na(value), .N, by = .(SetSize, Method, Alpha)]
 n_points <- merge(method_types, n_points, by = "Method")
 ```
 
-### Table - Source set
+### Tables  {.tabset}
+#### Table - Source set
 
 ```{r}
 ## mean by data set
@@ -1248,7 +1528,7 @@ datatable(show_dt,
   formatRound(value_cols, 0)
 ```
 
-### Table - Overall
+#### Table - Overall
 
 ```{r}
 ## overall mean 
@@ -1292,7 +1572,7 @@ datatable(show_dt,
   formatRound(value_cols, 0)
 ```
 
-### FDR
+### FDR {.tabset}
 
 ```{r}
 ## format result data for the plots
@@ -1311,7 +1591,7 @@ plot_dt[is.na(value), value := 1]
 Alpha_plot_label <- "P-adj \U2264"
 ```
 
-Setsize \~ beta
+#### Setsize \~ beta
 
 ```{r, fig.width=14.5, fig.height=8.5}
 # n_points <- plot_dt[!is.na(value), .N, by = .(SetSize, variable, Method)]
@@ -1341,7 +1621,7 @@ ggplot(plot_dt,
         legend.position = "top")
 ```
 
-Beta = 0.05
+#### Beta = 0.05
 
 ```{r, fig.width=14.5, fig.height=5.5}
 ggplot(plot_dt[variable == 0.05], 
@@ -1368,7 +1648,7 @@ ggplot(plot_dt[variable == 0.05],
         panel.grid.minor.y = element_blank())
 ```
 
-Beta = 0.05, set size = N05
+#### Beta = 0.05, set size = N05
 
 ```{r, fig.width=7, fig.height=4}
 ggplot(plot_dt[SetSize == "N05" & variable == 0.05], 
@@ -1394,7 +1674,7 @@ ggplot(plot_dt[SetSize == "N05" & variable == 0.05],
           panel.grid.minor.y = element_blank())
 ```
 
-Faceted FDR
+#### Faceted FDR
 
 ```{r}
 ## format result data for the plots
@@ -1506,7 +1786,9 @@ plot_fdr_faceted <-
 plot_fdr_faceted
 ```
 
-### Recall (TPR)
+### Recall (TPR) {.tabset}
+
+#### Setsize ~ beta / source data
 
 ```{r}
 ## format result data for the plots
@@ -1542,7 +1824,7 @@ ggplot(plot_dt,
         legend.position = "top")
 ```
 
-Set size \~ betas
+#### Set size \~ betas
 
 ```{r}
 ## format result data for the plots
@@ -1589,7 +1871,7 @@ ggplot(plot_dt,
         legend.position = "top")
 ```
 
-Set size \~ beta = 0.05
+#### Set size \~ beta = 0.05
 
 ```{r, fig.width=14.5, fig.height=5.5}
 ## Avg TPR
@@ -1617,7 +1899,7 @@ ggplot(plot_dt[variable == 0.05],
         legend.position = "top")
 ```
 
-N05, beta = 0.05
+#### N05, beta = 0.05
 
 ```{r, fig.width=7, fig.height=4}
 ## Avg TPR
@@ -1644,7 +1926,7 @@ ggplot(plot_dt[SetSize == "N05" & variable == 0.05],
         legend.position = "top")
 ```
 
-Faceted N05, beta = 0.05
+#### Faceted N05, beta = 0.05
 
 ```{r, fig.width=7, fig.height=4.5}
 ## format result data for the plots
@@ -1758,7 +2040,9 @@ plot_tpr_faceted <-
 plot_tpr_faceted
 ```
 
-### Precision (1-FDR)
+### Precision (1-FDR) {.tabset}
+
+#### Setsize ~ beta / source data
 
 ```{r}
 ## format result data for the plots
@@ -1797,7 +2081,7 @@ ggplot(plot_dt,
         legend.position = "top")
 ```
 
-Overall means
+#### Overall means
 
 ```{r}
 ## format result data for the plots
@@ -1844,7 +2128,7 @@ ggplot(plot_dt,
         legend.position = "top")
 ```
 
-Set size \~ beta = 0.05
+#### Set size \~ beta = 0.05
 
 ```{r, fig.width=14.5, fig.height=5.5}
 ## Avg PPV
@@ -1872,7 +2156,7 @@ ggplot(plot_dt[variable == 0.05],
         legend.position = "top")
 ```
 
-N05, beta = 0.05
+#### N05, beta = 0.05
 
 ```{r, fig.width=7, fig.height=4}
 ## PPV N05, beta = 0.05
@@ -1898,6 +2182,8 @@ ggplot(plot_dt[SetSize == "N05" & variable == 0.05],
         panel.grid.major.x = element_blank(),
         legend.position = "top")
 ```
+
+#### Faceted
 
 ```{r, fig.width=7, fig.height=4}
 ## format result data for the plots
@@ -1969,8 +2255,6 @@ plot_ppv_faceted <-
 plot_ppv_faceted
 ```
 
-##  {.unnumbered}
-
 ### F-scores
 
 ```{r}
@@ -2002,8 +2286,8 @@ ds_id_cols <- c("Source_ds", "SetSize", "Method", "DsId", "Dataset")
 fdr_tpr <- 
   melt(sbAssay_dt[, c(value_cols, ds_id_cols), with = F], 
        id.vars = ds_id_cols)[grepl("^FDR_0\\.[015]{2}_padj|^TPR_0\\.[015]{2}_padj", 
-                                variable, 
-                                    perl = F)]
+                                   variable, 
+                                   perl = F)]
 
 f1s <- 
   merge(fdr_tpr[grepl("^FDR_0\\.[015]{2}_padj", 
@@ -2035,7 +2319,8 @@ f1s <-
 # f1s[is.nan(F0.5), F0.5 := 0]
 ```
 
-Mean by source dataset
+#### Tables {.tabset}
+##### Mean by source dataset
 
 ```{r}
 ## compute mean values
@@ -2068,7 +2353,7 @@ datatable(show_dt, rownames = F, filter = "top") %>%
                 "rejections", "frac_failed"), 3)
 ```
 
-Overall mean
+##### Overall mean
 
 ```{r}
 ## compute mean values
@@ -2103,7 +2388,7 @@ datatable(show_dt, rownames = F, filter = "top") %>%
 
 #### F1 {.tabset}
 
-##### Boxplot
+##### Boxplot source ds
 
 ```{r, fig.width=14.5, fig.height=8.5}
 ## Avg F1s
@@ -2123,6 +2408,8 @@ ggplot(mf1s,
         panel.grid.major.x = element_blank(),
         legend.position = "top")
 ```
+
+##### Boxplot set size ~ betas
 
 ```{r, fig.width=14.5, fig.height=8.5}
 ## Avg F1s
@@ -2233,9 +2520,9 @@ plot_f1_faceted
 #                                   "_")][, .(F1 = mean(F1, na.rm = T),
 #                                             sdF1 = sd(F1, na.rm = T)), 
 #                                         by = .(SetSize, Method, Alpha)]
-plot_dt <- omf1s
+plot_dt <- copy(omf1s)
 
-plot_dt$Method <- gsub("_", " ", plot_dt$Method)
+# plot_dt$Method <- gsub("_", " ", plot_dt$Method)
 ```
 
 ```{r, fig.width=14.5}
@@ -2358,6 +2645,8 @@ gt <- patchwork::patchworkGrob(result)
 gridExtra::grid.arrange(gt, left = "Average F1", bottom = NULL)
 ```
 
+##### N05
+
 ```{r, fig.width=7, fig.height=4}
 plot_dt$Method <- factor(plot_dt$Method, 
                          levels = plot_dt[SetSize == "N05" & 
@@ -2404,10 +2693,13 @@ ggplot(mf1s,
              rows = vars(Alpha)) +
   coord_cartesian(ylim = c(0, 1)) +
   theme_bw() +
-  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5),
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5, 
+                                   color = method_colors[sort(unique(mf1s$Method))],),
         panel.grid.major.x = element_blank(),
         legend.position = "top")
 ```
+
+##### Boxplot set size ~ betas
 
 ```{r, fig.width=14.5, fig.height=8.5}
 ## F0.5s
@@ -2424,18 +2716,99 @@ ggplot(f1s,
   coord_cartesian(ylim = c(0, 1)) +
   theme_bw() +
   theme(axis.text.x = element_text(angle = 90, 
-                                   # colour = method_colors[sort(unique(f1s$Method))], 
+                                   colour = method_colors[sort(unique(f1s$Method))],
                                    hjust = 1, vjust = .5),
         panel.grid.major.x = element_blank(),
         legend.position = "top")
 ```
 
+##### Faceted
+
+```{r, fig.width=7, fig.height=4.5}
+plot_dt <- copy(f1s)[, value := F0.5]
+plot_dt <- plot_dt[SetSize == "N05" & Alpha == 0.05]
+
+Alpha_plot_label <- "P-adj \U2264"
+
+plot_dt <- merge(method_types, 
+                 plot_dt, 
+                 by = "Method")
+
+n_points <-
+  plot_dt[!is.na(F0.5), .(value = .N),
+          by = .(SetSize, Alpha, Method)]
+# n_points$y <- 1.3
+n_points <- merge(method_types,
+                  n_points,
+                  by = "Method", all.x = T)
+# n_points[is.na(N), value := 0]
+
+plot_dt <- 
+  rbindlist(list(F0.5 = plot_dt, 
+                 Counts = n_points[SetSize == "N05" & Alpha == 0.05, 
+                                   .(Method, Type, BaseMethod, SetSize, 
+                                     Alpha, value)]), #, Source_ds
+            use.names = T, fill = T,
+            idcol = "Measure")
+
+plot_f0.5_faceted <- 
+  ggplot(plot_dt,
+         aes(x = Method, y = value, color = Method)) +
+  geom_boxplot(data = ~ subset(.x, Measure == "F0.5"),
+               outlier.size = .5, varwidth = F) + 
+  geom_point(data = ~ subset(.x, Measure == "Counts"), 
+           aes(fill = value, 
+               size = value,
+               y = 1.1), 
+           color = "black",
+           shape = 21) +
+  scale_fill_viridis_c("N =", 
+                       option = "C", 
+                       # breaks = sort(unique(plot_dt[Measure == "Counts", value])),
+                       breaks = seq(0, 120, by = 10),
+                       limits = c(1, 120),
+                       # trans = "exp",
+                       guide = guide_legend(nrow = 1, 
+                                            title.position = "left", 
+                                            label.position = "bottom")) +
+  scale_size_continuous("N =", 
+                        # breaks = sort(unique(plot_dt[Measure == "Counts", value])),
+                        breaks = seq(0, 120, by = 10),
+                        limits = c(1, 120),
+                        # trans = "exp",
+                        guide = guide_legend(nrow = 1, 
+                                             title.position = "left", 
+                                             label.position = "bottom"),
+                        range = c(1, 3)) +
+  labs(x = NULL, y = expression(F[0.5]*"-score")) +
+  # scale_color_discrete(guide = "none") +
+  scale_color_manual(values = method_colors, guide = "none") +
+  scale_shape_discrete("Source data set") +
+  scale_y_continuous(breaks = c(0, .25, .5, .75, 1)) +
+  facet_grid(cols = vars(Type), scales = "free_x", space = "free_x") +
+  # scale_y_sqrt() +
+  coord_cartesian(ylim = c(0, 1.2), expand = T) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5),
+        panel.grid.major.x = element_blank(),
+        legend.position = "top", 
+        legend.key = element_blank(),
+        legend.background = element_blank(),
+        legend.margin = margin(0, 0, 0, 0, "lines"),
+        legend.box.spacing = unit(1, "lines"),
+        legend.box.margin = margin(0, 0, -0.5, 0, "lines"),
+        legend.spacing.y = unit(.1, "lines"),
+        panel.spacing.x = unit(.1, "lines"))
+
+plot_f0.5_faceted
+```
+
 ##### Average point line plot
 
 ```{r, fig.width=14.5}
-plot_dt <- omf1s
+plot_dt <- copy(omf1s)
 
-plot_dt$Method <- gsub("_", " ", plot_dt$Method)
+# plot_dt$Method <- gsub("_", " ", plot_dt$Method)
 ```
 
 ```{r, fig.width=14.5}
@@ -2541,6 +2914,8 @@ result <-
 gt <- patchwork::patchworkGrob(result)
 gridExtra::grid.arrange(gt, left = "Average F0.5", bottom = NULL)
 ```
+
+##### N05
 
 ```{r, fig.width=7, fig.height=4}
 plot_dt$Method <- factor(plot_dt$Method, 
@@ -3110,7 +3485,8 @@ panel_b <- plot_tpr_faceted +
                    axis.ticks.x = element_blank(),
                    strip.text = element_blank())
 
-panel_c <- plot_f1_faceted + 
+# panel_c <- plot_f1_faceted + 
+panel_c <- plot_f0.5_faceted + 
              theme(axis.text.x = element_blank(), 
                    axis.ticks.x = element_blank(),
                    strip.text = element_blank())
