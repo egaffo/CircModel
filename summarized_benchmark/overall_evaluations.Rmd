@@ -924,27 +924,26 @@ fpr_dendro <-
 ## prepare the method-type color-coded boxes
 plot_dt <- copy(method_types)
 
-plot_dt$Method <- as.integer(factor(plot_dt$Method, 
-                                    levels = label(fpr_dendro_ddata)$label, 
-                                    ordered = T))
+# plot_dt$Method <- as.integer(factor(plot_dt$Method, 
+#                                     levels = label(fpr_dendro_ddata)$label, 
+#                                     ordered = T))
+plot_dt$Method <- factor(plot_dt$Method, 
+                         levels = label(fpr_dendro_ddata)$label, 
+                         ordered = T)
 
 plot_base_method_type_tiles <-
   ggplot(plot_dt, 
          aes(x = Method, 
              y = "", fill = Type)) +
   geom_tile(color = "white", width = 0.9, height = 0.9, 
-            # position = position_nudge(x = -0.5), 
             size = .5) +
-  scale_x_continuous(name = NULL, 
-                     # trans = "reverse",
-                     breaks = label(fpr_dendro_ddata)$x, 
-                     labels = label(fpr_dendro_ddata)$label, 
-                     expand = c(0, 0),
-                     position = "top") +
-  # coord_cartesian(expand = F) +
+  # scale_x_continuous(name = NULL, 
+  #                    # trans = "reverse",
+  #                    breaks = label(fpr_dendro_ddata)$x, 
+  #                    labels = label(fpr_dendro_ddata)$label, 
+  #                    expand = c(0, 0),
+  #                    position = "top") +
   labs(x = NULL, y = NULL) +
-  # scale_fill_manual(values = c("Bulk" = "black", 
-  #                              "Single cell / metagenome" = "grey")) +
   scale_fill_manual(values = setNames(tableau_color_pal(palette = "Nuriel Stone")(2),
                                       c("Bulk RNA-seq", "Single cell / metagenome"))) +
   guides(fill = guide_legend(title = "Method purpose", 
@@ -1785,6 +1784,122 @@ plot_fdr_faceted <-
         panel.grid.minor.y = element_blank())
 
 plot_fdr_faceted
+```
+
+#### Clustered
+
+```{r}
+fdr_mat <- 
+  as.matrix(data.frame(dcast(data = sbAssay_dt[, .(Dataset = paste(Source_ds, Dataset), 
+                                                   Method, FDR = FDR_0.05_padj)], 
+                             formula = Dataset ~ Method, 
+                             value.var = "FDR"), 
+                       row.names = "Dataset"))
+
+# fdr_mat[is.na(fdr_mat)] <- 1
+
+fdr_dists <- dist(t(fdr_mat - 0.05), method = "canberra")
+
+fdr_dists[is.na(fdr_dists)] <- max(fdr_dists, na.rm = T)
+
+fdr_clusts <- dendsort(hclust(d = fdr_dists, method = "ward.D2"), 
+                       isReverse = T, 
+                       type = "min")
+
+fdr_dendro_ddata <- 
+  dendro_data(as.dendrogram(fdr_clusts),
+              type = "rectangle")
+
+fdr_dendro <- 
+  ggplot(segment(fdr_dendro_ddata), aes(x = x, y = y)) +
+  geom_segment(aes(xend = xend, yend = yend)) +
+  scale_x_continuous(name = NULL, 
+                     trans = "reverse",
+                     breaks = label(fdr_dendro_ddata)$x, 
+                     labels = label(fdr_dendro_ddata)$label, 
+                     expand = c(0, 0),
+                     position = "top") +
+  coord_cartesian(xlim = c(.5, 38.5)) +
+  labs(x = NULL, y = NULL) +
+  theme_dendro() +
+  # theme(axis.text.x = element_text(color = method_colors[label(fpr_dendro_ddata)$label], 
+  #                                  angle = 90, hjust = 0),
+  #       axis.text.y = element_blank(),
+  #       panel.grid.major.x = element_blank(),
+  #       panel.grid.minor.x = element_blank(),
+  #       panel.grid.major.y = element_blank(),
+  #       panel.grid.minor.y = element_blank())
+  theme()
+
+# fdr_dendro
+```
+
+```{r, fig.width=6.692, fig.height=5}
+method_order <- label(fdr_dendro_ddata)$label
+
+panel_dendro <-
+  wrap_plots(fdr_dendro +
+               theme(plot.margin = margin(0, 0, 0, 0, "lines"),
+                     axis.text.x = element_blank()),
+             plot_base_method_type_tiles + 
+               scale_x_discrete(limits = method_order, breaks = method_order) +
+               theme_void() + 
+               theme(plot.margin = margin(0, 0, 0, 0, "lines")),  
+             ncol = 1, heights = c(1, .25),
+             guides = "collect") & 
+  theme(legend.position = "top")
+
+panel_fdr <- 
+  plot_fdr_faceted + 
+  facet_grid(cols = NULL) +
+  scale_x_discrete(limits = method_order) +
+  theme(axis.text.x = element_blank(), 
+        axis.ticks.x = element_blank(),
+        strip.text = element_blank())
+
+bottom_box <- 
+  plot_base_method_color_text_facet +
+     facet_grid(cols = NULL, rows = vars(variable), 
+                scales = "free_y", drop = T) +
+     scale_x_discrete(limits = method_order) +
+     theme(plot.margin = unit(c(0, 0, 0, 0), "lines"),
+           axis.text.y = element_text(angle = 90, hjust = .5, vjust = .5),
+           strip.text = element_blank()) 
+
+wrap_plots(panel_dendro & 
+             theme(legend.position = "top"),
+           wrap_plots(panel_fdr,
+                      bottom_box,
+                      heights = c(1, 2.3), 
+                      guides = "collect",
+                      ncol = 1) &
+             scale_fill_viridis_c(name = str_wrap("Data sets with significant tests", width = 18),
+                                  option = "C",
+                                  breaks = seq(0, 120, by = 10),
+                                  limits = c(1, 120),
+                                  end = .95,
+                                  guide = guide_legend(nrow = 1,
+                                                       title.hjust = .5,
+                                                       title.position = "left",
+                                                       label.position = "bottom")) &
+             scale_size_continuous(name = str_wrap("Data sets with significant tests", width = 18), 
+                                   breaks = seq(0, 120, by = 10),
+                                   limits = c(1, 120),
+                                   guide = guide_legend(nrow = 1, 
+                                                        title.hjust = .5,
+                                                        title.position = "left", 
+                                                        label.position = "bottom"),
+                                   range = c(1, 3)) & 
+             theme(legend.position = "bottom"), 
+           heights = c(1, 3), 
+           guides = "collect",
+           ncol = 1)  & 
+  theme(#legend.position = "top",
+        panel.spacing.x = unit(.05, "lines"),
+        panel.grid.minor = element_blank(),
+        plot.margin = margin(0, .5, 0, .5, "lines"),
+        text = element_text(size = 10), 
+        plot.tag = element_text(hjust = -1, vjust = -1, size = 12))
 ```
 
 ### Recall (TPR) {.tabset}
@@ -3470,54 +3585,136 @@ plot_auroc_faceted <-
 plot_auroc_faceted
 ```
 
-# Method similarity
+# Method similarity {.tabset}
 
 ## Jaccard
 
+Not run
 ```{r}
-ds_names <- c("DM1", "IPF", "MS", "IDC") 
-
-input_dirs <- paste0(ds_names, "_evaluations")
-
-padj <- rbindlist(lapply(setNames(file.path(input_dirs, "adj_pval_deind.csv.gz"), #"pval_deind.csv.gz"
-                                  nm = ds_names), 
-               fread), 
-               idcol = "DS")
-
-padj <- padj[MZP == "bulk" & DsType == "de"]
+# ds_names <- c("DM1", "IPF", "MS", "IDC") 
+# 
+# input_dirs <- paste0(ds_names, "_evaluations")
+# 
+# padj <- rbindlist(lapply(setNames(file.path(input_dirs, "adj_pval_deind.csv.gz"), #"pval_deind.csv.gz"
+#                                   nm = ds_names), 
+#                fread), 
+#                idcol = "DS")
+# 
+# padj <- padj[MZP == "bulk" & DsType == "de"]
 ```
 
 ```{r}
 ## compute Jaccard distances
-padj[, Gid := seq_along(preds), by = .(DS, Dataset, Method)]
-padj[is.na(preds), preds := 1]
+# padj[, Gid := seq_along(preds), by = .(DS, Dataset, Method)]
+# padj[is.na(preds), preds := 1]
+# 
+# padj_l <- split(padj, drop = F, by = c("DS", "Dataset"), flatten = F)
+# 
+# jaccard_dists <- 
+#     rbindlist(lapply(padj_l, function(dataset){
+#         
+#         rbindlist(lapply(dataset, function(simds){
+#             
+#             mt <- as.matrix(data.frame(dcast(simds[, .(Method, preds, Gid)], 
+#                                              Gid ~ Method, 
+#                                              value.var = "preds", 
+#                                              fill = 0), 
+#                                        row.names = "Gid"))
+#             as.data.table(as.matrix(dist(x = t(mt) <= .05, method = "binary")),
+#                           keep.rownames = "Method")
+#         }), 
+#         idcol = "Dataset")
+#     }), 
+#     idcol = "DS")
+# 
+# avg_jaccard_dists <-
+#     melt(jaccard_dists, 
+#          id.vars = c("DS", "Dataset", "Method"), 
+#          variable.name = "Method2", 
+#          value.name = "Jdist")[, c("SetSize", "MZP", "DsType", 
+#                                    "DsId") := tstrsplit(Dataset, "_"), 
+#                                by = Dataset][, .(AvgJDist = mean(Jdist)), 
+#                                              by = .(SetSize, 
+#                                                     # DS, ## compute average across all origin data sets
+#                                                     # MZP, DsType, ## unused because unvaried
+#                                                     Method, Method2)]
+```
 
-padj_l <- split(padj, drop = F, by = c("DS", "Dataset"), flatten = F)
+```{r}
+# ## plot Jaccard distance dendrogram
+# method_jaccard_dists_dt <- 
+#   dcast(avg_jaccard_dists[SetSize == "N05"], 
+#         Method ~ Method2, 
+#         value.var = "AvgJDist")
+# 
+# method_jaccard_dists <- 
+#   as.dist(as.matrix(data.frame(method_jaccard_dists_dt, 
+#                                row.names = "Method")))
+# 
+# method_jaccard_clust <- 
+#   dendsort(hclust(method_jaccard_dists))
+# 
+# method_jaccard_ddata <- 
+#   dendro_data(as.dendrogram(method_jaccard_clust, 
+#                             type = "rectangle"))
+#                
+# jaccard_dendro_plot <- 
+#   ggplot(segment(method_jaccard_ddata), aes(x = x, y = y)) +
+#   geom_segment(aes(xend = xend, yend = yend)) +
+#   scale_x_continuous(name = NULL, 
+#                      breaks = label(method_jaccard_ddata)$x, 
+#                      labels = label(method_jaccard_ddata)$label, 
+#                      expand = c(0, 0),
+#                      position = "top") +
+#   scale_y_reverse(name = "Jaccard distance") +
+#   coord_cartesian(xlim = c(.5, 38.5)) +
+#   theme_minimal() +
+#   theme(axis.text.x = element_text(color = method_colors[label(method_jaccard_ddata)$label],
+#                                    angle = 90, hjust = 0),
+#         panel.grid.major.x = element_blank(),
+#         panel.grid.minor.x = element_blank(),
+#         # panel.grid.major.y = element_blank(),
+#         panel.grid.minor.y = element_blank())
+# 
+# jaccard_dendro_plot
+```
 
-jaccard_dists <- 
-    rbindlist(lapply(padj_l, function(dataset){
+## Correlation
+
+```{r}
+## get correlation of P-values between methods
+pvals <- pval_deind[SetSize == "N05", 
+                 .(DS = Source_ds, Dataset, Method, pval = preds)]
+pvals[, Gid := seq_along(pval), by = .(DS, Dataset, Method)]
+pvals[is.na(pval), pval := 1]
+
+# pvals_dt <- dcast(data = pvals, formula = DS + Gid ~ Method, value.var = "pval") 
+
+pvals_l <- split(pvals, drop = F, by = c("DS", "Dataset"), flatten = F)
+
+cor_dists <- 
+    rbindlist(lapply(pvals_l, function(dataset){
         
         rbindlist(lapply(dataset, function(simds){
             
-            mt <- as.matrix(data.frame(dcast(simds[, .(Method, preds, Gid)], 
+            mt <- as.matrix(data.frame(dcast(simds[, .(Method, pval, Gid)], 
                                              Gid ~ Method, 
-                                             value.var = "preds", 
-                                             fill = 0), 
+                                             value.var = "pval"), 
                                        row.names = "Gid"))
-            as.data.table(as.matrix(dist(x = t(mt) <= .05, method = "binary")),
+            as.data.table(1 - cor(mt, method = "spearman"), 
                           keep.rownames = "Method")
         }), 
         idcol = "Dataset")
     }), 
     idcol = "DS")
 
-avg_jaccard_dists <-
-    melt(jaccard_dists, 
+avg_cor_dists <-
+    melt(cor_dists, 
          id.vars = c("DS", "Dataset", "Method"), 
          variable.name = "Method2", 
-         value.name = "Jdist")[, c("SetSize", "MZP", "DsType", 
+         value.name = "Corr")[, c("SetSize", "MZP", "DsType", 
                                    "DsId") := tstrsplit(Dataset, "_"), 
-                               by = Dataset][, .(AvgJDist = mean(Jdist)), 
+                               by = Dataset][, .(AvgCorr = mean(Corr, na.rm = T)), 
                                              by = .(SetSize, 
                                                     # DS, ## compute average across all origin data sets
                                                     # MZP, DsType, ## unused because unvaried
@@ -3525,44 +3722,43 @@ avg_jaccard_dists <-
 ```
 
 ```{r}
-## plot Jaccard distance dendrogram
-method_jaccard_dists_dt <- 
-  dcast(avg_jaccard_dists[SetSize == "N05"], 
+## plot correlation distance dendrogram
+method_corr_dists_dt <- 
+  dcast(avg_cor_dists, 
         Method ~ Method2, 
-        value.var = "AvgJDist")
+        value.var = "AvgCorr")
 
-method_jaccard_dists <- 
-  as.dist(as.matrix(data.frame(method_jaccard_dists_dt, 
+method_corr_dists <- 
+  as.dist(as.matrix(data.frame(method_corr_dists_dt, 
                                row.names = "Method")))
 
-method_jaccard_clust <- 
-  dendsort(hclust(method_jaccard_dists))
+method_corr_clust <- 
+  dendsort(hclust(method_corr_dists))
 
-method_jaccard_ddata <- 
-  dendro_data(as.dendrogram(method_jaccard_clust, 
+method_corr_ddata <- 
+  dendro_data(as.dendrogram(method_corr_clust, 
                             type = "rectangle"))
                
-jaccard_dendro_plot <- 
-  ggplot(segment(method_jaccard_ddata), aes(x = x, y = y)) +
+method_corr_dd_plot <- 
+  ggplot(segment(method_corr_ddata), aes(x = x, y = y)) +
   geom_segment(aes(xend = xend, yend = yend)) +
   scale_x_continuous(name = NULL, 
-                     breaks = label(method_jaccard_ddata)$x, 
-                     labels = label(method_jaccard_ddata)$label, 
+                     breaks = label(method_corr_ddata)$x, 
+                     labels = label(method_corr_ddata)$label, 
                      expand = c(0, 0),
                      position = "top") +
-  scale_y_reverse(name = "Jaccard distance") +
+  scale_y_reverse(name = expression(rho[Spearman](Pval)), label = function(x)1 - x) +
   coord_cartesian(xlim = c(.5, 38.5)) +
   theme_minimal() +
-  theme(axis.text.x = element_text(color = method_colors[label(method_jaccard_ddata)$label],
+  theme(axis.text.x = element_text(color = method_colors[label(method_corr_ddata)$label],
                                    angle = 90, hjust = 0),
         panel.grid.major.x = element_blank(),
         panel.grid.minor.x = element_blank(),
         # panel.grid.major.y = element_blank(),
         panel.grid.minor.y = element_blank())
 
-jaccard_dendro_plot
+method_corr_dd_plot
 ```
-
 
 # Wrap {.tabset}
 
@@ -3638,7 +3834,8 @@ wrap_plots(panel_a,
 ## Clustered
 
 ```{r, fig.width=6.692, fig.height=8.858}
-method_order <- label(method_jaccard_ddata)$label
+# method_order <- label(method_jaccard_ddata)$label
+method_order <- label(method_corr_ddata)$label
 
 panel_a <- plot_fdr_faceted + 
   facet_grid(cols = NULL) +
@@ -3686,9 +3883,12 @@ bottom_box <-
            strip.text = element_blank()) 
 
 panel_dendro <-
-  wrap_plots(plot_base_method_type_tiles + theme_void() + 
+  wrap_plots(plot_base_method_type_tiles + 
+               scale_x_discrete(limits = method_order, breaks = method_order) +
+               theme_void() + 
                theme(plot.margin = margin(0, 0, 0, 0, "lines")), 
-             jaccard_dendro_plot + #theme_void() + 
+             # jaccard_dendro_plot + #theme_void() + 
+             method_corr_dd_plot +
                theme(plot.margin = margin(0, 0, 0, 0, "lines"),
                      axis.text.x = element_blank()), 
              ncol = 1, heights = c(.25, 1),
