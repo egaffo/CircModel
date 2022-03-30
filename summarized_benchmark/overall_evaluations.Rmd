@@ -944,7 +944,7 @@ plot_base_method_type_tiles <-
   #                    expand = c(0, 0),
   #                    position = "top") +
   labs(x = NULL, y = NULL) +
-  scale_fill_manual(values = setNames(tableau_color_pal(palette = "Nuriel Stone")(2),
+  scale_fill_manual(values = setNames(tableau_color_pal(palette = "Classic Purple-Gray 6")(2), #"Nuriel Stone"
                                       c("Bulk RNA-seq", "Single cell / metagenome"))) +
   guides(fill = guide_legend(title = "Method purpose", 
                              title.position = "left", 
@@ -1904,11 +1904,18 @@ fdr_mat <-
 
 # fdr_mat[is.na(fdr_mat)] <- 1
 
-fdr_dists <- dist(t(fdr_mat - 0.05), method = "canberra")
+# dist_base_mat <- (fdr_mat - 0.05)
 # dist_base_mat <- (fdr_mat - 0.05)^3
-# fdr_dists <- dist(t(dist_base_mat), method = "canberra")
+dist_base_mat <- scale(fdr_mat,
+                          center = rep_len(0.05, dim(fdr_mat)[2]),
+                          scale = T)
+# dist_base_mat <- t(apply(X = fdr_mat, MARGIN = 2, FUN = median, na.rm = T)
 
-fdr_dists[is.na(fdr_dists)] <- max(fdr_dists, na.rm = T)
+
+fdr_dists <- dist(t(dist_base_mat), method = "canberra")
+
+## set the NAs as very distant
+fdr_dists[is.na(fdr_dists)] <- max(fdr_dists, na.rm = T) #+ min(fdr_dists, na.rm = T)
 
 fdr_clusts <- dendsort(hclust(d = fdr_dists, method = "ward.D2"), 
                        isReverse = T, 
@@ -2129,27 +2136,35 @@ ggplot(plot_dt[variable == 0.05],
 
 ```{r, fig.width=7, fig.height=4}
 ## Avg TPR
-ggplot(plot_dt[SetSize == "N05" & variable == 0.05],
-       aes(x = Method, y = value, color = Method)) +
-  geom_boxplot(outlier.size = .5, varwidth = F) + #outlier.shape = NA
-  # geom_jitter(width = .1, size = .5) +
-  geom_text(data = n_points[SetSize == "N05" & variable == 0.05], 
-            aes(y = 1.25,
-                label = paste0("n = ", formatC(N, width = 3, format = "d", flag = "0"), " ")), 
-            angle = 90, color = "black",
-            hjust = "inward", #0
-            vjust = .5, 
-            fontface = "italic", size = 3) +
-  labs(x = NULL, y = "TPR at adjusted P = 0.05") +
-  scale_color_discrete(guide = "none") +
-  scale_shape_discrete("Source data set") +
-  scale_y_continuous(breaks = c(0, .25, .5, .75, 1)) +
-  # scale_y_sqrt() +
-  # coord_cartesian(ylim = c(0, 1)) +
-  theme_bw() +
-  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5),
-        panel.grid.major.x = element_blank(),
-        legend.position = "top")
+plot_tpr <- 
+    ggplot(plot_dt[SetSize == "N05" & variable == 0.05],
+           aes(x = Method, y = value, color = Method)) +
+    geom_boxplot(outlier.size = .5, varwidth = F) + 
+    # geom_text(data = n_points[SetSize == "N05" & variable == 0.05], 
+    #           aes(y = 1.25,
+    #               label = paste0("n = ", formatC(N, width = 3, format = "d", flag = "0"), " ")), 
+    #           angle = 90, color = "black",
+    #           hjust = "inward", #0
+    #           vjust = .5, 
+    #           fontface = "italic", size = 3) +
+    labs(x = NULL, y = "TPR") +
+    scale_color_discrete(guide = "none") +
+    scale_shape_discrete("Source data set") +
+    scale_y_continuous(breaks = c(0, .25, .5, .75, 1)) +
+    theme_bw() +
+    theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5),
+          panel.grid.major.x = element_blank(),
+          legend.position = "top")
+
+plot_tpr +
+    geom_text(data = n_points[SetSize == "N05" & variable == 0.05],
+          aes(y = 1.25,
+              label = paste0("n = ", formatC(N, width = 3, format = "d", flag = "0"), " ")),
+          angle = 90, color = "black",
+          hjust = "inward", #0
+          vjust = .5,
+          fontface = "italic", size = 3) +
+    labs(x = NULL, y = "TPR at adjusted P = 0.05")
 ```
 
 #### Faceted N05, beta = 0.05
@@ -3032,6 +3047,32 @@ plot_f0.5_faceted <-
 plot_f0.5_faceted
 ```
 
+##### N05, beta = 0.05
+
+```{r, fig.width=7, fig.height=4.5}
+plot_f0.5 <- 
+  ggplot(plot_dt,
+         aes(x = Method, y = value, color = Method)) +
+  geom_boxplot(data = ~ subset(.x, Measure == "F0.5"),
+               outlier.size = .5, varwidth = F) + 
+  labs(x = NULL, y = expression(F[0.5]*"-score")) +
+  scale_color_manual(values = method_colors, guide = "none") +
+  scale_y_continuous(breaks = c(0, .25, .5, .75, 1)) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5),
+        panel.grid.major.x = element_blank(),
+        legend.position = "top", 
+        legend.key = element_blank(),
+        legend.background = element_blank(),
+        legend.margin = margin(0, 0, 0, 0, "lines"),
+        legend.box.spacing = unit(1, "lines"),
+        legend.box.margin = margin(0, 0, -0.5, 0, "lines"),
+        legend.spacing.y = unit(.1, "lines"),
+        panel.spacing.x = unit(.1, "lines"))
+
+plot_f0.5
+```
+
 ##### Average point line plot
 
 ```{r, fig.width=14.5}
@@ -3396,28 +3437,28 @@ plot_dt <- auprc_auroc[SetSize == "N05"]
 n_points <- n_ds_crash[SetSize == "N05", .(N = sum(GOOD)), by = .(SetSize, Method)]
 n_points$y <- 1.3
 
-ggplot(plot_dt,
-       aes(x = Method, y = AUCPR, color = Method)) +
-  geom_boxplot(outlier.size = .5, varwidth = T) + #outlier.shape = NA
-  # geom_jitter(width = .1, size = .5) +
-  geom_text(data = n_points, 
-            aes(y = y,
-                label = paste0("n = ", formatC(N, width = 3, format = "d", flag = "0"), " ")), 
-            angle = 90, color = "black",
-            hjust = "inward", #0
-            vjust = .5, 
-            fontface = "italic", size = 3) +
-  scale_y_continuous(breaks = c(0, .25, .5, .75, 1), expand = c(0, 0)) +
-  labs(x = NULL, y = "AUPRC") +
-  scale_color_discrete(guide = "none") +
-  # scale_shape_discrete("Source data set") +
-  # facet_grid(cols = vars(SetSize)) +
-  coord_cartesian(ylim = c(0, unique(n_points$y))) +
-  theme_bw() +
-  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5),
-        panel.grid.major.x = element_blank(),
-        panel.grid.minor.y = element_blank(),
-        legend.position = "top")
+plot_aupr <- 
+    ggplot(plot_dt,
+           aes(x = Method, y = AUCPR, color = Method)) +
+    geom_boxplot(outlier.size = .5, varwidth = T) + 
+    scale_color_manual(values = method_colors, guide = "none") +
+    labs(x = NULL, y = "AUPRC") +
+    theme_bw() +
+    theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5),
+          panel.grid.major.x = element_blank(),
+          panel.grid.minor.y = element_blank(),
+          legend.position = "top")
+
+plot_aupr +
+    geom_text(data = n_points, 
+              aes(y = y,
+                  label = paste0("n = ", formatC(N, width = 3, format = "d", flag = "0"), " ")), 
+              angle = 90, color = "black",
+              hjust = "inward", #0
+              vjust = .5, 
+              fontface = "italic", size = 3) +
+    scale_y_continuous(breaks = c(0, .25, .5, .75, 1), expand = c(0, 0)) +
+    coord_cartesian(ylim = c(0, unique(n_points$y)))
 ```
 
 ### Faceted N05
@@ -3604,28 +3645,30 @@ plot_dt <- auprc_auroc[SetSize == "N05"]
 n_points <- n_ds_crash[SetSize == "N05", .(N = sum(GOOD)), by = .(SetSize, Method)]
 n_points$y <- 1.3
 
-ggplot(plot_dt,
-       aes(x = Method, y = AUROC, color = Method)) +
-  geom_boxplot(outlier.size = .5, varwidth = T) + #outlier.shape = NA
-  # geom_jitter(width = .1, size = .5) +
-  geom_text(data = n_points, 
-            aes(y = y,
-                label = paste0("n = ", formatC(N, width = 3, format = "d", flag = "0"), " ")), 
-            angle = 90, color = "black",
-            hjust = "inward", #0
-            vjust = .5, 
-            fontface = "italic", size = 3) +
-  scale_y_continuous(breaks = c(0, .25, .5, .75, 1), expand = c(0, 0)) +
-  labs(x = NULL, y = "AUROC") +
-  scale_color_discrete(guide = "none") +
-  # scale_shape_discrete("Source data set") +
-  # facet_grid(cols = vars(SetSize)) +
-  coord_cartesian(ylim = c(0, unique(n_points$y))) +
-  theme_bw() +
-  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5),
-        panel.grid.major.x = element_blank(),
-        panel.grid.minor.y = element_blank(),
-        legend.position = "top")
+plot_auroc <- 
+    ggplot(plot_dt,
+           aes(x = Method, y = AUROC, color = Method)) +
+    geom_boxplot(outlier.size = .5, varwidth = T) + 
+    scale_color_manual(values = method_colors, guide = "none") +
+    labs(x = NULL, y = "AUROC") +
+    theme_bw() +
+    theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5),
+          panel.grid.major.x = element_blank(),
+          panel.grid.minor.y = element_blank(),
+          legend.position = "top")
+
+plot_auroc +
+    geom_text(data = n_points, 
+              aes(y = y,
+                  label = paste0("n = ", formatC(N, width = 3, format = "d", flag = "0"), " ")), 
+              angle = 90, color = "black",
+              hjust = "inward", #0
+              vjust = .5, 
+              fontface = "italic", size = 3) +
+    scale_y_continuous(breaks = c(0, .25, .5, .75, 1), 
+                       trans = "exp",
+                       expand = c(0, 0)) +
+    coord_cartesian(ylim = c(0, unique(n_points$y)))
 ```
 
 ### Faceted N05
@@ -3945,40 +3988,74 @@ wrap_plots(panel_a,
 
 ```{r, fig.width=6.692, fig.height=8.858}
 # method_order <- label(method_jaccard_ddata)$label
-method_order <- label(method_corr_ddata)$label
+# method_order <- label(method_corr_ddata)$label
+method_order <- label(fdr_dendro_ddata)$label
 
-panel_a <- plot_fdr_faceted + 
-  facet_grid(cols = NULL) +
-  scale_x_discrete(limits = method_order) +
-  theme(axis.text.x = element_blank(), 
-        axis.ticks.x = element_blank(),
-        strip.text = element_blank())
+# panel_a <- plot_fdr_faceted + 
+#   facet_grid(cols = NULL) +
+#   scale_x_discrete(limits = method_order) +
+#   theme(axis.text.x = element_blank(), 
+#         axis.ticks.x = element_blank(),
+#         strip.text = element_blank())
+panel_bars <- plot_fdr_bars +
+    scale_x_discrete(limits = method_order) +
+    theme(legend.position = "top",
+          axis.text.x = element_blank(),
+          axis.ticks.x = element_blank())
 
-panel_b <- plot_tpr_faceted + 
-  facet_grid(cols = NULL) +
+panel_a <- plot_fdr +
+    scale_x_discrete(limits = method_order) +
+    theme(axis.text.x = element_blank(),
+          axis.ticks.x = element_blank())
+               
+# panel_b <- plot_tpr_faceted + 
+#   facet_grid(cols = NULL) +
+#   scale_x_discrete(limits = method_order) +
+#   theme(axis.text.x = element_blank(), 
+#         axis.ticks.x = element_blank(),
+#         strip.text = element_blank())
+panel_b <- plot_tpr +
   scale_x_discrete(limits = method_order) +
   theme(axis.text.x = element_blank(), 
         axis.ticks.x = element_blank(),
         strip.text = element_blank())
 
 # panel_c <- plot_f1_faceted + 
-panel_c <- plot_f0.5_faceted + 
-  facet_grid(cols = NULL) +
+# panel_c <- plot_f0.5_faceted + 
+#   facet_grid(cols = NULL) +
+#   scale_x_discrete(limits = method_order) +
+#   theme(axis.text.x = element_blank(), 
+#         axis.ticks.x = element_blank(),
+#         strip.text = element_blank())
+panel_c <- plot_f0.5 + 
   scale_x_discrete(limits = method_order) +
   theme(axis.text.x = element_blank(), 
         axis.ticks.x = element_blank(),
         strip.text = element_blank())
 
-panel_d <- plot_aupr_faceted + 
-  facet_grid(cols = NULL) +
+# panel_d <- plot_aupr_faceted + 
+#   facet_grid(cols = NULL) +
+#   scale_x_discrete(limits = method_order) +
+#   theme(axis.text.x = element_blank(), 
+#         axis.ticks.x = element_blank(),
+#         strip.text = element_blank())
+panel_d <- plot_aupr +
   scale_x_discrete(limits = method_order) +
   theme(axis.text.x = element_blank(), 
         axis.ticks.x = element_blank(),
         strip.text = element_blank())
 
-panel_e <- plot_auroc_faceted + 
-  facet_grid(cols = NULL) +
+# panel_e <- plot_auroc_faceted + 
+#   facet_grid(cols = NULL) +
+#   scale_x_discrete(limits = method_order) +
+#   theme(axis.text.x = element_blank(), 
+#         # axis.ticks.x = element_blank(),
+#         strip.text = element_blank())
+
+panel_e <- plot_auroc +
   scale_x_discrete(limits = method_order) +
+    scale_y_continuous(breaks = c(0, .25, .5, .75, 1), 
+                       trans = "exp") +
   theme(axis.text.x = element_blank(), 
         # axis.ticks.x = element_blank(),
         strip.text = element_blank())
@@ -3992,57 +4069,81 @@ bottom_box <-
            axis.text.y = element_text(angle = 90, hjust = .5, vjust = .5),
            strip.text = element_blank()) 
 
-panel_dendro <-
-  wrap_plots(plot_base_method_type_tiles + 
-               scale_x_discrete(limits = method_order, breaks = method_order) +
-               theme_void() + 
-               theme(plot.margin = margin(0, 0, 0, 0, "lines")), 
-             # jaccard_dendro_plot + #theme_void() + 
-             method_corr_dd_plot +
-               theme(plot.margin = margin(0, 0, 0, 0, "lines"),
-                     axis.text.x = element_blank()), 
-             ncol = 1, heights = c(.25, 1),
-             guides = "collect") & 
-  theme(legend.position = "bottom")
+# panel_dendro <-
+#   wrap_plots(plot_base_method_type_tiles + 
+#                scale_x_discrete(limits = method_order, breaks = method_order) +
+#                theme_void() + 
+#                theme(plot.margin = margin(0, 0, 0, 0, "lines")), 
+#              # jaccard_dendro_plot + #theme_void() + 
+#              method_corr_dd_plot +
+#                theme(plot.margin = margin(0, 0, 0, 0, "lines"),
+#                      axis.text.x = element_blank()), 
+#              ncol = 1, heights = c(.25, 1),
+#              guides = "collect") & 
+#   theme(legend.position = "bottom")
 
-wrap_plots(wrap_plots(panel_a, 
-                      panel_b,
-                      panel_c,
-                      panel_d,
-                      panel_e,
-                      bottom_box, 
-                      heights = c(1, 1, 
-                                  1, 1, 1, 
-                                  2.3), 
-                      guides = "collect",
-                      ncol = 1) &
-             scale_fill_viridis_c(name = str_wrap("Data sets with significant tests", width = 18), 
-                                  option = "C", 
-                                  breaks = seq(0, 120, by = 10),
-                                  limits = c(1, 120),
-                                  end = .95,
-                                  guide = guide_legend(nrow = 1, 
-                                                       title.hjust = .5,
-                                                       title.position = "left", 
-                                                       label.position = "bottom")) &
-             scale_size_continuous(name = str_wrap("Data sets with significant tests", width = 18), 
-                                   breaks = seq(0, 120, by = 10),
-                                   limits = c(1, 120),
-                                   guide = guide_legend(nrow = 1, 
-                                                        title.hjust = .5,
-                                                        title.position = "left", 
-                                                        label.position = "bottom"),
-                                   range = c(1, 3)) & 
-             theme(legend.position = "top"),
-           panel_dendro,
-           ncol = 1, 
-           heights = c(6, 1)) &
-  # plot_annotation(tag_levels = 'a') &
-  theme(panel.spacing.x = unit(.05, "lines"),
-        panel.grid.minor = element_blank(),
-        plot.margin = margin(0, .5, 0, .5, "lines"),
-        text = element_text(size = 10), 
-        plot.tag = element_text(hjust = -1, vjust = -1, size = 12))
+# panel_dendro <- 
+#     wrap_plots(fdr_dendro +
+#                    # scale_y_reverse() +
+#                    theme(plot.margin = margin(0, 0, 0, 0, "lines"),
+#                          axis.text.x = element_blank()), 
+#                plot_base_method_type_tiles + 
+#                    scale_x_discrete(limits = method_order, breaks = method_order) +
+#                    theme_void() + 
+#                    theme(plot.margin = margin(0, 0, 0, 0, "lines")), 
+#                ncol = 1, heights = c(1, .25),
+#                guides = "collect") & 
+#     theme(legend.position = "top")
+
+
+    wrap_plots(fdr_dendro +
+                   # scale_y_reverse() +
+                   theme(plot.margin = margin(0, 0, 0, 0, "lines"),
+                         axis.text.x = element_blank()), 
+               plot_base_method_type_tiles + 
+                   scale_x_discrete(limits = method_order, breaks = method_order) +
+                   theme_void() + 
+                   theme(plot.margin = margin(0, 0, 0, 0, "lines")),
+               panel_bars, 
+               panel_a, 
+               panel_b,
+               panel_c,
+               panel_d,
+               panel_e,
+               bottom_box, 
+               heights = c(.5, .15, .6, 1, 1, 
+                           1, 1, 1, 
+                           2.5), 
+               guides = "collect",
+               ncol = 1) &
+        # scale_fill_viridis_c(name = str_wrap("Data sets with significant tests", width = 18), 
+        #                      option = "C", 
+        #                      breaks = seq(0, 120, by = 10),
+        #                      limits = c(1, 120),
+        #                      end = .95,
+        #                      guide = guide_legend(nrow = 1, 
+        #                                           title.hjust = .5,
+        #                                           title.position = "left", 
+        #                                           label.position = "bottom")) &
+        # scale_size_continuous(name = str_wrap("Data sets with significant tests", width = 18), 
+        #                       breaks = seq(0, 120, by = 10),
+    #                       limits = c(1, 120),
+    #                       guide = guide_legend(nrow = 1, 
+    #                                            title.hjust = .5,
+    #                                            title.position = "left", 
+    #                                            label.position = "bottom"),
+    #                       range = c(1, 3)) & 
+    theme(plot.margin = margin(0, .5, 0, .5, "lines"),
+          legend.key.size = unit(.7, "lines"),
+          legend.position = "top", legend.box = "vertical", 
+          legend.box.margin = margin(0, 0, 0, 0, "lines"),
+          legend.box.spacing = unit(0, "lines"),
+          legend.margin = margin(0, 0, 0, 0, "lines"),
+          legend.spacing.y = unit(.1, "lines"),
+          panel.spacing.x = unit(.05, "lines"),
+          panel.grid.minor = element_blank(),
+          text = element_text(size = 10), 
+          plot.tag = element_text(hjust = -1, vjust = -1, size = 12))
 ```
 
 # Running times {.tabset}
