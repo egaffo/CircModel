@@ -1527,7 +1527,7 @@ datatable(show_dt,
   formatRound(value_cols, 0)
 ```
 
-#### Table - Overall
+#### Table - Overall mean
 
 ```{r}
 ## overall mean 
@@ -1571,21 +1571,50 @@ datatable(show_dt,
   formatRound(value_cols, 0)
 ```
 
+#### Table - Overall median
+
+```{r}
+## overall mean 
+omedsbAssay_dt <- 
+  sbAssay_dt[, lapply(.SD, median, na.rm = T), 
+           .SDcols = value_cols,
+           by = .(SetSize, Method)]
+```
+
+Median by set size (median across all data set sources)
+
+```{r}
+show_dt <- copy(omedsbAssay_dt)
+show_dt$SetSize <- factor(show_dt$SetSize)
+show_dt$Method <- factor(show_dt$Method)
+
+datatable(show_dt, 
+          caption = paste("Alphas:", paste(alpha_targets, collapse = "/")),
+          rownames = F, 
+          filter = "top") %>%
+  formatRound(value_cols, 3)
+```
+
 ### FDR {.tabset}
 
 ```{r}
 ## format result data for the plots
 id_vars <- c("SetSize", "DsId", "Method")
 
+fdr_pattern <- "^FDR_0\\.[015]{2}_padj"
 plot_dt <- 
   melt(sbAssay_dt[, c(value_cols, id_vars), with = F], 
-       id.vars = id_vars)[grepl("^FDR_0\\.[015]{2}_padj", 
+       id.vars = id_vars)[grepl(fdr_pattern, 
                                     variable, 
                                     perl = F)]
 
 plot_dt[, variable := gsub("FDR|_|padj", "", variable)]
 
-plot_dt[is.na(value), value := 1]
+n_points <-
+  plot_dt[!is.na(value), .(N = .N),
+          by = .(SetSize, variable, Method)]
+
+# plot_dt[is.na(value), value := 1]
 
 Alpha_plot_label <- "P-adj \U2264"
 ```
@@ -1628,7 +1657,7 @@ ggplot(plot_dt[variable == 0.05],
   geom_hline(yintercept = .05, linetype = "dashed") +
   geom_boxplot(outlier.size = .5) +
   # geom_jitter(width = .1, size = .6) +
-  geom_text(data = n_points[Alpha == 0.05], 
+  geom_text(data = n_points[variable == 0.05], 
             aes(y = 1.35, label = paste0("n = ", formatC(N, width = 3, format = "d", flag = "0"), " ")), 
             angle = 90, hjust = "inward", vjust = .5, 
             fontface = "italic", size = 3, color = "black") +
@@ -1655,7 +1684,7 @@ ggplot(plot_dt[SetSize == "N05" & variable == 0.05],
     geom_hline(yintercept = .05, linetype = "dashed") +
     geom_boxplot(outlier.size = .5) +
     # geom_jitter(width = .1, size = .6) +
-    geom_text(data = n_points[SetSize == "N05" & Alpha == 0.05], 
+    geom_text(data = n_points[SetSize == "N05" & variable == 0.05], 
               aes(y = 1.6, label = paste0("n = ", formatC(N, width = 3, format = "d", flag = "0"))), 
               angle = 90, hjust = "inward", vjust = .5, 
               fontface = "italic", size = 3, color = "black") +
@@ -1671,6 +1700,78 @@ ggplot(plot_dt[SetSize == "N05" & variable == 0.05],
           legend.position = "top", 
           panel.grid.major.x = element_blank(),
           panel.grid.minor.y = element_blank())
+```
+
+#### Per method Setsize \~ beta
+
+```{r, fig.width=6.692, fig.height=8.858}
+# n_points$y <- 1.7
+# 
+# ggplot(plot_dt[][, Method.2 := str_wrap(gsub("_", " ", Method), width = 10)], 
+#        aes(x = SetSize, y = value, color = Method, group = paste(Method, SetSize))) +
+#     geom_hline(data = plot_dt[, .N, by = .(SetSize, variable)],
+#                aes(yintercept = as.numeric(variable)), 
+#                linetype = "dashed") +
+#     geom_boxplot(outlier.size = .5) +
+#     labs(y = "FDP at adjusted P", x = NULL) +
+#     scale_color_manual(values = method_colors, guide = "none") +
+#     scale_y_sqrt(breaks = c(0, 0.01, 0.05, 0.1, .5, 1)) + #, expand = c(0, 0)
+#     facet_grid(rows = vars(variable), cols = vars(Method.2),
+#                scales = "fixed", 
+#                labeller = label_wrap_gen(width = 5, multi_line = T)) +
+#     # facet_grid(rows = vars(variable)) + ## x = Method
+#     theme_bw() +
+#     theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5),
+#           panel.grid.major.x = element_blank(), 
+#           text = element_text(size = 8),
+#           panel.spacing.x = unit(0, "lines"),
+#           legend.position = "top")
+
+plot_dt <- melt(omedsbAssay_dt, 
+                id.vars = c("SetSize",
+                            "Method"))[grepl(fdr_pattern, variable)]
+
+plot_dt[, variable := sub("FDR|_|padj", "", variable)]
+
+plot_dt <- merge(method_types, plot_dt, by = "Method")
+plot_dt$Method <- str_wrap(gsub("_", " ", plot_dt$Method), 10)
+
+## Avg FPR = 1 - TNR
+ggplot(plot_dt, 
+       aes(x = SetSize, y = value)) + 
+  geom_hline(yintercept = 0.01, 
+             color = brewer_pal(palette = "Set2")(3)[1], #"grey30", 
+             linetype = "dashed") +
+  geom_hline(yintercept = 0.05, 
+             color = brewer_pal(palette = "Set2")(3)[2], #"grey30", 
+             linetype = "dashed") +
+  geom_hline(yintercept = 0.10, 
+             color = brewer_pal(palette = "Set2")(3)[3], #"grey30", 
+             linetype = "dashed") +
+  geom_line(aes(group = variable, color = variable)) +
+  geom_point(aes(shape = variable, color = variable), size = 2, fill = "white") +
+  labs(y = "Median FDR", x = NULL) +
+  scale_color_brewer(Alpha_plot_label, 
+                     palette = "Set2",
+                     labels = alpha_targets, 
+                     guide = guide_legend(title.position = "top", 
+                                          reverse = T)) +
+  scale_shape_manual(Alpha_plot_label, 
+                     labels = alpha_targets, 
+                     values = 21:23, 
+                     guide = guide_legend(title.position = "top", 
+                                          reverse = T)) +
+  facet_wrap(~ Method, 
+             scales = "fixed", ncol = 10) +
+  scale_y_sqrt(breaks = c(0, 0.01, 0.05, 0.1, 
+                          0.25, 0.5, 0.75, 1)) + ## square-root transformed y-axis for increased visibility
+  theme_bw() +
+  theme(legend.position = c(.9, .1), 
+        axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5),
+        text = element_text(size = 9),
+        strip.text = element_text(margin = margin(.01, .1, .01, .1, "lines")),
+        panel.spacing.x = unit(.1, "lines"),
+        panel.grid.major.x = element_blank())
 ```
 
 #### Faceted FDR
