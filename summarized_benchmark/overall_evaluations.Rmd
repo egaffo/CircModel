@@ -862,7 +862,8 @@ plot_fpr_n05_005
 library(dendsort)
 
 fpr_mat <- 
-  as.matrix(data.frame(dcast(data = sbAssay_dt[, .(Dataset = paste(Source_ds, Dataset), 
+  as.matrix(data.frame(dcast(data = sbAssay_dt[SetSize == "N05", 
+                                               .(Dataset = paste(Source_ds, Dataset), 
                                                    Method, FPR = 1 - TNR_0.05)], 
                              formula = Dataset ~ Method, 
                              value.var = "FPR"), 
@@ -876,11 +877,14 @@ fpr_mat <-
 # fpr_dists <- dist(t(abs(fpr_mat - 0.05)), 
 #                   method = "canberra")
 fpr_dists <- dist(t(fpr_mat - 0.05), 
-                  method = "canberra")
+                  method = "euclidean")
 
-fpr_clusts <- dendsort(hclust(fpr_dists, method = "ward.D2"), 
-                       isReverse = T, 
-                       type = "min")
+# fpr_clusts <- dendsort(hclust(fpr_dists, method = "median"), 
+#                        isReverse = T, 
+#                        type = "min")
+
+library(seriation)
+fpr_clusts <- seriate(fpr_dists, method = "GW_complete")[[1]]
 ```
 
 ```{r}
@@ -901,22 +905,22 @@ fpr_dendro <-
                      breaks = label(fpr_dendro_ddata)$x, 
                      labels = label(fpr_dendro_ddata)$label, 
                      expand = c(0, 0),
-                     position = "top") +
+                     position = "bottom") +
   # scale_y_reverse(name = NULL, expand = c(0, 0.00)) + 
     # scale_y_sqrt() +
   coord_cartesian(xlim = c(.5, 38.5)) +
   labs(x = NULL, y = NULL) +
   theme_dendro() +
-  # theme(axis.text.x = element_text(color = method_colors[label(fpr_dendro_ddata)$label], 
-  #                                  angle = 90, hjust = 0),
-  #       axis.text.y = element_blank(),
-  #       panel.grid.major.x = element_blank(),
-  #       panel.grid.minor.x = element_blank(),
-  #       panel.grid.major.y = element_blank(),
-  #       panel.grid.minor.y = element_blank())
-  theme()
+  theme(axis.text.x = element_text(color = method_colors[label(fpr_dendro_ddata)$label],
+                                   angle = 90, hjust = 1),
+        axis.text.y = element_blank(),
+        panel.grid.major.x = element_blank(),
+        panel.grid.minor.x = element_blank(),
+        panel.grid.major.y = element_blank(),
+        panel.grid.minor.y = element_blank())
+  # theme()
 
-# fpr_dendro
+fpr_dendro
 ```
 
 
@@ -1394,24 +1398,55 @@ plot_stn_clustered <-
 
 ```{r, fig.height=8.85, fig.width=6.69}
 ## wrap all panels
+method_order <- label(fpr_dendro_ddata)$label
+
+bottom_box <- 
+  plot_base_method_color_text_facet +
+     facet_grid(cols = NULL, rows = vars(variable), 
+                scales = "free_y", drop = T) +
+     scale_x_discrete(limits = method_order) +
+     theme(plot.margin = unit(c(0, 0, 0, 0), "lines"),
+           axis.text.y = element_text(angle = 90, hjust = .5, vjust = .5),
+           strip.text = element_blank()) 
+
 fpr_dendro_wrap_plot <- 
-  wrap_plots(wrap_plots(fpr_dendro + theme_void() + 
-                          theme(plot.margin = margin(0, 0, 0, 0, "lines")), 
-                        plot_base_method_type_tiles + theme_void() + 
+  wrap_plots(wrap_plots(fpr_dendro +
+                            # scale_x_discrete(limits = method_order) + 
+                            theme_void() + 
+                            theme(plot.margin = margin(0, 0, 0, 0, "lines")), 
+                        plot_base_method_type_tiles +
+                            scale_x_discrete(limits = method_order) + 
+                            theme_void() + 
                           theme(plot.margin = margin(0, 0, 0, 0, "lines")), 
                         ncol = 1, heights = c(1, .25),
                         guides = "collect") & 
                theme(legend.position = "top"), 
-             fpr_dendro_ordered_plot + theme(plot.margin = margin(0, 0, 0, 0, "lines"),
-                                             axis.ticks.x = element_blank(),
-                                             panel.grid.minor.y = element_blank()), 
-             plot_stn_clustered + theme(plot.margin = margin(0, 0, 0, 0, "lines"),
-                                        axis.text.x = element_blank()),
-             colored_method_text + theme_void() + 
-                 theme(plot.margin = margin(0, 0, 0, 0, "lines")), 
+             fpr_dendro_ordered_plot +
+                 scale_x_discrete(limits = method_order) + 
+                 theme(plot.margin = margin(0, 0, 0, 0, "lines"),
+                       axis.ticks.x = element_blank(),
+                       panel.grid.minor.y = element_blank()), 
+             plot_stn_clustered  +
+                 scale_x_discrete(limits = method_order) + 
+                 theme(plot.margin = margin(0, 0, 0, 0, "lines"),
+                       axis.text.x = element_blank()),
+             # colored_method_text + theme_void() + 
+             #     theme(plot.margin = margin(0, 0, 0, 0, "lines")), 
+             bottom_box +
+                 scale_x_discrete(limits = method_order),
              ncol = 1, 
-             heights = c(1.25, 2.5, 7, 3.5)) &
-  theme(text = element_text(size = 10))
+             heights = c(1.5, 2, 7.5, 4)) &
+  # theme(text = element_text(size = 10))
+    theme(plot.margin = margin(0, .5, 0, .5, "lines"),
+          legend.key.size = unit(.7, "lines"),
+          legend.box.margin = margin(0, 0, 0.5, 0, "lines"),
+          legend.box.spacing = unit(0, "lines"),
+          legend.margin = margin(0, 0, 0, 0, "lines"),
+          legend.spacing.y = unit(.1, "lines"),
+          panel.spacing.x = unit(.05, "lines"),
+          panel.grid.minor = element_blank(),
+          text = element_text(size = 10), 
+          plot.tag = element_text(hjust = -1, vjust = -1, size = 12))
   
 
 fpr_dendro_wrap_plot
@@ -1997,8 +2032,9 @@ plot_fdr_with_top_bars
 
 ```{r}
 fdr_mat <- 
-  as.matrix(data.frame(dcast(data = sbAssay_dt[, .(Dataset = paste(Source_ds, Dataset), 
-                                                   Method, FDR = FDR_0.05_padj)], 
+  as.matrix(data.frame(dcast(data = sbAssay_dt[SetSize == "N05", 
+                                               .(Dataset = paste(Source_ds, Dataset), 
+                                                 Method, FDR = FDR_0.05_padj)], 
                              formula = Dataset ~ Method, 
                              value.var = "FDR"), 
                        row.names = "Dataset"))
@@ -2008,19 +2044,25 @@ fdr_mat <-
 # dist_base_mat <- (fdr_mat - 0.05)
 # dist_base_mat <- (fdr_mat - 0.05)^3
 dist_base_mat <- scale(fdr_mat,
-                          center = rep_len(0.05, dim(fdr_mat)[2]),
-                          scale = T)
+                       center = rep_len(0.05, dim(fdr_mat)[2]),
+                       scale = F)
 # dist_base_mat <- t(apply(X = fdr_mat, MARGIN = 2, FUN = median, na.rm = T)
 
 
 fdr_dists <- dist(t(dist_base_mat), method = "canberra")
+# fdr_dists <- dist(t(dist_base_mat), method = "manhattan")
 
 ## set the NAs as very distant
 fdr_dists[is.na(fdr_dists)] <- max(fdr_dists, na.rm = T) #+ min(fdr_dists, na.rm = T)
 
-fdr_clusts <- dendsort(hclust(d = fdr_dists, method = "ward.D2"), 
-                       isReverse = T, 
-                       type = "min")
+# fdr_clusts <- dendsort(hclust(d = fdr_dists, method = "ward.D2"),
+#                        isReverse = T,
+#                        type = "min")
+
+# fdr_clusts <- dendsort(as.dendrogram(seriate(fdr_dists, method = "OLO")[[1]]),
+#                        isReverse = T, 
+#                        type = "min") #GW_ward
+fdr_clusts <- seriate(fdr_dists, method = "OLO")[[1]]
 
 fdr_dendro_ddata <- 
   dendro_data(as.dendrogram(fdr_clusts),
@@ -2034,12 +2076,12 @@ fdr_dendro <-
                      breaks = label(fdr_dendro_ddata)$x, 
                      labels = label(fdr_dendro_ddata)$label, 
                      expand = c(0, 0),
-                     position = "top") +
+                     position = "bottom") +
   coord_cartesian(xlim = c(.5, 38.5)) +
   labs(x = NULL, y = NULL) +
   theme_dendro() +
   # theme(axis.text.x = element_text(color = method_colors[label(fpr_dendro_ddata)$label], 
-  #                                  angle = 90, hjust = 0),
+  #                                  angle = 90, hjust = 1),
   #       axis.text.y = element_blank(),
   #       panel.grid.major.x = element_blank(),
   #       panel.grid.minor.x = element_blank(),
@@ -2164,9 +2206,11 @@ ggplot(plot_dt,
 ## format result data for the plots
 id_vars <- c("SetSize", "DsId", "Method")
 
+tpr_pattern <- "^TPR_0\\.[015]{2}_padj"
+
 plot_dt <- 
   melt(sbAssay_dt[, c(value_cols, id_vars), with = F], 
-       id.vars = id_vars)[grepl("^TPR_0\\.[015]{2}_padj", 
+       id.vars = id_vars)[grepl(tpr_pattern, 
                                     variable, 
                                     perl = F)]
 
@@ -2266,6 +2310,47 @@ plot_tpr +
           vjust = .5,
           fontface = "italic", size = 3) +
     labs(x = NULL, y = "TPR at adjusted P = 0.05")
+```
+
+#### Per method Setsize \~ beta
+
+```{r, fig.width=6.692, fig.height=8.858}
+plot_dt <- melt(omedsbAssay_dt, 
+                id.vars = c("SetSize",
+                            "Method"))[grepl(tpr_pattern, variable)]
+
+plot_dt[, variable := sub("TPR|_|padj", "", variable)]
+
+plot_dt <- merge(method_types, plot_dt, by = "Method")
+plot_dt$Method <- str_wrap(gsub("_", " ", plot_dt$Method), 10)
+
+## Avg FPR = 1 - TNR
+ggplot(plot_dt, 
+       aes(x = SetSize, y = value)) + 
+  geom_line(aes(group = variable, color = variable)) +
+  geom_point(aes(shape = variable, color = variable), size = 2, fill = "white") +
+  labs(y = "Median TPR", x = NULL) +
+  scale_color_brewer(Alpha_plot_label, 
+                     palette = "Set2",
+                     labels = alpha_targets, 
+                     guide = guide_legend(title.position = "top", 
+                                          reverse = T)) +
+  scale_shape_manual(Alpha_plot_label, 
+                     labels = alpha_targets, 
+                     values = 21:23, 
+                     guide = guide_legend(title.position = "top", 
+                                          reverse = T)) +
+  facet_wrap(~ Method, 
+             scales = "fixed", ncol = 10) +
+  scale_y_continuous(breaks = c(0, 0.25, 0.5, 0.75, 1)) +
+  theme_bw() +
+  theme(legend.position = c(.9, .1), 
+        axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5),
+        text = element_text(size = 9),
+        strip.text = element_text(margin = margin(.01, .1, .01, .1, "lines")),
+        panel.spacing.x = unit(.1, "lines"),
+        panel.grid.minor.x = element_blank(), 
+        panel.grid.major.x = element_blank())
 ```
 
 #### Faceted N05, beta = 0.05
@@ -2381,6 +2466,125 @@ plot_tpr_faceted <-
         panel.spacing.x = unit(.1, "lines"))
 
 plot_tpr_faceted
+```
+
+#### Clustered
+
+```{r}
+tpr_l_dt <-
+    sbAssay_dt[SetSize == "N05",
+               .(Dataset = paste(Source_ds, Dataset),
+                   Method, TPR = TPR_0.05_padj)]
+
+tpr_mat <-
+  as.matrix(data.frame(dcast(data = tpr_l_dt,
+                             formula = Dataset ~ Method,
+                             value.var = "TPR"),
+                       row.names = "Dataset"))
+
+# # tpr_dist_base_mat <- apply(X = tpr_mat, MARGIN = 2, FUN = median, na.rm = T)
+# tpr_dist_base_mat <- t(tpr_mat)
+# 
+# tpr_dists <- dist(tpr_dist_base_mat, method = "euclidean")
+# 
+# ## set the NAs as very distant
+# tpr_dists[is.na(tpr_dists)] <- max(tpr_dists, na.rm = T) #+ min(fdr_dists, na.rm = T)
+# 
+# # tpr_clusts <- dendsort(hclust(d = tpr_dists, method = "complete"), 
+# #                        isReverse = F, 
+# #                        type = "min")
+# tpr_clusts <- seriate(tpr_dists, method = "GW_complete")[[1]]
+# 
+# tpr_dendro_ddata <- 
+#   dendro_data(as.dendrogram(tpr_clusts),
+#               type = "rectangle")
+# 
+# tpr_dendro <- 
+#   ggplot(segment(tpr_dendro_ddata), aes(x = x, y = y)) +
+#   geom_segment(aes(xend = xend, yend = yend)) +
+#   scale_x_continuous(name = NULL, 
+#                      # trans = "reverse",
+#                      breaks = label(tpr_dendro_ddata)$x, 
+#                      labels = label(tpr_dendro_ddata)$label, 
+#                      expand = c(0, 0),
+#                      position = "bottom") +
+#   coord_cartesian(xlim = c(.5, 38.5)) +
+#   labs(x = NULL, y = NULL) +
+#   theme_dendro() +
+#   # theme(axis.text.x = element_text(color = method_colors[label(fpr_dendro_ddata)$label], 
+#   #                                  angle = 90, hjust = 0),
+#   #       axis.text.y = element_blank(),
+#   #       panel.grid.major.x = element_blank(),
+#   #       panel.grid.minor.x = element_blank(),
+#   #       panel.grid.major.y = element_blank(),
+#   #       panel.grid.minor.y = element_blank())
+#   theme()
+# 
+# # tpr_dendro
+```
+
+```{r, fig.width=6.692, fig.height=4.25}
+# method_order <- label(tpr_dendro_ddata)$label
+# method_order <- names(sort(apply(X = tpr_mat, MARGIN = 2, FUN = median, na.rm = T)))
+
+method_order <-
+    dcast(as.data.table(summary(tpr_mat))[, c("Stat", "Val"):=tstrsplit(N, ":", type.convert = T)],
+          V2 ~ Stat, value.var = "Val")[order(`Median `, `1st Qu.`, `3rd Qu.`,
+                                              decreasing = F), gsub(" ", "", V2)]
+
+panel_dendro <-
+  wrap_plots(#tpr_dendro +
+               # theme(plot.margin = margin(0, 0, 0, 0, "lines"),
+               #       axis.text.x = element_blank()),
+             plot_base_method_type_tiles + 
+               scale_x_discrete(limits = method_order, breaks = method_order) +
+               theme_void() + 
+               theme(plot.margin = margin(0, 0, 0, 0, "lines")),  
+             ncol = 1, heights = c(1, .2),
+             guides = "collect") & 
+  theme(legend.position = "top")
+
+panel_tpr <- 
+  plot_tpr_faceted + 
+  facet_grid(cols = NULL) +
+  scale_x_discrete(limits = method_order) +
+  theme(plot.margin = unit(c(0, 0, 0, 0), "lines"),
+        axis.text.x = element_blank(), 
+        axis.ticks.x = element_blank(),
+        strip.text = element_blank())
+
+bottom_box <- 
+    plot_base_method_color_text_facet +
+    facet_grid(cols = NULL, rows = vars(variable), 
+               scales = "free_y", drop = T) +
+    scale_x_discrete(limits = method_order) +
+    theme(plot.margin = unit(c(0, 0, 0, 0), "lines"),
+          axis.text.y = element_text(angle = 90, hjust = .5, vjust = .5),
+          strip.text = element_blank()) 
+
+wrap_plots(panel_dendro & 
+               theme(legend.position = "top"),
+           plot_tpr &
+               scale_x_discrete(limits = method_order) &
+               theme(legend.position = "bottom",
+                     axis.text.x = element_blank()), 
+           bottom_box &
+               scale_x_discrete(limits = method_order),
+           heights = c(.5, 2, 3), 
+           guides = "collect",
+           ncol = 1)  & 
+    theme(#legend.position = "top",
+        plot.margin = margin(0, .5, 0, .5, "lines"),
+        legend.key.size = unit(.7, "lines"),
+        legend.position = "top", legend.box = "vertical", 
+        legend.box.margin = margin(0, 0, 0, 0, "lines"),
+        legend.box.spacing = unit(0, "lines"),
+        legend.margin = margin(0, 0, 0, 0, "lines"),
+        legend.spacing.y = unit(.1, "lines"),
+        panel.spacing.x = unit(.05, "lines"),
+        panel.grid.minor = element_blank(),
+        text = element_text(size = 10),
+        plot.tag = element_text(hjust = -1, vjust = -1, size = 12))
 ```
 
 ### Precision (1-FDR) {.tabset}
