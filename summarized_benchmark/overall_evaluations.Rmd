@@ -579,11 +579,12 @@ ggplot(plot_dt,
                      guide = guide_legend(title.position = "left", 
                                           reverse = T)) +
   facet_wrap(~ Method, 
-             scales = "fixed") +
+             scales = "fixed", ncol = 10) +
   scale_y_sqrt(breaks = c(0, 0.01, 0.05, 0.1, 
                           0.25, 0.5, 0.75, 1)) + ## square-root transformed y-axis for increased visibility
   theme_bw() +
-  theme(legend.position = c(.7, .05), 
+  theme(legend.position = c(.9, .1), 
+        axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5),
         text = element_text(size = 9),
         strip.text = element_text(margin = margin(.01, .1, .01, .1, "lines")),
         panel.spacing.x = unit(.1, "lines"),
@@ -667,11 +668,12 @@ ggplot(plot_dt,
                      guide = guide_legend(title.position = "left", 
                                           reverse = T)) +
   facet_wrap(~ Method, 
-             scales = "fixed") +
+             scales = "fixed", ncol = 10) +
   scale_y_sqrt(breaks = c(0, 0.01, 0.05, 0.1, 
                           0.25, 0.5, 0.75, 1)) + ## square-root transformed y-axis for increased visibility
   theme_bw() +
-  theme(legend.position = c(.7, .05), 
+  theme(legend.position = c(.9, .1), 
+        axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5),
         text = element_text(size = 9),
         strip.text = element_text(margin = margin(.01, .1, .01, .1, "lines")),
         panel.spacing.x = unit(.1, "lines"),
