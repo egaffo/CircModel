@@ -40,6 +40,8 @@ gg_color_hue <- function(n) {
 }
 
 nWorkers <- multicoreWorkers()
+
+set.seed(123)
 ```
 
 ```{r}
