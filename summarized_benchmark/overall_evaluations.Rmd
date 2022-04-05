@@ -3654,7 +3654,46 @@ result <-
           panel.grid.major.x = element_blank())
 
 gt <- patchwork::patchworkGrob(result)
-gridExtra::grid.arrange(gt, left = "Average F1", bottom = NULL)
+gridExtra::grid.arrange(gt, left = "Median F1", bottom = NULL)
+```
+
+##### Per method Setsize \~ beta
+
+```{r, fig.width=6.692, fig.height=8.858}
+plot_dt <- melt(omedf1s, 
+                id.vars = c("SetSize", "Method", 
+                            "Alpha"))[variable == "F1"]
+
+plot_dt <- merge(method_types, plot_dt, by = "Method")
+plot_dt$Method <- str_wrap(gsub("_", " ", plot_dt$Method), 10)
+
+## Avg FPR = 1 - TNR
+ggplot(plot_dt, 
+       aes(x = SetSize, y = value)) + 
+  geom_line(aes(group = Alpha, color = Alpha)) +
+  geom_point(aes(shape = Alpha, color = Alpha), size = 2, fill = "white") +
+  labs(y = expression(Median~F[1]*-score), x = NULL) +
+  scale_color_brewer(Alpha_plot_label, 
+                     palette = "Set2",
+                     labels = alpha_targets, 
+                     guide = guide_legend(title.position = "top", 
+                                          reverse = T)) +
+  scale_shape_manual(Alpha_plot_label, 
+                     labels = alpha_targets, 
+                     values = 21:23, 
+                     guide = guide_legend(title.position = "top", 
+                                          reverse = T)) +
+  facet_wrap(~ Method, 
+             scales = "fixed", ncol = 10) +
+  scale_y_continuous(breaks = c(0, 0.25, 0.5, 0.75, 1)) +
+  theme_bw() +
+  theme(legend.position = c(.9, .1), 
+        axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5),
+        text = element_text(size = 9),
+        strip.text = element_text(margin = margin(.01, .1, .01, .1, "lines")),
+        panel.spacing.x = unit(.1, "lines"),
+        panel.grid.minor.x = element_blank(), 
+        panel.grid.major.x = element_blank())
 ```
 
 #### F0.5 {.tabset}
@@ -4091,6 +4130,44 @@ gt <- patchwork::patchworkGrob(result)
 gridExtra::grid.arrange(gt, left = "Average F0.5", bottom = NULL)
 ```
 
+##### Per method Setsize \~ beta
+
+```{r, fig.width=6.692, fig.height=8.858}
+plot_dt <- melt(omedf1s, 
+                id.vars = c("SetSize", "Method", 
+                            "Alpha"))[variable == "F0.5"]
+
+plot_dt <- merge(method_types, plot_dt, by = "Method")
+plot_dt$Method <- str_wrap(gsub("_", " ", plot_dt$Method), 10)
+
+## Avg FPR = 1 - TNR
+ggplot(plot_dt, 
+       aes(x = SetSize, y = value)) + 
+  geom_line(aes(group = Alpha, color = Alpha)) +
+  geom_point(aes(shape = Alpha, color = Alpha), size = 2, fill = "white") +
+  labs(y = expression(Median~F[0.5]*-score), x = NULL) +
+  scale_color_brewer(Alpha_plot_label, 
+                     palette = "Set2",
+                     labels = alpha_targets, 
+                     guide = guide_legend(title.position = "top", 
+                                          reverse = T)) +
+  scale_shape_manual(Alpha_plot_label, 
+                     labels = alpha_targets, 
+                     values = 21:23, 
+                     guide = guide_legend(title.position = "top", 
+                                          reverse = T)) +
+  facet_wrap(~ Method, 
+             scales = "fixed", ncol = 10) +
+  scale_y_continuous(breaks = c(0, 0.25, 0.5, 0.75, 1)) +
+  theme_bw() +
+  theme(legend.position = c(.9, .1), 
+        axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5),
+        text = element_text(size = 9),
+        strip.text = element_text(margin = margin(.01, .1, .01, .1, "lines")),
+        panel.spacing.x = unit(.1, "lines"),
+        panel.grid.minor.x = element_blank(), 
+        panel.grid.major.x = element_blank())
+```
 
 # Performance curves
 
