@@ -3328,6 +3328,32 @@ plot_f1_faceted <-
 plot_f1_faceted
 ```
 
+##### N05, beta = 0.05
+
+```{r, fig.width=7, fig.height=4.5}
+plot_f1 <- 
+  ggplot(plot_dt,
+         aes(x = Method, y = value, color = Method)) +
+  geom_boxplot(data = ~ subset(.x, Measure == "F1"),
+               outlier.size = .5, varwidth = F) + 
+  labs(x = NULL, y = expression(F[1]*"-score")) +
+  scale_color_manual(values = method_colors, guide = "none") +
+  scale_y_continuous(breaks = c(0, .25, .5, .75, 1)) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5),
+        panel.grid.major.x = element_blank(),
+        legend.position = "top", 
+        legend.key = element_blank(),
+        legend.background = element_blank(),
+        legend.margin = margin(0, 0, 0, 0, "lines"),
+        legend.box.spacing = unit(1, "lines"),
+        legend.box.margin = margin(0, 0, -0.5, 0, "lines"),
+        legend.spacing.y = unit(.1, "lines"),
+        panel.spacing.x = unit(.1, "lines"))
+
+plot_f1
+```
+
 ##### Average point line plot
 
 ```{r, fig.width=14.5}
@@ -4878,7 +4904,8 @@ panel_b <- plot_tpr +
 #   theme(axis.text.x = element_blank(), 
 #         axis.ticks.x = element_blank(),
 #         strip.text = element_blank())
-panel_c <- plot_f0.5 + 
+# panel_c <- plot_f0.5 + 
+panel_c <- plot_f1 + 
   scale_x_discrete(limits = method_order) +
   theme(axis.text.x = element_blank(), 
         axis.ticks.x = element_blank(),
