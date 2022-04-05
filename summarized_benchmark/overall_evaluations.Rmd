@@ -143,7 +143,7 @@ method_types <-
              BaseMethod = c("circMeta", "circMeta", "DESeq2", 
                             "DESeq2", "DESeq2", "glmGamPoi", 
                             "DESeq2", "DESeq2", "DESeq2", 
-                            "DESeq2", "DESingle", "edgeR", 
+                            "DESeq2", "DEsingle", "edgeR", 
                             "edgeR", "edgeR", "edgeR", 
                             "edgeR", "edgeR", "edgeR", 
                             "limma", "lncDIFF", "MAST", 
