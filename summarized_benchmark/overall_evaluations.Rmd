@@ -4182,18 +4182,28 @@ pval_deind <- rbindlist(lapply(pval_deind_files,
 ```
 
 ```{r}
-get_aucpr <- function(preds, trueval){
+# install.packages("PRROC", Ncpus=12)
+# library(PRROC)
+
+get_aucpr <- function(preds, trueval, sorted = T){
 
   preds[is.na(preds)] <- 0
-  res <- PerfMeas::precision.at.all.recall.levels(scores = preds, 
-                                                  labels = trueval)
-  PerfMeas::AUPRC(list(res), comp.precision = TRUE)
+  # res <- PerfMeas::precision.at.all.recall.levels(scores = preds, 
+  #                                                 labels = trueval)
+  # PerfMeas::AUPRC(list(res), comp.precision = TRUE)
+  PRROC::pr.curve(scores.class0 = preds, 
+                  weights.class0 = trueval, 
+                  sorted = sorted)$auc.davis.goadrich
+  
 }
 
-get_auc <- function(preds, trueval){
+get_auc <- function(preds, trueval, sorted = T){
   
   preds[is.na(preds)] <- 0
-  PerfMeas::AUC.single(pred = preds, labels = trueval)
+  # PerfMeas::AUC.single(pred = preds, labels = trueval)
+  PRROC::roc.curve(scores.class0 = preds, 
+                  weights.class0 = trueval, 
+                  sorted = sorted)$auc
 }
 
 # rocr_get_aucpr <- function(preds, trueval){
@@ -4229,10 +4239,10 @@ n_ds_crash <-
 
 auprc_auroc <- 
   scores_trueval[order(preds), #!is.na(preds), 
-                 .(AUCPR = get_aucpr(1 - preds, true_val),
+                 .(AUCPR = get_aucpr(1 - preds, true_val, sorted = T),
                    # rocr_AUCPR = rocr_get_aucpr(1 - preds, true_val),
                    # rocr_AUC = rocr_get_auc(1 - preds, true_val),
-                   AUROC = get_auc(1 - preds, true_val)), 
+                   AUROC = get_auc(1 - preds, true_val, sorted = T)), 
                  by = .(Source_ds, SetSize, DsId, Method)]
 ```
 
