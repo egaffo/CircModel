@@ -4341,25 +4341,25 @@ n_points$y <- 1.5
 
 ggplot(plot_dt,
        aes(x = Method, y = AUCPR, color = Method)) +
-  geom_boxplot(outlier.size = .5, varwidth = F) + #outlier.shape = NA
-  # geom_jitter(width = .1, size = .5) +
-  geom_text(data = n_points, 
-            aes(y = y,
-                label = paste0("n = ", formatC(N, width = 2, format = "d", flag = "0"), " ")), 
-            angle = 90, color = "black",
-            hjust = "inward", #0
-            vjust = .5, 
-            fontface = "italic", size = 3) +
-  labs(x = NULL, y = "AUCPR") +
-  scale_color_discrete(guide = "none") +
-  scale_y_continuous(breaks = c(0, .25, .5, .75, 1)) +
+  geom_boxplot(outlier.size = .5, varwidth = F) +   # geom_text(data = n_points, 
+  #           aes(y = y,
+  #               label = paste0("n = ", formatC(N, width = 2, format = "d", flag = "0"), " ")), 
+  #           angle = 90, color = "black",
+  #           hjust = "inward", #0
+  #           vjust = .5, 
+  #           fontface = "italic", size = 3) +
+  labs(x = NULL, y = "AUPRC") +
+  scale_color_manual(values = method_colors, guide = "none") +
+  # scale_y_continuous(breaks = c(0, .25, .5, .75, 1)) +
   # scale_shape_discrete("Source data set") +
   facet_grid(cols = vars(SetSize), 
              # scales = "free_y", 
              rows = vars(Source_ds)) +
   # coord_cartesian(ylim = c(0, 1)) +
   theme_bw() +
-  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5),
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5, colour = method_colors),
+        text = element_text(size = 9),
+        panel.spacing = unit(.1, "lines"),
         panel.grid.major.x = element_blank(),
         panel.grid.minor.y = element_blank(),
         legend.position = "top")
@@ -4367,30 +4367,29 @@ ggplot(plot_dt,
 
 ### Setsize
 
-```{r, fig.width=14.5, fig.height=5.5}
+```{r, fig.width=14.5, fig.height=3.5}
 plot_dt <- auprc_auroc
 n_points <- n_ds_crash[, .(N = sum(GOOD)), by = .(SetSize, Method)]
 n_points$y <- 1.15
 
 ggplot(plot_dt,
        aes(x = Method, y = AUCPR, color = Method)) +
-  geom_boxplot(outlier.size = .5, varwidth = T) + #outlier.shape = NA
-  # geom_jitter(width = .1, size = .5) +
-  geom_text(data = n_points, 
-            aes(y = y,
-                label = paste0("n = ", formatC(N, width = 3, format = "d", flag = "0"), " ")), 
-            angle = 90, color = "black",
-            hjust = "inward", #0
-            vjust = .5, 
-            fontface = "italic", size = 3) +
-  scale_y_continuous(breaks = c(0, .25, .5, .75, 1), expand = c(0, 0)) +
+  geom_boxplot(outlier.size = .5, varwidth = T) + 
+  # geom_text(data = n_points, 
+  #           aes(y = y,
+  #               label = paste0("n = ", formatC(N, width = 3, format = "d", flag = "0"), " ")), 
+  #           angle = 90, color = "black",
+  #           hjust = "inward", #0
+  #           vjust = .5, 
+  #           fontface = "italic", size = 3) +
+  scale_y_continuous(breaks = c(0, .25, .5, .75, 1)) + #, expand = c(0, 0)
   labs(x = NULL, y = "AUPRC") +
   scale_color_discrete(guide = "none") +
   # scale_shape_discrete("Source data set") +
   facet_grid(cols = vars(SetSize)) +
-  coord_cartesian(ylim = c(0, unique(n_points$y))) +
+  # coord_cartesian(ylim = c(0, unique(n_points$y))) +
   theme_bw() +
-  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5),
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5, color = method_colors),
         panel.grid.major.x = element_blank(),
         panel.grid.minor.y = element_blank(),
         legend.position = "top")
@@ -4494,6 +4493,32 @@ plot_aupr_faceted <-
 plot_aupr_faceted
 ```
 
+### Per method Setsize \~ beta
+
+```{r, fig.width=6.692, fig.height=8.858}
+plot_dt <- merge(method_types, auprc_auroc, by = "Method")
+plot_dt$Method <- str_wrap(gsub("_", " ", plot_dt$Method), 10)
+
+ggplot(plot_dt, 
+       aes(x = SetSize, y = AUCPR, color = Method)) + 
+    geom_boxplot(outlier.size = .5) +
+    labs(x = "Data set size", y = "Area under precision-recall curve") +
+    scale_color_manual(values = setNames(method_colors, 
+                                         nm = str_wrap(gsub("_", " ", names(method_colors)), 10)), 
+                       guide = "none") +
+    facet_wrap(~ Method, 
+               scales = "fixed", ncol = 10) +
+    scale_y_continuous(breaks = c(0, 0.25, 0.5, 0.75, 1)) +
+    theme_bw() +
+    theme(legend.position = c(.9, .1), 
+          axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5),
+          text = element_text(size = 9),
+          strip.text = element_text(margin = margin(.01, .1, .01, .1, "lines")),
+          panel.spacing.x = unit(.1, "lines"),
+          panel.grid.minor.x = element_blank(), 
+          panel.grid.major.x = element_blank())
+```
+
 ## Area under ROC (FPR vs TPR) {.tabset}
 
 ### Table - source ds
@@ -4549,25 +4574,25 @@ n_points$y <- 1.5
 
 ggplot(plot_dt,
        aes(x = Method, y = AUROC, color = Method)) +
-  geom_boxplot(outlier.size = .5, varwidth = F) + #outlier.shape = NA
-  # geom_jitter(width = .1, size = .5) +
-  geom_text(data = n_points, 
-            aes(y = y,
-                label = paste0("n = ", formatC(N, width = 2, format = "d", flag = "0"), " ")), 
-            angle = 90, color = "black",
-            hjust = "inward", #0
-            vjust = .5, 
-            fontface = "italic", size = 3) +
+  geom_boxplot(outlier.size = .5, varwidth = F) +   # geom_text(data = n_points, 
+  #           aes(y = y,
+  #               label = paste0("n = ", formatC(N, width = 2, format = "d", flag = "0"), " ")), 
+  #           angle = 90, color = "black",
+  #           hjust = "inward", #0
+  #           vjust = .5, 
+  #           fontface = "italic", size = 3) +
   labs(x = NULL, y = "AUROC") +
-  scale_color_discrete(guide = "none") +
-  scale_y_continuous(breaks = c(0, .25, .5, .75, 1)) +
+  scale_color_manual(values = method_colors, guide = "none") +
+  scale_y_continuous(breaks = c(0, .25, .5, .75, 1), trans = "exp") +
   # scale_shape_discrete("Source data set") +
   facet_grid(cols = vars(SetSize), 
              # scales = "free_y", 
              rows = vars(Source_ds)) +
   # coord_cartesian(ylim = c(0, 1)) +
   theme_bw() +
-  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5),
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5, colour = method_colors),
+        text = element_text(size = 9),
+        panel.spacing = unit(.1, "lines"),
         panel.grid.major.x = element_blank(),
         panel.grid.minor.y = element_blank(),
         legend.position = "top")
@@ -4575,30 +4600,31 @@ ggplot(plot_dt,
 
 ### Setsize
 
-```{r, fig.width=14.5, fig.height=5.5}
+```{r, fig.width=14.5, fig.height=3.5}
 plot_dt <- auprc_auroc
 n_points <- n_ds_crash[, .(N = sum(GOOD)), by = .(SetSize, Method)]
 n_points$y <- 1.15
 
 ggplot(plot_dt,
        aes(x = Method, y = AUROC, color = Method)) +
-  geom_boxplot(outlier.size = .5, varwidth = T) + #outlier.shape = NA
-  # geom_jitter(width = .1, size = .5) +
-  geom_text(data = n_points, 
-            aes(y = y,
-                label = paste0("n = ", formatC(N, width = 3, format = "d", flag = "0"), " ")), 
-            angle = 90, color = "black",
-            hjust = "inward", #0
-            vjust = .5, 
-            fontface = "italic", size = 3) +
-  scale_y_continuous(breaks = c(0, .25, .5, .75, 1), expand = c(0, 0)) +
+  geom_boxplot(outlier.size = .5, varwidth = T) + 
+  # geom_text(data = n_points, 
+  #           aes(y = y,
+  #               label = paste0("n = ", formatC(N, width = 3, format = "d", flag = "0"), " ")), 
+  #           angle = 90, color = "black",
+  #           hjust = "inward", #0
+  #           vjust = .5, 
+  #           fontface = "italic", size = 3) +
+  scale_y_continuous(breaks = c(0, .25, .5, .75, 1), 
+                     # expand = c(0, 0),
+                     trans = "exp") +
   labs(x = NULL, y = "AUROC") +
-  scale_color_discrete(guide = "none") +
+  scale_color_manual(values = method_colors, guide = "none") +
   # scale_shape_discrete("Source data set") +
   facet_grid(cols = vars(SetSize)) +
-  coord_cartesian(ylim = c(0, unique(n_points$y))) +
+  # coord_cartesian(ylim = c(0, unique(n_points$y))) +
   theme_bw() +
-  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5),
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5, color = method_colors),
         panel.grid.major.x = element_blank(),
         panel.grid.minor.y = element_blank(),
         legend.position = "top")
@@ -4702,6 +4728,32 @@ plot_auroc_faceted <-
         panel.spacing.x = unit(.1, "lines"))
 
 plot_auroc_faceted
+```
+
+### Per method Setsize \~ beta
+
+```{r, fig.width=6.692, fig.height=8.858}
+plot_dt <- merge(method_types, auprc_auroc, by = "Method")
+plot_dt$Method <- str_wrap(gsub("_", " ", plot_dt$Method), 10)
+
+ggplot(plot_dt, 
+       aes(x = SetSize, y = AUROC, color = Method)) + 
+    geom_boxplot(outlier.size = .5) +
+    labs(x = "Data set size", y = "Area under receiver operating characteristic curve") +
+    scale_color_manual(values = setNames(method_colors, 
+                                         nm = str_wrap(gsub("_", " ", names(method_colors)), 10)), 
+                       guide = "none") +
+    facet_wrap(~ Method, 
+               scales = "fixed", ncol = 10) +
+    scale_y_continuous(breaks = c(0, 0.25, 0.5, 0.75, 1), trans = "exp") +
+    theme_bw() +
+    theme(legend.position = c(.9, .1), 
+          axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5),
+          text = element_text(size = 9),
+          strip.text = element_text(margin = margin(.01, .1, .01, .1, "lines")),
+          panel.spacing.x = unit(.1, "lines"),
+          panel.grid.minor.x = element_blank(), 
+          panel.grid.major.x = element_blank())
 ```
 
 # Method similarity {.tabset}
