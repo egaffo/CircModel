@@ -18,6 +18,139 @@ editor_options:
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = F)
 library(data.table)
+library(patchwork)
+# install.packages("ggdendro")
+library(ggdendro)
+library(ggplot2)
+library(scales)
+library(viridis)
+library(dendsort)
+```
+
+# Method names
+
+```{r}
+method_types <- 
+  data.table(Method = c("circMeta_Dt_PZT", "circMeta_Lc_PZT", "DESeq2_BP_WaT", 
+                        "DESeq2_Dt_LRT", "DESeq2_Dt_WaT", "DESeq2_GP_LRT", 
+                        "DESeq2_Lc_LRT", "DESeq2_Sc_LRT", "DESeq2_Zi_LRT", 
+                        "DESeq2_ZW_LRT", "DEsingle_Dt_LRT", "edgeR_Dt_LRT", 
+                        "edgeR_rbst_LRT", "edgeR_rbst_QFT", "edgeR_rbst50df_LRT", 
+                        "edgeR_rbstEdf_LRT", "edgeR_rbstTMMswp_LRT", "edgeR_ZW_LRT", 
+                        "limma_St_Vst", "lncDIFF_Dt_LRT", "MAST_CPM_LRT", 
+                        "metagenomeSeq_Dt_EBT", "monocle_Dt_LRT", "NBID_Dt_LRT", 
+                        "NBID_Sc_LRT", "NOISeqBIO_TMM_LRT", "PoissonSeq_Dt_TT", 
+                        "ROTScpm_Dt_TLT", "SAMseq_Dt_TT", "seurat_Bim_LRT", 
+                        "seurat_Dt_WLX", "voom_Dt_MFT", "voom_LF_MFT", 
+                        "voom_Qn_MFT", "voom_Rb_MFT", "voom_Sp_MFT", 
+                        "voom_ZW_MFT", "wilcoxon_TMM_WLX"),
+             Type = c("Bulk RNA-seq", "Bulk RNA-seq", "Bulk RNA-seq", 
+                      "Bulk RNA-seq", "Bulk RNA-seq", "Single cell / metagenome", 
+                      "Single cell / metagenome", "Single cell / metagenome", "Single cell / metagenome", 
+                      "Single cell / metagenome", "Single cell / metagenome", "Bulk RNA-seq", 
+                      "Bulk RNA-seq", "Bulk RNA-seq", "Bulk RNA-seq", 
+                      "Bulk RNA-seq", "Single cell / metagenome", "Single cell / metagenome", 
+                      "Single cell / metagenome", "Bulk RNA-seq", "Single cell / metagenome", 
+                      "Single cell / metagenome", "Single cell / metagenome", "Single cell / metagenome", 
+                      "Single cell / metagenome", "Bulk RNA-seq", "Bulk RNA-seq", 
+                      "Single cell / metagenome", "Bulk RNA-seq", "Single cell / metagenome", 
+                      "Single cell / metagenome", "Bulk RNA-seq", "Single cell / metagenome",
+                      "Bulk RNA-seq", "Bulk RNA-seq", "Bulk RNA-seq", 
+                      "Single cell / metagenome", "Single cell / metagenome"),
+             BaseMethod = c("circMeta", "circMeta", "DESeq2", 
+                            "DESeq2", "DESeq2", "glmGamPoi", 
+                            "DESeq2", "DESeq2", "DESeq2", 
+                            "DESeq2", "DEsingle", "edgeR", 
+                            "edgeR", "edgeR", "edgeR", 
+                            "edgeR", "edgeR", "edgeR", 
+                            "limma", "lncDIFF", "MAST", 
+                            "metagenomeSeq", "monocle", "NBID", 
+                            "NBID", "NOISeqBIO", "PoissonSeq", 
+                            "ROTS", "SAMseq", "Seurat", 
+                            "Seurat", "Voom", "Voom", 
+                            "Voom", "Voom", "Voom", 
+                            "Voom", "Wilcoxon"))
+```
+
+```{r}
+#' A function to mimic the ggplot default palette
+gg_color_hue <- function(n) {
+  hues = seq(15, 375, length = n + 1)
+  hcl(h = hues, l = 65, c = 100)[1:n]
+}
+
+method_colors <- setNames(object = gg_color_hue(length(method_types$Method)), 
+                          nm = sort(method_types$Method))
+
+method_types_colors.dt <- 
+  merge(data.table(data.frame(Color = method_colors), keep.rownames = "Method"), 
+        method_types, 
+        by = "Method")[, .(Color = head(Color, 1)), by = BaseMethod]
+
+method_types_colors <- unlist(split(method_types_colors.dt$Color, 
+                                    method_types_colors.dt$BaseMethod))
+```
+
+```{r, fig.width=2.5, fig.height=6.69}
+plot_dt <- 
+  melt(copy(method_types)[, c("Base", "Parameters", 
+                              "Test") := tstrsplit(Method, "_")][, .(Method,
+                                                                     Type,
+                                                                     `Base tool` = BaseMethod,
+                                                                     Parameters,
+                                                                     Test)], 
+                id.vars = c("Method", "Type"))
+
+plot_dt$variable <- factor(plot_dt$variable, 
+                           levels = levels(plot_dt$variable), 
+                           ordered = T)
+
+plot_base_method_color_text <-
+  ggplot(plot_dt, 
+         aes(y = Method, 
+             x = variable, 
+             color = Method)) +
+  geom_text(aes(label = value), 
+            size = 3) +
+    scale_x_discrete(position = "bottom") +
+  labs(x = NULL, y = NULL) +
+  coord_cartesian(clip = "off") +
+  scale_color_manual(values = method_colors, guide = "none") +
+  theme_bw() +
+  theme(axis.text.y = element_blank(),
+        text = element_text(size = 10),
+        panel.border = element_blank(),
+        axis.ticks = element_blank(),
+        panel.grid = element_blank(), 
+        strip.background = element_rect(fill = NA), 
+        panel.spacing.y = unit(0.05, "lines"),
+        panel.spacing.x = unit(.1, "lines"))
+
+# plot_base_method_color_text
+```
+
+# Base tiles
+
+```{r, fig.width=7, fig.height=4}
+library(ggthemes)
+plot_dt <- copy(method_types)
+
+plot_base_method_type_tiles <-
+  ggplot(plot_dt, 
+         aes(y = Method, 
+             x = "", fill = Type)) +
+  geom_tile(color = "white", width = 0.9, height = 0.9, 
+            size = .5) +
+  labs(x = NULL, y = NULL) +
+  scale_fill_manual(values = setNames(tableau_color_pal(palette = "Classic Purple-Gray 6")(2), #"Nuriel Stone"
+                                      c("Bulk RNA-seq", "Single cell / metagenome"))) +
+  guides(fill = guide_legend(title = "Method purpose", 
+                             title.position = "left", 
+                             title.hjust = .5)) +
+  theme_dendro() +
+  theme(legend.position = "bottom")
+
+# plot_base_method_type_tiles
 ```
 
 # Jaccard
@@ -64,6 +197,7 @@ padj[is.na(preds), preds := 1]
 
 padj_l <- split(padj, drop = F, by = c("DS", "Dataset"), flatten = F)
 
+## compute dists for 5% FDR
 jaccard_dists <- 
     rbindlist(lapply(padj_l, function(dataset){
         
@@ -81,8 +215,64 @@ jaccard_dists <-
     }), 
     idcol = "DS")
 
+## compute dists for 10% FDR
+jaccard_dists_0.1 <- 
+    rbindlist(lapply(padj_l, function(dataset){
+        
+        rbindlist(lapply(dataset, function(simds){
+            
+            mt <- as.matrix(data.frame(dcast(simds[, .(Method, preds, Gid)], 
+                                             Gid ~ Method, 
+                                             value.var = "preds", 
+                                             fill = 0), 
+                                       row.names = "Gid"))
+            as.data.table(as.matrix(dist(x = t(mt) <= .1, method = "binary")),
+                          keep.rownames = "Method")
+        }), 
+        idcol = "Dataset")
+    }), 
+    idcol = "DS")
+
+## compute dists for 1% FDR
+jaccard_dists_0.01 <-
+    rbindlist(lapply(padj_l, function(dataset){
+
+        rbindlist(lapply(dataset, function(simds){
+
+            mt <- as.matrix(data.frame(dcast(simds[, .(Method, preds, Gid)],
+                                             Gid ~ Method,
+                                             value.var = "preds",
+                                             fill = 0),
+                                       row.names = "Gid"))
+            as.data.table(as.matrix(dist(x = t(mt) <= .01, method = "binary")),
+                          keep.rownames = "Method")
+        }),
+        idcol = "Dataset")
+    }),
+    idcol = "DS")
+
 avg_jaccard_dists <-
     melt(jaccard_dists, 
+         id.vars = c("DS", "Dataset", "Method"), 
+         variable.name = "Method2", 
+         value.name = "Jdist")[, c("SetSize", "MZP", "DsType", 
+                                   "DsId") := tstrsplit(Dataset, "_"), 
+                               by = Dataset][, .(AvgJDist = mean(Jdist)), 
+                                             by = .(DS, SetSize, MZP, DsType, 
+                                                    Method, Method2)]
+
+avg_jaccard_dists_0.1 <-
+    melt(jaccard_dists_0.1, 
+         id.vars = c("DS", "Dataset", "Method"), 
+         variable.name = "Method2", 
+         value.name = "Jdist")[, c("SetSize", "MZP", "DsType", 
+                                   "DsId") := tstrsplit(Dataset, "_"), 
+                               by = Dataset][, .(AvgJDist = mean(Jdist)), 
+                                             by = .(DS, SetSize, MZP, DsType, 
+                                                    Method, Method2)]
+
+avg_jaccard_dists_0.01 <-
+    melt(jaccard_dists_0.01, 
          id.vars = c("DS", "Dataset", "Method"), 
          variable.name = "Method2", 
          value.name = "Jdist")[, c("SetSize", "MZP", "DsType", 
@@ -93,14 +283,6 @@ avg_jaccard_dists <-
 ```
 
 ```{r, warning=FALSE}
-library(patchwork)
-# install.packages("ggdendro")
-library(ggdendro)
-library(ggplot2)
-library(scales)
-library(viridis)
-library(dendsort)
-
 avg_jaccard_dists_l <- split(avg_jaccard_dists, by = c("DS", "SetSize"), flatten = F, keep.by = F)
 
 method_names <- sort(unique(avg_jaccard_dists_l$DM1$N10$Method))
@@ -169,39 +351,135 @@ plots <-
                                              isReverse = T), 
                                type = "rectangle")
                
-               ggplot(segment(ddata), aes(x = x, y = y)) +
-                   geom_segment(aes(xend = xend, yend = yend)) +
-                   scale_x_continuous(name = NULL, breaks = label(ddata)$x, 
+               # plot <-
+               #     ggplot(segment(ddata), aes(x = x, y = y)) +
+               #     geom_segment(aes(xend = xend, yend = yend)) +
+               #     scale_x_continuous(name = NULL, breaks = label(ddata)$x, 
+               #                        labels = label(ddata)$label, 
+               #                        position = "top") +
+               #     scale_y_reverse(name = "Jaccard distance", expand = c(0, 0.01)) +
+               #     coord_flip() +
+               #     theme_minimal() +
+               #     theme(axis.text.y = element_text(color = method_colors[label(ddata)$label]),
+               #           panel.grid.major.x = element_blank(),
+               #           panel.grid.minor.x = element_blank(),
+               #           panel.grid.major.y = element_blank(),
+               #           panel.grid.minor.y = element_blank())
+               plot <-
+                   ggplot(segment(ddata), aes(x = y, y = x)) +
+                   geom_segment(aes(yend = xend, xend = yend)) +
+                   scale_y_continuous(name = NULL, 
+                                      breaks = label(ddata)$x, 
                                       labels = label(ddata)$label, 
-                                      position = "top") +
-                   scale_y_reverse(name = "Jaccard distance", expand = c(0, 0.01)) +
-                   coord_flip() +
+                                      position = "right", 
+                                      expand = c(0, 0)) +
+                   scale_x_reverse(name = "Jaccard distance", expand = c(0, 0)) +
+                   coord_cartesian(ylim = c(.5, 38.5)) +
                    theme_minimal() +
                    theme(axis.text.y = element_text(color = method_colors[label(ddata)$label]),
                          panel.grid.major.x = element_blank(),
                          panel.grid.minor.x = element_blank(),
                          panel.grid.major.y = element_blank(),
                          panel.grid.minor.y = element_blank())
+               
+               list(ddata = ddata, plot = plot)
            })
 
-plots$N03  + 
+plots$N03$plot  + 
     ggtitle("N03") + 
     theme(axis.text.x = element_text(angle = -35, hjust = .5, vjust = -1)) +
-    plots$N05 + 
+    plots$N05$plot + 
     ggtitle("N05") + 
     theme(axis.text.x = element_text(angle = -35, hjust = .5, vjust = -1)) +
-    plots$N10 + 
+    plots$N10$plot + 
     ggtitle("N10") + 
     theme(axis.text.x = element_text(angle = -35, hjust = .5, vjust = -1))
 ```
 
 ### N05  
 
-```{r, fig.height=5.5, fig.width=3.5}
-avg_jdn05 <- plots$N05
-avg_jdn05
+```{r, fig.height=5.5, fig.width=4.5}
+avg_jdn05 <- plots$N05$plot
+
+method_order <- label(plots$N05$ddata)$label
+
+## plot the average rank tile plot instead of the mean performance
+wrap_plots(avg_jdn05 + 
+               theme(axis.text.x = element_text(angle = 90, hjust = 1),
+                     axis.text.y = element_blank(),
+                     plot.margin = margin(0, 0, 0, 0, "lines")),
+           plot_base_method_type_tiles +
+               scale_y_discrete(limits = method_order) +
+               theme(plot.background = element_blank(),
+                     plot.margin = margin(0, 0, 0, 0, "lines")),
+           plot_base_method_color_text +
+               scale_y_discrete(limits = method_order) +
+               theme(plot.margin = unit(c(0, 0, 0, 0), "lines")), 
+           nrow = 1, guides = "collect",
+           widths = c(1, .1, 1.5)) & 
+    theme(legend.position = "top",
+          legend.key.size = unit(.7, "lines"),
+          panel.spacing.x = unit(0, "lines"),
+          panel.grid.minor = element_blank(),
+          # plot.margin = margin(0.1, 0.1, 0.1, 0, "lines"),
+          text = element_text(size = 10), 
+          plot.tag = element_text(hjust = -1, vjust = -1, size = 12))
 ```
 
+### N10 @ 10%FDR
+
+```{r, fig.height=5.5, fig.width=4.5}
+n10fdr10_avg_jaccard_dists <- 
+    avg_jaccard_dists_0.1[SetSize == "N10",
+                          .(AvgJDist = mean(AvgJDist)), 
+                          by = .(SetSize, MZP, DsType, Method, Method2)]
+
+n10fdr10_ddata <- 
+    dendro_data(as.dendrogram(dendsort(hclust(as.dist(data.frame(dcast(n10fdr10_avg_jaccard_dists, 
+                                                                       Method ~ Method2, 
+                                                                       value.var = "AvgJDist"), 
+                                                                 row.names = "Method")))), 
+                              isReverse = T), 
+                type = "rectangle")
+
+n10fdr10_plot <-
+    ggplot(segment(n10fdr10_ddata), aes(x = y, y = x)) +
+    geom_segment(aes(yend = xend, xend = yend)) +
+    scale_y_continuous(name = NULL, 
+                       breaks = label(n10fdr10_ddata)$x, 
+                       labels = label(n10fdr10_ddata)$label, 
+                       position = "right", 
+                       expand = c(0, 0)) +
+    scale_x_reverse(name = "Jaccard distance", expand = c(0, 0)) +
+    coord_cartesian(ylim = c(.5, 38.5)) +
+    theme_minimal() +
+    theme(axis.text.y = element_text(color = method_colors[label(n10fdr10_ddata)$label]),
+          panel.grid.major.x = element_blank(),
+          panel.grid.minor.x = element_blank(),
+          panel.grid.major.y = element_blank(),
+          panel.grid.minor.y = element_blank())
+
+wrap_plots(n10fdr10_plot + 
+               theme(axis.text.x = element_text(angle = 90, hjust = 1),
+                     axis.text.y = element_blank(),
+                     plot.margin = margin(0, 0, 0, 0, "lines")),
+           plot_base_method_type_tiles +
+               scale_y_discrete(limits = label(n10fdr10_ddata)$label) +
+               theme(plot.background = element_blank(),
+                     plot.margin = margin(0, 0, 0, 0, "lines")),
+           plot_base_method_color_text +
+               scale_y_discrete(limits = label(n10fdr10_ddata)$label) +
+               theme(plot.margin = unit(c(0, 0, 0, 0), "lines")), 
+           nrow = 1, guides = "collect",
+           widths = c(1, .1, 1.5)) & 
+    theme(legend.position = "top",
+          legend.key.size = unit(.7, "lines"),
+          panel.spacing.x = unit(0, "lines"),
+          panel.grid.minor = element_blank(),
+          # plot.margin = margin(0.1, 0.1, 0.1, 0, "lines"),
+          text = element_text(size = 10), 
+          plot.tag = element_text(hjust = -1, vjust = -1, size = 12))
+```
 
 ## Average Jaccard per data set
 
@@ -248,10 +526,10 @@ plots$DM1  +
     theme(axis.text.x = element_text(angle = -35, hjust = .5, vjust = -1))
 ```
 
-N05  
+### N05  
 
 ```{r, warning=FALSE, fig.height=11, fig.width=7}
-plots <- 
+plots_ds <- 
     lapply(split(avg_jaccard_dists[SetSize == "N05", 
                                    .(AvgJDist = mean(AvgJDist)), 
                                    by = .(DS, MZP, DsType, Method, Method2)], 
@@ -280,16 +558,16 @@ plots <-
                          panel.grid.minor.y = element_blank())
            })
 
-plots$DM1  + 
+plots_ds$DM1  + 
     ggtitle("DM1") + 
     theme(axis.text.x = element_text(angle = -35, hjust = .5, vjust = -1)) +
-    plots$IPF + 
+    plots_ds$IPF + 
     ggtitle("IPF") + 
     theme(axis.text.x = element_text(angle = -35, hjust = .5, vjust = -1)) +
-    plots$IDC + 
+    plots_ds$IDC + 
     ggtitle("IDC") + 
     theme(axis.text.x = element_text(angle = -35, hjust = .5, vjust = -1)) +
-    plots$MS + 
+    plots_ds$MS + 
     ggtitle("MS") + 
     theme(axis.text.x = element_text(angle = -35, hjust = .5, vjust = -1))
 ```
@@ -366,104 +644,221 @@ msbAssay_dt <-
                    "Method"))[, Beta := sub(".*(0\\.[015]{2}).*", "\\1", variable)]
 ```
 
+
 ```{r}
-n05_msbAssay <- 
-  dcast(msbAssay_dt[SetSize == "N05" & 
-                      Beta == 0.05 & 
-                      grepl("padj", variable) &
-                      !grepl("rejections", variable)][, Measure := gsub("_|[0-9]|padj|\\.", "", variable)],
-        SetSize + Method ~ Measure, 
-        value.var = "value")[, `:=`(PPV = 1 - FDR,
-                                    SetSize = NULL)][]
+idvars <- c("Source_ds", "Dataset", "Method", "SetSize")
+method_ranks <- 
+    melt(sbAssay_dt[, c(idvars, value_cols), with = F], 
+         id.vars = idvars)
 
+method_ranks[, Alpha := as.numeric(gsub("rejections|TPR|FDR|_|padj", "", variable))]
 
+## make FDR closer to the nominal value to rank on top when sorting by ascending order
+method_ranks[grepl("^FDR", variable), value := abs(value - Alpha)]
+## make higher TPR to rank on top when sorting by ascending order
+method_ranks[grepl("^TPR", variable), value := 1 - value]
 
-n05jd <- avg_jaccard_dists[SetSize == "N05", 
-                           .(AvgJDist = mean(AvgJDist)), 
-                           by = .(Method, Method2)]
+method_ranks <- 
+    method_ranks[order(value, decreasing = F, na.last = T), 
+                 Rank := seq_along(value), 
+                 by = .(Source_ds, SetSize, Dataset, variable)][]
+method_ranks[is.na(value), Rank := max(Rank)]
 
-
-jd_clusts <- dendsort(hclust(as.dist(data.frame(dcast(n05jd, 
-                                             Method ~ Method2, 
-                                             value.var = "AvgJDist"), 
-                                       row.names = "Method"))), 
-                      isReverse = T)
+## compute the rank of each method according to FDR, TPR and AUPRC
+## in each simulation and then calculate the average rank
+fdr_mean_rank <- method_ranks[variable == "FDR_0.05_padj", 
+                              .(FDR_mean_rank = mean(Rank)), 
+                              by = .(SetSize, Method)]
+tpr_mean_rank <- method_ranks[variable == "TPR_0.05_padj", 
+                              .(TPR_mean_rank = mean(Rank)), 
+                              by = .(SetSize, Method)]
 
 ##get AUC
 auc <- fread("overall_evaluations/overall_auc.csv.gz")
+auprc_rank <- 
+    auc[order(AUCPR, decreasing = T, na.last = T), 
+        .(Method, AUCPR,
+          Rank = seq_along(AUCPR)), 
+        by = .(Source_ds, SetSize, DsId)]
+auprc_rank[is.na(AUCPR), Rank := max(Rank)]
+
+auprc_mean_rank <- 
+    auprc_rank[, .(AUCPR_mean_rank = mean(Rank)), 
+               by = .(SetSize, Method)]
+```
+
+```{r}
+# n05_msbAssay <- 
+#   dcast(msbAssay_dt[SetSize == "N05" & 
+#                       Beta == 0.05 & 
+#                       grepl("padj", variable) &
+#                       !grepl("rejections", variable)][, Measure := gsub("_|[0-9]|padj|\\.", "", variable)],
+#         SetSize + Method ~ Measure, 
+#         value.var = "value")[, `:=`(PPV = 1 - FDR,
+#                                     SetSize = NULL)][]
+# 
+# 
+# 
+# n05jd <- avg_jaccard_dists[SetSize == "N05", 
+#                            .(AvgJDist = mean(AvgJDist)), 
+#                            by = .(Method, Method2)]
+# 
+# 
+# jd_clusts <- dendsort(hclust(as.dist(data.frame(dcast(n05jd, 
+#                                                       Method ~ Method2, 
+#                                                       value.var = "AvgJDist"), 
+#                                                 row.names = "Method")), 
+#                              method = "complete"), 
+#                       isReverse = T)
 ```
 
 
 ```{r}
-# mat <- as.matrix(data.frame(n05_msbAssay, 
-#                             row.names = "Method"))[jd_clusts$labels[jd_clusts$order], 
-#                                                    c("TPR", "PPV")]
-# library(ComplexHeatmap)  
-# measph <- pheatmap(mat,
-#                    color = viridis(255),
-#                    # cluster_rows = jd_clusts, 
-#                    cluster_rows = F,
-#                    cluster_cols = F, 
-#                    cellwidth = 9, cellheight = 9)
+# plot_dt <- 
+#   rbindlist(list(tprppv = melt(n05_msbAssay, 
+#                                id.vars = "Method", 
+#                                variable.name = "Measure")[Measure %in% c("TPR", "PPV")],
+#                  auc = melt(auc[SetSize == "N05"], 
+#                             id.vars = c("SetSize", "Source_ds", "DsId", "Method"), 
+#                             variable.name = "Measure")[, .(value = mean(value)), 
+#                                                        by = .(Measure, Source_ds, 
+#                                                               Method)][, .(value = mean(value)), 
+#                                                                        by = .(Measure, 
+#                                                                               Method)]), 
+#             use.names = T)
+# 
+# # plot_dt$Method <- factor(x = plot_dt$Method, 
+# #                          levels = jd_clusts$labels[jd_clusts$order], 
+# #                          ordered = T)
+# 
+# measph <-
+#   ggplot(plot_dt, aes(x = Measure, y = Method, fill = value)) +
+#   geom_tile(width = 0.9, height = 0.9) +
+#   labs(y = NULL, title = "") +
+#   scale_fill_viridis(option = "B", na.value = "grey90") +
+#   theme_minimal() +
+#   theme(axis.text.y = element_blank(),
+#         panel.grid.major.x = element_blank(),
+#         panel.grid.minor.x = element_blank(),
+#         panel.grid.major.y = element_blank(),
+#         panel.grid.minor.y = element_blank())
+```
 
+```{r}
+## compose tile plot with the ranks!
 plot_dt <- 
-  rbindlist(list(tprppv = melt(n05_msbAssay, 
-                               id.vars = "Method", 
-                               variable.name = "Measure")[Measure %in% c("TPR", "PPV")],
-                 auc = melt(auc[SetSize == "N05"], 
-                            id.vars = c("SetSize", "Source_ds", "DsId", "Method"), 
-                            variable.name = "Measure")[, .(value = mean(value)), 
-                                                       by = .(Measure, Source_ds, 
-                                                              Method)][, .(value = mean(value)), 
-                                                                       by = .(Measure, 
-                                                                              Method)]), 
-            use.names = T)
+    rbindlist(list(FDR = fdr_mean_rank[, .(SetSize, Method, value = FDR_mean_rank)],
+                   TPR = tpr_mean_rank[, .(SetSize, Method, value = TPR_mean_rank)],
+                   AUPRC = auprc_mean_rank[, .(SetSize, Method, value = AUCPR_mean_rank)]), 
+              use.names = T, 
+              idcol = "Measure")
 
-plot_dt$Method <- factor(x = plot_dt$Method, 
-                         levels = jd_clusts$labels[jd_clusts$order], 
-                         ordered = T)
+# plot_dt[, value := rescale(value, to = c(0, 1)), by = .(SetSize, Measure)]
+plot_dt <- plot_dt[SetSize == "N05"]
 
-measph <-
-  ggplot(plot_dt, aes(x = Measure, y = Method, fill = value)) +
-  geom_tile(width = 0.9, height = 0.9) +
-  labs(y = NULL, title = "") +
-  scale_fill_viridis(option = "B", na.value = "grey90") +
-  theme_minimal() +
-  theme(axis.text.y = element_blank(),
-        panel.grid.major.x = element_blank(),
-        panel.grid.minor.x = element_blank(),
-        panel.grid.major.y = element_blank(),
-        panel.grid.minor.y = element_blank())
+# plot_dt$Method <- factor(x = plot_dt$Method, 
+#                          levels = jd_clusts$labels[jd_clusts$order], 
+#                          ordered = T)
+
+mean_rank_heat <-
+    ggplot(plot_dt, aes(x = Measure, y = Method, fill = value)) +
+    geom_tile(width = 0.9, height = 0.9) +
+    scale_y_discrete(expand = c(0, 0)) +
+    labs(y = NULL, title = "") +
+    scale_fill_viridis(option = "B", na.value = "grey90", direction = -1, end = 0.98) +
+    guides(fill = guide_colorbar(title = "Mean\nrank", 
+                                 reverse = T)) +
+    theme_minimal() +
+    theme(axis.text.y = element_blank(),
+          panel.grid.major.x = element_blank(),
+          panel.grid.minor.x = element_blank(),
+          panel.grid.major.y = element_blank(),
+          panel.grid.minor.y = element_blank())
 ```
+
 
 ```{r}
-ddata <- 
-  dendro_data(as.dendrogram(jd_clusts), 
-              type = "rectangle")
-
-avg_jdn05 <- 
-  ggplot(segment(ddata), aes(x = x, y = y)) +
-  geom_segment(aes(xend = xend, yend = yend)) +
-  scale_x_continuous(name = NULL, 
-                     breaks = label(ddata)$x, 
-                     labels = label(ddata)$label, 
-                     position = "top", 
-                     expand = c(0, .7)) +
-  scale_y_reverse(name = "Jaccard distance", expand = c(0, 0.01)) +
-  coord_flip() +
-  theme_minimal() +
-  theme(axis.text.y = element_text(color = method_colors[label(ddata)$label]),
-        panel.grid.major.x = element_blank(),
-        panel.grid.minor.x = element_blank(),
-        panel.grid.major.y = element_blank(),
-        panel.grid.minor.y = element_blank())
+# ddata <- 
+#   dendro_data(as.dendrogram(jd_clusts), 
+#               type = "rectangle")
+# 
+# # avg_jdn05 <- 
+# #   ggplot(segment(ddata), aes(x = x, y = y)) +
+# #   geom_segment(aes(xend = xend, yend = yend)) +
+# #   scale_x_continuous(name = NULL, 
+# #                      breaks = label(ddata)$x, 
+# #                      labels = label(ddata)$label, 
+# #                      position = "top", 
+# #                      expand = c(0, 0)) +
+# #   scale_y_reverse(name = "Jaccard distance", expand = c(0, 0)) +
+# #   coord_flip(xlim = c(.5, 38.5)) +
+# #   theme_minimal() +
+# #   theme(axis.text.y = element_text(color = method_colors[label(ddata)$label]),
+# #         panel.grid.major.x = element_blank(),
+# #         panel.grid.minor.x = element_blank(),
+# #         panel.grid.major.y = element_blank(),
+# #         panel.grid.minor.y = element_blank())
+# 
+# avg_jdn05 <- 
+#     ggplot(segment(ddata), aes(x = y, y = x)) +
+#     geom_segment(aes(yend = xend, xend = yend)) +
+#     scale_y_continuous(name = NULL, 
+#                        breaks = label(ddata)$x, 
+#                        labels = label(ddata)$label, 
+#                        position = "right", 
+#                        expand = c(0, 0)) +
+#     scale_x_reverse(name = "Jaccard distance", expand = c(0, 0)) +
+#     coord_cartesian(ylim = c(.5, 38.5)) +
+#     theme_minimal() +
+#     theme(axis.text.y = element_text(color = method_colors[label(ddata)$label]),
+#           panel.grid.major.x = element_blank(),
+#         panel.grid.minor.x = element_blank(),
+#         panel.grid.major.y = element_blank(),
+#         panel.grid.minor.y = element_blank())
 ```
+
+## Combined plot
 
 ```{r, fig.width=4.5, fig.height=6.5}
-avg_jdn05 + 
-  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
-  measph +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+# method_order <- label(ddata)$label
+method_order <- label(plots$N05$ddata)$label
+
+## plot the average rank tile plot instead of the mean performance
+wrap_plots(avg_jdn05 + 
+               theme(axis.text.x = element_text(angle = 45, hjust = 1),
+                     axis.text.y = element_blank(),
+                     plot.margin = margin(0, 0, 0, 0.5, "lines")),
+           plot_base_method_type_tiles +
+               scale_y_discrete(limits = method_order) +
+               guides(fill = guide_legend(title = "Method purpose", 
+                                          title.position = "top", 
+                                          direction = "vertical")) +
+               theme(plot.background = element_blank(),
+                     plot.margin = margin(0, 0, 0, 0, "lines")),
+           plot_base_method_color_text +
+               scale_y_discrete(limits = method_order) +
+               theme(axis.text.x = element_text(angle = 45, hjust = 1),
+                     plot.margin = unit(c(0, 0, 0, 0), "lines")),
+           # measph +
+           mean_rank_heat +
+               scale_y_discrete(limits = method_order) +
+               guides(fill = guide_colorbar(title = "Mean rank", 
+                                            title.position = "top")) +
+               theme(axis.text.x = element_text(angle = 45, hjust = 1),
+                     plot.margin = unit(c(0, 0, 0, 0), "lines")),
+           nrow = 1, guides = "collect",
+           widths = c(0.7, .1, 1.5, .3)) & 
+    theme(legend.position = "top",
+          legend.key.size = unit(.7, "lines"),
+          legend.margin = margin(0, 0, 0, 0),
+          legend.background = element_blank(),
+          legend.box.margin = margin(0, 0, 0, 0),
+          legend.box.background = element_blank(),
+          panel.spacing.x = unit(0, "lines"),
+          panel.grid.minor = element_blank(),
+          # plot.margin = margin(0.1, 0.1, 0.1, 0, "lines"),
+          text = element_text(size = 10), 
+          plot.tag = element_text(hjust = -1, vjust = -1, size = 12))
 ```
 
 
