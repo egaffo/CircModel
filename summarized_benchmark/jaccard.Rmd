@@ -426,6 +426,67 @@ wrap_plots(avg_jdn05 +
           plot.tag = element_text(hjust = -1, vjust = -1, size = 12))
 ```
 
+### N05 heatmap
+
+```{r, fig.height=5.5, fig.width=5.5}
+plot_dt <- avg_jaccard_dists[, .(AvgJDist = mean(AvgJDist)), 
+                             by = .(SetSize, Method, 
+                                    Method2)][SetSize == "N05"]
+
+plot_dt[Method == Method2, AvgJDist := NA]
+# method_order <- sort(method_types$Method)
+method_order <- label(plots$N05$ddata)$label
+
+## compute the lower mat triangle pairs and erase the corresponding plot
+halfmat <- as.matrix(data.frame(dcast(plot_dt, Method ~ Method2, 
+                                      value.var = "AvgJDist"), 
+                                row.names = "Method"))[method_order, method_order]
+halfmat[lower.tri(halfmat, diag = T)] <- NA
+
+halfmat_m <- melt(data.table(halfmat, keep.rownames = "method1"), 
+                  id.vars = "method1", variable.name = "method2",
+                  value.name = "concordance")[method1 != method2]
+na_pairs <- halfmat_m[is.na(concordance), paste(method1, method2)]
+
+plot_dt[, pairname := paste(Method, Method2)]
+plot_dt[pairname %in% na_pairs, AvgJDist := NA]
+
+# seqpal <- "YlGnBu"
+seqpal <- "YlOrRd"
+
+n05_halfheat_plot <- 
+    ggplot(plot_dt, aes(x = Method, y = Method2, 
+                        color = 1 - AvgJDist,
+                        size = 1 - AvgJDist,
+                        fill = 1- AvgJDist)) +
+    # geom_tile() +
+    geom_point(shape = 21) +
+    coord_fixed() +
+    labs(x = NULL, y = NULL) +
+    scale_size("Jaccard similarity", range = c(0, 3), guide = "none") +
+    # scale_fill_viridis_c(option = "B", end = .98, direction = 1) +
+    # scale_color_viridis_c(option = "B", end = .98, direction = 1) +
+    scale_fill_distiller("Jaccard similarity", 
+                         direction = 1, na.value = "white", palette = seqpal) +
+    scale_color_distiller("Jaccard similarity", 
+                          direction = 1, na.value = "white", palette = seqpal) +
+    guides(color = guide_colorbar(title.position = "top", title.hjust = .5, 
+                                  frame.colour = "black"),
+           fill  = guide_colorbar(title.position = "top", title.hjust = .5, 
+                                  frame.colour = "black")) +
+    scale_x_discrete(limits = method_order, position = "top") +
+    scale_y_discrete(limits = method_order) +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 90, hjust = 0, color = method_colors[method_order]),
+          axis.text.y = element_text(color = method_colors[method_order]),
+          legend.position = c(-.2, 1.2),#"bottom",
+          legend.direction = "horizontal", legend.text = element_text(angle = 90, hjust = 1),
+          text = element_text(size = 9),
+          panel.grid = element_blank())
+
+n05_halfheat_plot
+```
+
 ### N10 @ 10%FDR
 
 ```{r, fig.height=5.5, fig.width=4.5}
