@@ -127,6 +127,30 @@ plot_base_method_color_text <-
         panel.spacing.x = unit(.1, "lines"))
 
 # plot_base_method_color_text
+
+plot_base_method_color_text_rot <-
+  ggplot(plot_dt, 
+         aes(x = Method, 
+             y = variable, 
+             color = Method)) +
+  geom_text(aes(label = value), 
+            size = 3, angle = 90) +
+    # scale_x_discrete(position = "bottom") +
+  labs(x = NULL, y = NULL) +
+  coord_cartesian(clip = "off") +
+  scale_color_manual(values = method_colors, guide = "none") +
+  theme_bw() +
+  theme(axis.text.x = element_blank(),
+        axis.text.y = element_text(angle = 90, hjust = .5),
+        text = element_text(size = 10),
+        panel.border = element_blank(),
+        axis.ticks = element_blank(),
+        panel.grid = element_blank(), 
+        strip.background = element_rect(fill = NA), 
+        panel.spacing.y = unit(0.05, "lines"),
+        panel.spacing.x = unit(.1, "lines"))
+
+# plot_base_method_color_text_rot
 ```
 
 # Base tiles
@@ -404,19 +428,20 @@ avg_jdn05 <- plots$N05$plot
 method_order <- label(plots$N05$ddata)$label
 
 ## plot the average rank tile plot instead of the mean performance
-wrap_plots(avg_jdn05 + 
-               theme(axis.text.x = element_text(angle = 90, hjust = 1),
-                     axis.text.y = element_blank(),
-                     plot.margin = margin(0, 0, 0, 0, "lines")),
-           plot_base_method_type_tiles +
-               scale_y_discrete(limits = method_order) +
-               theme(plot.background = element_blank(),
-                     plot.margin = margin(0, 0, 0, 0, "lines")),
-           plot_base_method_color_text +
-               scale_y_discrete(limits = method_order) +
-               theme(plot.margin = unit(c(0, 0, 0, 0), "lines")), 
-           nrow = 1, guides = "collect",
-           widths = c(1, .1, 1.5)) & 
+avg_jdn05_dendro_wrap <- 
+    wrap_plots(avg_jdn05 + 
+                   theme(axis.text.x = element_text(angle = 90, hjust = 1),
+                         axis.text.y = element_blank(),
+                         plot.margin = margin(0, 0, 0, 0, "lines")),
+               plot_base_method_type_tiles +
+                   scale_y_discrete(limits = method_order) +
+                   theme(plot.background = element_blank(),
+                         plot.margin = margin(0, 0, 0, 0, "lines")),
+               plot_base_method_color_text +
+                   scale_y_discrete(limits = method_order) +
+                   theme(plot.margin = unit(c(0, 0, 0, 0), "lines")), 
+               nrow = 1, guides = "collect",
+               widths = c(1, .1, 1.5)) & 
     theme(legend.position = "top",
           legend.key.size = unit(.7, "lines"),
           panel.spacing.x = unit(0, "lines"),
@@ -424,6 +449,38 @@ wrap_plots(avg_jdn05 +
           # plot.margin = margin(0.1, 0.1, 0.1, 0, "lines"),
           text = element_text(size = 10), 
           plot.tag = element_text(hjust = -1, vjust = -1, size = 12))
+
+avg_jdn05_dendro_wrap
+```
+
+```{r, fig.height=5.5, fig.width=4.5}
+top_avg_jdn05_dendro_wrap <- 
+    wrap_plots(avg_jdn05 + 
+                   coord_flip() +
+                   scale_x_continuous(name = "Jaccard distance") +
+                   theme(axis.text.y = element_text(color = "black"),
+                         axis.text.x = element_blank(),
+                         plot.margin = margin(0, 0, 0, 0, "lines")),
+               plot_base_method_type_tiles +
+                   coord_flip() +
+                   scale_y_discrete(limits = method_order) +
+                   theme(plot.background = element_blank(),
+                         plot.margin = margin(0, 0, 0, 0, "lines")),
+               plot_base_method_color_text_rot +
+                   scale_x_discrete(limits = method_order) +
+                   theme(#text = element_text(angle = 90),
+                         plot.margin = unit(c(0, 0, 0, 0), "lines")), 
+               ncol = 1, guides = "collect",
+               heights = c(1, .1, 1.5)) & 
+    theme(legend.position = "top",
+          legend.key.size = unit(.7, "lines"),
+          panel.spacing.x = unit(0, "lines"),
+          panel.grid.minor = element_blank(),
+          # plot.margin = margin(0.1, 0.1, 0.1, 0, "lines"),
+          text = element_text(size = 10), 
+          plot.tag = element_text(hjust = -1, vjust = -1, size = 12))
+
+# top_avg_jdn05_dendro_wrap
 ```
 
 ### N05 heatmap
@@ -486,6 +543,41 @@ n05_halfheat_plot <-
 
 n05_halfheat_plot
 ```
+
+### N05 heatmap + dendro
+
+```{r, fig.width=10.5, fig.height=7}
+# design <- "#A
+#            BC"
+# 
+# wrap_plots(top_avg_jdn05_dendro_wrap &
+#                theme(legend.position = "none",
+#                      plot.margin = margin(0, -1, 0, 0)),
+#            avg_jdn05_dendro_wrap &
+#                theme(legend.position = "botom",
+#                      plot.margin = margin(0, -1, 0, 0)),
+#            n05_halfheat_plot &
+#                theme(legend.position = "bottom",
+#                      axis.text.y = element_blank(),
+#                      axis.text.x = element_blank(),
+#                      plot.margin = margin(0, 0, 0, 0)),
+#            widths = c(1.75, 2),
+#            design = design)
+
+wrap_plots(avg_jdn05_dendro_wrap +
+               theme(#legend.position = "botom",
+                     plot.margin = margin(0, 0, 0, 0)),
+           n05_halfheat_plot +
+               theme(#legend.position = "bottom",
+                     axis.text.y = element_blank(), 
+                     # axis.text.x = element_blank(), 
+                     plot.margin = margin(0, 0, 0, 0)),
+           nrow = 1, 
+           widths = c(1.75, 2)) 
+    
+```
+
+
 
 ### N10 @ 10%FDR
 
