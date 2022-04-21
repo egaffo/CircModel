@@ -1503,7 +1503,10 @@ get_avg_meas <- function(y, meas.a = "tpr", meas.b = "fdr") {
   if(meas.b == "fdr"){
     
     y_preds <- lapply(y_preds, function(x)1 - x)
+    y_preds <- lapply(y_preds, function(x)ifelse(is.na(x), 0, x))
     x.measure <- "ppv"
+  }else{
+      y_preds <- lapply(y_preds, function(x)ifelse(is.na(x), 1, x))
   }
   
   rocr_pred <- ROCR::prediction(predictions = y_preds,
@@ -1602,7 +1605,7 @@ alpha_fdrtpr_curve$Method <- factor(alpha_fdrtpr_curve$Method,
                                     ordered = T)
 ```
 
-```{r, fig.height=7, fig.width=12}
+```{r, fig.height=7, fig.width=13}
 plot_dt <- fdrtpr_curve[MZP == "bulk"][order(Cutoff)]
 plot_dt$Method <- factor(plot_dt$Method, ordered = T)
 
@@ -1639,7 +1642,7 @@ White fill points when P-adj > empirical FDR
 
 ### N05 Average all methods 
 
-```{r, fig.height=7, fig.width=12}
+```{r, fig.height=7, fig.width=13}
 plot_dt <- fdrtpr_curve[MZP == "bulk" & SetSize == "N05"][order(Cutoff)]
 plot_dt$Method <- factor(plot_dt$Method, ordered = T)
 
@@ -1708,7 +1711,7 @@ alpha_pr_curve$Method <- factor(alpha_pr_curve$Method,
                                     ordered = T)
 ```
 
-```{r, fig.height=7, fig.width=12}
+```{r, fig.height=7, fig.width=13}
 ggplot(pr_curve[MZP == "bulk"][order(Cutoff)], 
        aes(x = TPR, y = PPV, color = Method)) +
     geom_line() +
@@ -1764,6 +1767,9 @@ get_auc <- function(y) {
                             keep.by = F, 
                             drop = T), 
                       function(x)x$preds)
+    
+    y_preds <- lapply(y_preds, function(x)ifelse(is.na(x), 0, x))
+    
     y_labels <- lapply(split(y[, .(Dataset, true_val)], 
                              by = "Dataset", 
                              keep.by = F, 
