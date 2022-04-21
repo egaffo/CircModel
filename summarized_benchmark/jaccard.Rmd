@@ -423,6 +423,7 @@ plots$N03$plot  +
 ### N05  
 
 ```{r, fig.height=5.5, fig.width=4.5}
+plots_avg_jdn <- plots
 avg_jdn05 <- plots$N05$plot
 
 method_order <- label(plots$N05$ddata)$label
@@ -974,7 +975,7 @@ mean_rank_heat <-
 
 ```{r, fig.width=4.5, fig.height=6.5}
 # method_order <- label(ddata)$label
-method_order <- label(plots$N05$ddata)$label
+method_order <- label(plots_avg_jdn$N05$ddata)$label
 
 ## plot the average rank tile plot instead of the mean performance
 wrap_plots(avg_jdn05 + 
