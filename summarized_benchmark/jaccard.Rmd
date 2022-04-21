@@ -25,6 +25,7 @@ library(ggplot2)
 library(scales)
 library(viridis)
 library(dendsort)
+library(seriation)
 ```
 
 # Method names
@@ -367,28 +368,21 @@ plots <-
                                    by = .(SetSize, MZP, DsType, Method, Method2)], 
                  by = c("SetSize"), flatten = F, keep.by = F), 
            function(setSize){
+               # ddata <- 
+               #     dendro_data(as.dendrogram(dendsort(hclust(as.dist(data.frame(dcast(setSize, 
+               #                                                               Method ~ Method2, 
+               #                                                               value.var = "AvgJDist"), 
+               #                                                         row.names = "Method")))), 
+               #                               isReverse = T), 
+               #                 type = "rectangle")
                ddata <- 
-                   dendro_data(as.dendrogram(dendsort(hclust(as.dist(data.frame(dcast(setSize, 
-                                                                             Method ~ Method2, 
-                                                                             value.var = "AvgJDist"), 
-                                                                       row.names = "Method")))), 
-                                             isReverse = T), 
+                   dendro_data(as.dendrogram(seriate(as.dist(data.frame(dcast(setSize, 
+                                                                              Method ~ Method2, 
+                                                                              value.var = "AvgJDist"), 
+                                                                        row.names = "Method")), 
+                                                     method = "OLO_complete")[[1]]), 
                                type = "rectangle")
                
-               # plot <-
-               #     ggplot(segment(ddata), aes(x = x, y = y)) +
-               #     geom_segment(aes(xend = xend, yend = yend)) +
-               #     scale_x_continuous(name = NULL, breaks = label(ddata)$x, 
-               #                        labels = label(ddata)$label, 
-               #                        position = "top") +
-               #     scale_y_reverse(name = "Jaccard distance", expand = c(0, 0.01)) +
-               #     coord_flip() +
-               #     theme_minimal() +
-               #     theme(axis.text.y = element_text(color = method_colors[label(ddata)$label]),
-               #           panel.grid.major.x = element_blank(),
-               #           panel.grid.minor.x = element_blank(),
-               #           panel.grid.major.y = element_blank(),
-               #           panel.grid.minor.y = element_blank())
                plot <-
                    ggplot(segment(ddata), aes(x = y, y = x)) +
                    geom_segment(aes(yend = xend, xend = yend)) +
