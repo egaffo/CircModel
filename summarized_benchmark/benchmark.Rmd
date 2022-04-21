@@ -41,6 +41,7 @@ library(circMeta)
 library(lncDIFF)
 # library(ShrinkBayes)
 library(samr)
+set.seed(12345)
 ```
 
 ```{r}
@@ -85,8 +86,9 @@ compute_weights <- function(countdata, coldat, ...) {
     # zinb <- zinbwave(zinb, K=0, observationalWeights=TRUE,
     #                  BPPARAM=SerialParam(), epsilon=1e12)
     # dds <- DESeqDataSet(zinb, design=~condition)
-    
+    set.seed(12345)
     computeExactWeights <- function (model, x) {
+        set.seed(12345)
         library(zinbwave)
         
         mu <- getMu(model)
@@ -208,7 +210,7 @@ bd <- BenchDesign()
 
 ## 1. DESeq2 defaults
 deseq2_run <- function(countData, colData, design, contrast) {
-  
+  set.seed(12345)
   # message("Start DESeq2 default")
   tictoc::tic()
   
@@ -232,7 +234,7 @@ deseq2_run <- function(countData, colData, design, contrast) {
 
 ## 2. use LRT 
 deseq2lrt_run <- function(countData, colData, design, contrast) {
-  
+  set.seed(12345)
   tictoc::tic()
   
   dds <- DESeq2::DESeqDataSetFromMatrix(countData, colData = colData, design = design)
@@ -250,7 +252,7 @@ deseq2lrt_run <- function(countData, colData, design, contrast) {
 
 ## 3. use betaPrior
 deseq2bp_run <- function(countData, colData, design, contrast) {
-  
+  set.seed(12345)
   tictoc::tic()
   
   dds <- DESeq2::DESeqDataSetFromMatrix(countData, colData = colData, design = design)
@@ -279,7 +281,7 @@ deseq2bp_run <- function(countData, colData, design, contrast) {
 ##         are not optimal for single cell count matrices
 ## set fitType = "glmGamPoi"
 deseq2zi_run <- function(countData, colData, design, contrast) {
-  
+  set.seed(12345)
   tictoc::tic()
   
   dds <- DESeq2::DESeqDataSetFromMatrix(countData, colData = colData, design = design)
@@ -308,7 +310,7 @@ deseq2zi_run <- function(countData, colData, design, contrast) {
 ##          median is used. However, especially for low counts, the shorth 
 ##          function from the genefilter package may give better results.
 deseq2lc_run <- function(countData, colData, design, contrast) {
-  
+  set.seed(12345)
   tictoc::tic()
   
   dds <- DESeq2::DESeqDataSetFromMatrix(countData, colData = colData, design = design)
@@ -348,7 +350,7 @@ deseq2lc_run <- function(countData, colData, design, contrast) {
 ## 'setting sizeFactors from scran::computeSumFactors. The default size factors 
 ##  are not optimal for single cell count matrices'
 deseq2sc_run <- function(countData, colData, design, contrast) {
-  
+  set.seed(12345)
   tictoc::tic()
   
   dds <- DESeq2::DESeqDataSetFromMatrix(countData, colData = colData, design = design)
@@ -380,7 +382,7 @@ deseq2sc_run <- function(countData, colData, design, contrast) {
 ## DESeq2 requires use of test="LRT" and specification of a reduced design.
 ## https://bioconductor.org/packages/release/bioc/vignettes/DESeq2/inst/doc/DESeq2.html#speed-up-and-parallelization-thoughts
 deseq2gpLrt_run <- function(countData, colData, design, contrast) {
-  
+  set.seed(12345)
   library(glmGamPoi)
   
   tictoc::tic()
@@ -407,7 +409,7 @@ deseq2gpLrt_run <- function(countData, colData, design, contrast) {
 
 ## 8. use ZinbWave weights
 deseq2zw_run <- function(countData, colData, design, contrast, weights) {
-  
+  set.seed(12345)
   tictoc::tic()
   
   dds <- DESeq2::DESeqDataSetFromMatrix(countData, colData = colData, design = design)
@@ -461,7 +463,7 @@ deseq2_time <- function(x) { rep(as.numeric(x$runtime), nrow(x$res)) }
 
 ## 1. default edgeR
 edgeR_run <- function(countData, group, design) {
-  
+  set.seed(12345)
   tictoc::tic()
   
   y <- edgeR::DGEList(countData, group = group)
@@ -480,7 +482,7 @@ edgeR_run <- function(countData, group, design) {
 
 ## 2. robust
 edgeRrbst_run <- function(countData, group, design) {
-  
+  set.seed(12345)
   tictoc::tic()
   
   y <- edgeR::DGEList(countData, group = group)
@@ -503,7 +505,7 @@ edgeRrbst_run <- function(countData, group, design) {
 ## 3. 50 degrees of freedom
 ## https://support.bioconductor.org/p/84338/
 edgeRrbst50df_run <- function(countData, group, design) {
-  
+  set.seed(12345)
   tictoc::tic()
   
   y <- edgeR::DGEList(countData, group = group)
@@ -525,7 +527,7 @@ edgeRrbst50df_run <- function(countData, group, design) {
 
 ## 4. auto estimation of df
 edgeRrbstEdf_run <- function(countData, group, design) {
-  
+  set.seed(12345)
   tictoc::tic()
   
   y <- edgeR::DGEList(countData, group = group)
@@ -547,7 +549,7 @@ edgeRrbstEdf_run <- function(countData, group, design) {
 
 ## 5. ZinbWave weights
 edgeRzw_run <- function(countData, group, design, weights) {
-  
+  set.seed(12345)
   tictoc::tic()
   
   y <- edgeR::DGEList(countData, group = group)
@@ -576,7 +578,7 @@ edgeRzw_run <- function(countData, group, design, weights) {
 ## I usually switch to the LRT rather than using the exact test, for the reasons 
 ## of experimental flexibility that I mentioned above."
 edgeRql_run <- function(countData, group, design, weights) {
-  
+  set.seed(12345)
   tictoc::tic()
   
   y <- edgeR::DGEList(countData, group = group)
@@ -595,7 +597,7 @@ edgeRql_run <- function(countData, group, design, weights) {
 
 #### edgeR TMMwsp robust
 edgeRrbstTMMswp_run <- function(countData, group, design) {
-  
+  set.seed(12345)
   tictoc::tic()
   
   y <- edgeR::DGEList(countData, group = group)
@@ -657,7 +659,7 @@ edgeR_time <- function(x) { rep(as.numeric(x$runtime), nrow(x$res)) }
 ```{r}
 ## limma-voom family
 voom_run <- function(countData, group, design) {
-  
+  set.seed(12345)
   tictoc::tic()
   
   y <- edgeR::DGEList(countData, group = group)
@@ -674,7 +676,7 @@ voom_run <- function(countData, group, design) {
 
 ## estimation of df.prior and var.prior be robustified against outlier sample variances
 voomRbst_run <- function(countData, group, design) {
-
+    set.seed(12345)
   tictoc::tic()
   
   y <- edgeR::DGEList(countData, group = group)
@@ -692,7 +694,7 @@ voomRbst_run <- function(countData, group, design) {
 
 ## voom quantile normalization
 voomQn_run <- function(countData, group, design) {
-  
+  set.seed(12345)
   tictoc::tic()
   
   des <- model.matrix(design)
@@ -710,7 +712,7 @@ voomQn_run <- function(countData, group, design) {
 
 ## limma-voom code as in the vignette (no prior edgeR; mind the robust = T param)
 voomSimple_run <- function(countData, group, design) {
-  
+  set.seed(12345)
   tictoc::tic()
   
   des <- model.matrix(design)
@@ -733,7 +735,7 @@ voomSimple_run <- function(countData, group, design) {
 ## Note that edgeR::voomLmFit is now recommended over voom for 
 ## sparse counts with a medium to high proportion of zeros.
 voomLmFit_run <- function(countData, group, design) {
-  
+  set.seed(12345)
   tictoc::tic()
   
   des <- model.matrix(design)
@@ -762,7 +764,7 @@ voomLmFit_run <- function(countData, group, design) {
 
 # limma-voom with ZINBWaVE weights
 voomZw_run <- function(countData, group, design, weights) {
-  
+  set.seed(12345)
   tictoc::tic()
   
   des <- model.matrix(design)
@@ -810,7 +812,7 @@ voom_time <- function(x) { rep(as.numeric(x$runtime), nrow(x$res)) }
 ```{r}
 ## circMeta
 cMeta_run <- function(countData, group, sf = TRUE) {
-  
+  set.seed(12345)
   tictoc::tic()
   
   groupVar <- group 
@@ -846,7 +848,7 @@ cMeta_run <- function(countData, group, sf = TRUE) {
 }
 
 cMetaLc_run <- function(countData, group, sf = TRUE) {
-  
+  set.seed(12345)
   tictoc::tic()
   
   groupVar <- group 
@@ -903,7 +905,7 @@ cMeta_time <- function(x) { rep(as.numeric(x$runtime), nrow(x$res)) }
 
 ```{r}
 lncdiff_run <- function(countData, group) {
-  
+  set.seed(12345)
   tictoc::tic()
 
   dgeList <- edgeR::DGEList(counts = countData)
@@ -952,7 +954,7 @@ lncdiff_time <- function(x) { rep(as.numeric(x$runtime), length(x$res$DE.results
 
 ```{r}
 samseq_run <- function(countData, group) {
-  
+  set.seed(12345)
   library(samr)
   
   tictoc::tic()
@@ -1028,7 +1030,7 @@ samseq_time <- function(x) { rep(as.numeric(x$runtime), nrow(x$res)) }
 
 ```{r}
 nbid_run <- function(countData, group) {
-    
+    set.seed(12345)
     tictoc::tic()
     
     res <- NBID::DEUsingNBID(countData, group, ncore = 1)
@@ -1041,7 +1043,7 @@ nbid_run <- function(countData, group) {
 
 ## use NBID with scran size factors
 nbid_sc_run <- function(countData, group) {
-    
+    set.seed(12345)
     tictoc::tic()
     
     # sf <- scran::calculateSumFactors(countData, clusters = group)
@@ -1080,7 +1082,7 @@ nbid_time <- function(x) {
 
 ```{r}
 noiseqbio_run <- function(countData, group) {
-    
+    set.seed(12345)
     tictoc::tic()
     
     res <- NOISeq::noiseqbio(NOISeq::readData(countData, group), 
@@ -1136,7 +1138,7 @@ noiseqbio_time <- function(x) {
 
 ```{r}
 poissonSeq_run <- function(countData, group) {
-    
+    set.seed(12345)
     # library(PoissonSeq)
     library(splines)
     tictoc::tic()
@@ -1193,7 +1195,7 @@ poissonSeq_time <- function(x) {
 
 ```{r}
 limmaStVst_run <- function(countData, group) {
-
+    set.seed(12345)
     tictoc::tic()
 
     sampleTab <- data.frame(condition = setNames(group, colnames(countData)))
@@ -1249,7 +1251,7 @@ limmaStVst_time <- function(x) { rep(as.numeric(x$runtime), nrow(x$res)) }
 ```{r}
 # https://github.com/csoneson/conquer_comparison/blob/master/scripts/apply_ROTScpm.R
 ROTScpm_run <- function(countData, group) {
-    
+    set.seed(12345)
     tictoc::tic()
     
     grp <- as.character(group)
@@ -1293,7 +1295,7 @@ ROTScpm_time <- function(x) { rep(as.numeric(x$runtime), nrow(x$res$data)) }
 
 ```{r}
 DEsingle_run <- function(countData, group) {
-    
+    set.seed(12345)
     tictoc::tic()
     
     results <- DEsingle::DEsingle(counts = countData, group = group)
@@ -1331,7 +1333,7 @@ DEsingle_time <- function(x) { rep(as.numeric(x$runtime), nrow(x$res)) }
 ```{r}
 # https://github.com/csoneson/conquer_comparison/blob/master/scripts/apply_metagenomeSeq.R
 metagenomeSeq_run <- function(countData, group) {
-    
+    set.seed(12345)
     tictoc::tic()
     
     sampleTable <- data.frame(condition = group, 
@@ -1378,7 +1380,7 @@ metagenomeSeq_time <- function(x) { rep(as.numeric(x$runtime), length(x$res$pval
 ## Seurat Bimod
 # https://github.com/csoneson/conquer_comparison/blob/master/scripts/apply_SeuratTobit.R
 seuratBimod_run <- function(countData, group) {
-    
+    set.seed(12345)
     tictoc::tic()
     
     colnames(countData) <- paste0(group, "__", 1:ncol(countData))
@@ -1421,7 +1423,7 @@ seuratBimod_run <- function(countData, group) {
 ### Seurat Wilcoxon
 # https://github.com/csoneson/conquer_comparison/blob/master/scripts/apply_SeuratTobit.R
 seuratWilcox_run <- function(countData, group) {
-    
+    set.seed(12345)
     tictoc::tic()
     
     colnames(countData) <- paste0(group, "__", 1:ncol(countData))
@@ -1484,7 +1486,7 @@ seurat_time <- function(x) { rep(as.numeric(x$runtime), length(x$res$p_val)) }
 # MAST (on CPM counts)
 # https://github.com/csoneson/conquer_comparison/blob/master/scripts/apply_MASTcpm.R
 MASTcpm_run <- function(countData, group) {
-  
+  set.seed(12345)
     tictoc::tic()
     
     grp <- group
@@ -1530,7 +1532,7 @@ MASTcpm_time <- function(x) { rep(as.numeric(x$runtime), dim(x$res$mast)[1]) }
 ```{r}
 # https://github.com/csoneson/conquer_comparison/blob/master/scripts/apply_monoclecount.R
 monocle_run <- function(countData, group) {
-    
+    set.seed(12345)
     ## this is just to compute the LFCs. Do not count this computation time
     dge <- edgeR::DGEList(counts = countData, group = group)
     dge <- edgeR::calcNormFactors(dge, method = "TMM")
@@ -1629,7 +1631,7 @@ monocle_time <- function(x) { rep(as.numeric(x$runtime), length(x$res$pval)) }
 # https://github.com/csoneson/conquer_comparison/blob/master/scripts/apply_Wilcoxon.R
 
 wilcoxon_run <- function(countData, group) {
-    
+    set.seed(12345)
     tictoc::tic()
     
     dge <- edgeR::DGEList(counts = countData, group = group)
