@@ -17,16 +17,16 @@ editor_options:
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 library(SummarizedBenchmark)
-library("magrittr")
+library(magrittr)
 # library(plotROC)
 library(data.table)
 library(qs)
 library(DT)
 
-library("limma")
-library("edgeR")
-library("DESeq2")
-library("tximport")
+library(limma)
+library(edgeR)
+library(DESeq2)
+library(tximport)
 library(glmGamPoi)
 library(zinbwave)
 library(scran)
@@ -38,9 +38,9 @@ library(batchtools)
 # library(devtools)
 # install_github("lichen-lab/circMeta", Ncpus = multicoreWorkers())
 library(circMeta)
-# library(lncDIFF)
+library(lncDIFF)
 # library(ShrinkBayes)
-# library(samr)
+library(samr)
 ```
 
 ```{r}
@@ -57,6 +57,7 @@ nWorkers <- multicoreWorkers()
 # inputData <- "./preprocessed_datasets/datasetList.qs"
 inputData <- params$inputData
 datasetList <- qread(file = inputData, nthreads = nWorkers)
+datasetList <- datasetList[grepl("bulk", names(datasetList))]
 ```
 
 ```{r}
@@ -73,34 +74,46 @@ datasetList <- qread(file = inputData, nthreads = nWorkers)
 ```{r}
 compute_weights <- function(countdata, coldat, ...) {
   
-  computeExactWeights <- function (model, x) {
+    ## alternative code to use Zinbwave?
+    # https://github.com/mikelove/zinbwave-deseq2/blob/master/zinbwave-deseq2.Rmd
+    # zinb <- sim[keep,]
+    # zinb$condition <- factor(zinb$Group)
+    # # we need to reorganize the assays in the SumExp from splatter
+    # nms <- c("counts", setdiff(assayNames(zinb), "counts"))
+    # assays(zinb) <- assays(zinb)[nms]
+    # assay(zinb) <- as.matrix(assay(zinb))
+    # zinb <- zinbwave(zinb, K=0, observationalWeights=TRUE,
+    #                  BPPARAM=SerialParam(), epsilon=1e12)
+    # dds <- DESeqDataSet(zinb, design=~condition)
+    
+    computeExactWeights <- function (model, x) {
+        library(zinbwave)
+        
+        mu <- getMu(model)
+        pi <- getPi(model)
+        theta <- getTheta(model)
+        theta <- matrix(rep(theta, each = ncol(x)), ncol = nrow(x))
+        nb_part <- dnbinom(t(x), size = theta, mu = mu)
+        zinb_part <- pi * ( t(x) == 0 ) + (1 - pi) *  nb_part
+        zinbwg <- ( (1 - pi) * nb_part ) / zinb_part
+        zinbwg <- t(zinbwg)
+        zinbwg[x > 0] <- 1
+        zinbwg[zinbwg < 1e-15] <- 1e-15
+        zinbwg
+    }
+    
     library(zinbwave)
     
-    mu <- getMu(model)
-    pi <- getPi(model)
-    theta <- getTheta(model)
-    theta <- matrix(rep(theta, each = ncol(x)), ncol = nrow(x))
-    nb_part <- dnbinom(t(x), size = theta, mu = mu)
-    zinb_part <- pi * ( t(x) == 0 ) + (1 - pi) *  nb_part
-    zinbwg <- ( (1 - pi) * nb_part ) / zinb_part
-    zinbwg <- t(zinbwg)
-    zinbwg[x > 0] <- 1
-    zinbwg[zinbwg < 1e-15] <- 1e-15
-    zinbwg
-  }
-  
-  library(zinbwave)
-  
-  zinbmodel <- zinbFit(Y = countdata,
-                       X = model.matrix(~ coldat), 
-                       K = 0,
-                       # epsilon = nrow(countdata), #1e10
-                       commondispersion = TRUE, 
-                       verbose = FALSE, 
-                       ...) #BPPARAM = BiocParallel::SerialParam()
-  
-  computeExactWeights(model = zinbmodel,
-                      x = countdata)
+    zinbmodel <- zinbFit(Y = countdata,
+                         X = model.matrix(~ coldat), 
+                         K = 0,
+                         # epsilon = nrow(countdata), #1e10
+                         commondispersion = TRUE, 
+                         verbose = FALSE, 
+                         ...) #BPPARAM = BiocParallel::SerialParam()
+    
+    computeExactWeights(model = zinbmodel,
+                        x = countdata)
 }
 ```
 
@@ -402,8 +415,8 @@ deseq2zw_run <- function(countData, colData, design, contrast, weights) {
   # if(is.null(weights)){
   #   message("Weights expected but NULL was given. DESeq2 will not use weights")
   # }else{
-  #   weights[which(weights < 1e-6)] <- 1e-06
-  #   assays(dds, withDimnames =F, "weights")[["weights"]] <- weights
+    weights[which(weights < 1e-6)] <- 1e-06
+    SummarizedExperiment::assays(dds, withDimnames = F, "weights")[["weights"]] <- weights
   # }
   
   dds <- DESeq2::DESeq(dds, 
@@ -1202,7 +1215,8 @@ limmaStVst_run <- function(countData, group) {
     fit <- limma::eBayes(limma::lmFit(vst_out$y, des))
     
     res <- limma::topTable(fit, 
-                           number = nrow(countData))[rownames(countData), ]
+                           sort.by = "none",   # number = nrow(countData)
+                           number = Inf)[rownames(countData), ]
     
     runtime <- tictoc::toc(log = F, quiet = T)
 
