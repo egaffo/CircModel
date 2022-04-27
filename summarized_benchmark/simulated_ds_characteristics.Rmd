@@ -131,6 +131,38 @@ ch_p + ls_bxp +
     plot_layout(widths = c(3, 1), )
 ```
 
+### Within condition correlation of samples
+
+Original data sets after sample selection and circRNA preliminary filters.  
+
+```{r}
+trimmed_source_dataset_files <- c(file.path("..", "semi_parametric_sim", 
+                                    paste0(ds_names[ds_names != "MS"], "_sims"), 
+                                    "trimmed_source_dataset.qs"), 
+                            file.path("..", "semi_parametric_sim", 
+                                    "trimmed_source_dataset.qs"))
+
+names(trimmed_source_dataset_files) <- c(ds_names[ds_names != "MS"], "MS")
+# trimmed_source_dataset_files
+
+trimmed_source_dataset_l <- lapply(trimmed_source_dataset_files, qread)
+
+within_cond_corr <- function(ds, cor.meth = "pearson"){
+    
+    g1 <- rownames(ds$samples)[as.integer(ds$samples$group) == 1]
+    g2 <- rownames(ds$samples)[as.integer(ds$samples$group) == 2]
+    
+    cor_g1 <- cor(x = ds$counts[, g1], method = cor.meth)
+    cor_g2 <- cor(x = ds$counts[, g2], method = cor.meth)
+    
+    c(G1_cor = mean(cor_g1[upper.tri(cor_g1)]),
+      G2_cor = mean(cor_g2[upper.tri(cor_g2)]))
+}
+
+data.frame(lapply(trimmed_source_dataset_l, within_cond_corr, cor.meth = "pearson"))
+```
+
+
 ## Simulated data sets
 
 ```{r, warning=FALSE}
