@@ -131,6 +131,31 @@ ch_p + ls_bxp +
     plot_layout(widths = c(3, 1), )
 ```
 
+### Sparsity
+
+```{r, fig.width=4.5, fig.height=2.5}
+plot_dt <- 
+    merge(merge(source_ds_dt[, .(Sparsity = sum(value == 0)/length(value)), by = DS],
+                source_ds_dt[, .(LibSize = sum(value)), 
+                             by = .(DS, sample_id)][, .(`Mean library size` = mean(LibSize)), 
+                                                    by = DS], 
+                by = "DS"),
+          source_ds_dt[, .N, by = .(DS, circ_id)][, .(Features = .N), by = DS],
+          by = "DS")
+
+ggplot(plot_dt, aes(x = `Mean library size`, y = Sparsity, color = DS)) +
+    geom_point(aes(size = Features)) +
+    geom_label_repel(aes(label = DS), show.legend = F) +
+    scale_x_log10() +
+    scale_y_continuous(limits = c(0, 1)) +
+    guides(color = "none") +
+    theme_bw()
+```
+
+```{r}
+datatable(plot_dt)
+```
+
 ### Within condition correlation of samples
 
 Original data sets after sample selection and circRNA preliminary filters.  
