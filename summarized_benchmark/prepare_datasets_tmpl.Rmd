@@ -1,5 +1,5 @@
 ---
-title: "Prepare data sets for benchmarking: DM1"
+title: "Prepare data sets for benchmarking"
 author: "Enrico Gaffo"
 date: "`r Sys.Date()`"
 output: 
