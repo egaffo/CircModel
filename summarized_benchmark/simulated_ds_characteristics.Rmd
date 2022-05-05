@@ -55,22 +55,153 @@ sim_ds_list <- lapply(simulated_datasets_qs_files,
 ## Source data sets
 
 ```{r}
+## read unfiltered data
 source_ds_dt <- 
     rbindlist(lapply(setNames(paste0("../data/", 
                                      ds_names, 
                                      "_unfiltered_CirComPara2_circbjr.csv"), 
                               ds_names),
-                     function(x){
+                     function(x, min_samples = 0){
                          y <- fread(x, data.table = F)
                          m <- as.matrix(y[, -1])
                          rownames(m) <- y[, 1]
-                         melt(as.data.table(m[rowSums(m > 0) >= 3, ], 
+                         melt(as.data.table(m[rowSums(m > 0) >= min_samples, ], 
                                             keep.rownames = "circ_id"),
                               id.vars = "circ_id", variable.name = "sample_id")
                      }
     ), 
     idcol = "DS")
 ```
+
+### CircRNAs per number of samples
+
+Exact number of samples in which a circRNA has been detected.  
+
+```{r, fig.width=6, fig.height=5}
+plot.dt <- 
+    source_ds_dt[value > 0, 
+                 .(n_samples = .N), 
+                 by = .(DS, circ_id)][, .(n_circs = .N), 
+                                      by = .(DS, n_samples)]
+
+plot.dt[order(-n_samples), cum_circs := cumsum(n_circs), by = .(DS)]
+
+ggplot(plot.dt,
+       aes(x = factor(n_samples),
+           y = n_circs)) +
+    geom_point() +
+    facet_wrap(~ DS, scales = "free", ncol = 1) +
+    labs(y = "Number of circRNAs", x = "Number of samples") +
+    theme_classic() +
+    theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5))
+```
+
+Minimum number of samples in which a circRNA has been detected.  
+
+```{r, fig.width=6, fig.height=5}
+ggplot(plot.dt,
+       aes(x = factor(n_samples), 
+           y = cum_circs)) +
+    geom_point() +
+    facet_wrap(~ DS, scales = "free", ncol = 1) +
+    labs(y = "Cumulative number of circRNAs", 
+         x = "Cumulative number of samples") + # "(\u2265)"
+    theme_classic() +
+    theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5))
+```
+
+### Mean expression per number of samples
+
+```{r, fig.width=6.5, fig.height=8.8}
+plot.dt <- 
+    merge(source_ds_dt[value > 0, .(n_samples = .N), by = .(DS, circ_id)], 
+          source_ds_dt[, .(mean_BJR = mean(value)), by = .(DS, circ_id)], 
+          by = c("DS", "circ_id"))
+
+# ggplot(plot.dt,
+#        aes(y = factor(n_samples, levels = max(plot.dt$n_samples):1, ordered = T),
+#            x = mean_BJR)) +
+#     geom_boxplot(outlier.size = .5, #outlier.alpha = .5,
+#                  varwidth = F, 
+#                  notch = F) +
+#     scale_x_log10(label = label_comma(accuracy = 1)) +
+#     facet_wrap(~ DS, scales = "fixed", nrow = 1) +
+#     labs(x = "Mean BJR", y = "Number of samples") +
+#     theme_bw() +
+#     theme(axis.text.x = element_text(angle = 90, 
+#                                      hjust = 1, 
+#                                      vjust = .5),
+#           panel.grid.minor.y = element_blank(),
+#           panel.grid.major.y = element_blank(),
+#           panel.grid.minor.x = element_blank(),
+#           panel.spacing = unit(.1, "lines"))
+```
+
+```{r, fig.height=8.5, fig.width=4}
+library(patchwork)
+library(ggthemes)
+
+bjr_box_plot <-
+    ggplot(plot.dt,
+           aes(y = factor(n_samples, levels = max(plot.dt$n_samples):1, ordered = T),
+               x = mean_BJR, 
+               color = DS)) +
+    geom_boxplot(outlier.size = .5, #outlier.alpha = .5,
+                 varwidth = F,
+                 notch = F) +
+    scale_x_log10(label = label_comma(accuracy = 1)) +
+    # facet_wrap(~ DS, scales = "fixed", nrow = 1) +
+    labs(x = "Mean BJR", y = "Number of samples") +
+    theme_bw() +
+    theme(axis.text.x = element_text(angle = 90,
+                                     hjust = 1,
+                                     vjust = .5),
+          panel.grid.minor.y = element_blank(),
+          panel.grid.major.y = element_blank(),
+          panel.grid.minor.x = element_blank(),
+          panel.spacing = unit(.1, "lines"))
+
+ncircs_plot <-
+    ggplot(plot.dt[, .(n_circs = .N), by = .(DS, n_samples)],
+           aes(x = factor(n_samples, levels = max(plot.dt$n_samples):1, ordered = T), 
+               y = n_circs, 
+               # fill = DS, 
+               color = DS)) +
+    # geom_col(position = position_dodge2(preserve = "single")) +
+    geom_line(aes(group = DS)) +
+    geom_point() +
+    coord_flip() +
+    scale_y_sqrt("Number of\ncircRNAs") +
+    theme_bw() +
+    theme(axis.text.x = element_text(angle = 90,
+                                     hjust = 1,
+                                     vjust = .5),
+          panel.grid.minor.y = element_blank(),
+          panel.grid.major.y = element_blank(),
+          panel.grid.minor.x = element_blank(), 
+          panel.spacing = unit(.1, "lines"))
+
+wrap_plots(bjr_box_plot +
+               theme(plot.margin = margin(0, 0, 0, 0)), 
+           ncircs_plot + 
+               labs(x = NULL) +
+               guides(color = "none") +
+               theme(axis.text.y = element_blank(),
+                     axis.ticks.y = element_blank(), 
+                     plot.background = element_blank(),
+                     plot.margin = margin(0, 0, 0, 0)), 
+           guides = "collect", 
+           nrow = 1, 
+           widths = c(.7, .3)) &
+    scale_color_tableau(name = "Study", direction = -1) &
+    theme(legend.position = "top", 
+          text = element_text(size = 10))
+```
+
+
+### BJR proportion 
+
+TODO: fare una versione anche dopo aver applicato il filtro >= 3samples !!!  
 
 ```{r, fig.width=5, fig.height=5}
 library(ggbeeswarm)
@@ -155,6 +286,7 @@ ggplot(plot_dt, aes(x = `Mean library size`, y = Sparsity, color = DS)) +
 ```{r}
 datatable(plot_dt)
 ```
+
 
 ### Within condition correlation of samples
 
