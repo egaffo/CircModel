@@ -274,9 +274,20 @@ plot_dt <-
           source_ds_dt[, .N, by = .(DS, circ_id)][, .(Features = .N), by = DS],
           by = "DS")
 
+cortest <- cor.test(x = plot_dt$`Mean library size`, y = plot_dt$Sparsity, method = "pearson")
+
+# cortest$p.value
+cortest$estimate
+
 ggplot(plot_dt, aes(x = `Mean library size`, y = Sparsity, color = DS)) +
+    geom_smooth(method = "glm", group = 1, color = "black", linetype = "dashed", se = T) +
     geom_point(aes(size = Features)) +
     geom_label_repel(aes(label = DS), show.legend = F) +
+    annotate(geom = "label", x = 20000, y = .25, 
+             label = paste("P-value =", 
+                           round(cortest$p.value, 2),
+                           ", r=",
+                           round(cortest$estimate, 2))) +
     scale_x_log10() +
     scale_y_continuous(limits = c(0, 1)) +
     guides(color = "none") +
