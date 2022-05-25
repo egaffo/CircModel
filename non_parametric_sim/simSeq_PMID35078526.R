@@ -35,7 +35,7 @@ counts <-
 library(edgeR)
 dge <- DGEList(counts = counts[, rownames(sampleTable)], group = sampleTable$Group)
 dge <- calcNormFactors(dge, method = "TMM")
-cpms <- cpm(dge, log = T, prior.count = 1)
+cpms <- edgeR::cpm(dge, log = T, prior.count = 1)
 
 pcs <- prcomp(x = t(cpms), scale. = F, center = T)
 df <- cbind(sampleTable, pcs$x)
@@ -110,7 +110,9 @@ simData <- function(set_name, sort.list) {
                         sort.method = "unpaired",
                         k.ind = samplesPerGroup,
                         n.genes = nrow(sort.list$counts), # simulate as many circRNAs as in the source data set,
-                        n.diff = floor(nrow(sort.list$counts) * .1), # 10% DECs
+                        n.diff = ifelse(is.null(sort.list$n.diff),
+                                        floor(nrow(sort.list$counts) * .1), # 10% DECs
+                                        sort.list$n.diff),
                         norm.factors = sort.list$norm.factors,
                         # samp.independent = FALSE,
                         # genes.select = NULL,
@@ -122,6 +124,21 @@ simData <- function(set_name, sort.list) {
                         power = 1)
 
     simdata$set_name <- set_name
+
+    ## add fields to make it compatible with SPsimSeq objects
+    colnames(simdata$counts) <- paste0("Sample_", 1:ncol(simdata$counts))
+
+    simdata$rowData <- data.frame(DE.ind = simdata$DE.ind,
+                                  source.ID = rownames(simdata$counts),
+                                  row.names = rownames(simdata$counts))
+
+    simdata$coldata <- data.frame(Batch = 1,
+                                  Group = factor(as.integer(simdata$treatment)+1), # will relevel factor from {0,1} into {1,2}
+                                  sim.Lib.size = colSums(simdata$counts))
+    rownames(simdata$coldata) <- colnames(simdata$counts)
+
+    simdata$colData <- simdata$coldata
+
     simdata
 }
 
@@ -137,16 +154,37 @@ set_names <- c(paste0(paste0("N", formatC(3, width = 2, flag = "0"), "_"),
                paste0(paste0("N", formatC(10, width = 2, flag = "0"), "_"),
                       formatC(seq_len(nsims), width = 2, flag = "0")))
 
-simdataL <- sapply(X = set_names,
+## DE
+sort.list$n.diff <- NULL
+de_simdataL <- sapply(X = set_names,
                    FUN = simData,
                    sort.list = sort.list,
                    USE.NAMES = T,
                    simplify = F)
+
+names(de_simdataL) <- paste0(names(de_simdataL), "_bulk")
+
+## not DE
+sort.list$n.diff <- 0
+mock_simdataL <- sapply(X = set_names,
+                      FUN = simData,
+                      sort.list = sort.list,
+                      USE.NAMES = T,
+                      simplify = F)
+
+names(mock_simdataL) <- paste0(names(mock_simdataL), "_bulk_mock")
+
+sim_ds_list <- list("N03_bulk" = list(Datasets = list(sim.data.list = de_simdataL[grepl("N03", names(de_simdataL))]), runtime = NA),
+                    "N05_bulk" = list(Datasets = list(sim.data.list = de_simdataL[grepl("N05", names(de_simdataL))]), runtime = NA),
+                    "N10_bulk" = list(Datasets = list(sim.data.list = de_simdataL[grepl("N10", names(de_simdataL))]), runtime = NA),
+                    "N03_bulk_mock" = list(Datasets = list(sim.data.list = mock_simdataL[grepl("N03", names(mock_simdataL))]), runtime = NA),
+                    "N05_bulk_mock" = list(Datasets = list(sim.data.list = mock_simdataL[grepl("N05", names(mock_simdataL))]), runtime = NA),
+                    "N10_bulk_mock" = list(Datasets = list(sim.data.list = mock_simdataL[grepl("N10", names(mock_simdataL))]), runtime = NA))
 
 ## save simulations
 library(qs)
 library(BiocParallel)
 outdir <- "simdata"
 dir.create(outdir, showWarnings = F, recursive = T)
-simdata_file <- file.path(outdir, "nonp_simdata.qs")
-qsave(x = simdataL, file = simdata_file, nthreads = multicoreWorkers())
+simdata_file <- file.path(outdir, "nonp_simdata_PC.qs")
+qsave(x = sim_ds_list, file = simdata_file, nthreads = multicoreWorkers())
