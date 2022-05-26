@@ -1,0 +1,750 @@
+---
+title: "Compare evaluation results of semi-parametric and non-parametric simulations"
+author: "Enrico Gaffo"
+date: "`r Sys.Date()`"
+output: 
+  html_document: 
+    toc: yes
+    toc_float: yes
+    code_folding: hide
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = F, warning = F)
+library(data.table)
+library(patchwork)
+# install.packages("ggdendro")
+library(ggplot2)
+library(ggthemes)
+library(scales)
+library(viridis)
+library(DT)
+
+## can be used to compute F1 and other F-scores, such as F0.5 (beta = 0.5)
+f.beta <- function(P, R, beta = 1) {
+    (1 + beta^2) * ( (P * R) / ( (beta^2 * P) + R) )
+}
+```
+
+# NP
+
+```{r}
+sbAssay_all_dt <- fread(file.path("PC_overall_evaluations/sbAssay_dt.csv.gz"))
+
+sbAssay_dt <- sbAssay_all_dt[DsType == "de" & MZP == "bulk"]
+sbAssay_dt$DsType <- NULL
+sbAssay_dt$MZP <- NULL
+
+colnames(sbAssay_dt) <- 
+  sub("R\\.3", "R_0.10", 
+      sub("R\\.2", "R_0.05", 
+          sub("R\\.1", "R_0.01", 
+              colnames(sbAssay_dt))))
+
+colnames(sbAssay_dt) <- 
+  sub("rejections\\.3", "rejections_0.10", 
+      sub("rejections\\.2", "rejections_0.05", 
+          sub("rejections\\.1", "rejections_0.01", 
+              colnames(sbAssay_dt))))
+
+colnames(sbAssay_dt) <- 
+  sub("([015])\\.1$", "\\1_padj", 
+      colnames(sbAssay_dt))
+
+sbAssay_dt[, `:=`(F1_0.01 = f.beta(1-FDR_0.01_padj, TPR_0.01_padj),
+                  F1_0.05 = f.beta(1-FDR_0.05_padj, TPR_0.05_padj),
+                  F1_0.10 = f.beta(1-FDR_0.10_padj, TPR_0.10_padj))]
+
+value_cols <- 
+  c(grep("rejections", colnames(sbAssay_dt), value = T),
+    grep("TPR", colnames(sbAssay_dt), value = T),
+    grep("TNR", colnames(sbAssay_dt), value = T),
+    grep("FDR", colnames(sbAssay_dt), value = T),
+    grep("F1", colnames(sbAssay_dt), value = T))
+
+## mean by set size
+msbAssay_dt <- 
+  melt(sbAssay_dt[, lapply(.SD, mean, na.rm = T), 
+           .SDcols = value_cols,
+           by = .(SetSize, Method)], 
+       id.vars = c("SetSize", 
+                   "Method"))[, Beta := sub(".*(0\\.[015]{2}).*", "\\1", variable)]
+```
+
+
+```{r}
+idvars <- c("Source_ds", "Dataset", "Method", "SetSize")
+np_method_ranks <- 
+    melt(sbAssay_dt[, c(idvars, value_cols), with = F], 
+         id.vars = idvars)
+
+np_method_ranks[, Alpha := as.numeric(gsub("rejections|TPR|FDR|_|padj|F1", "", variable))]
+
+## make FDR closer to the nominal value to rank on top when sorting by ascending order
+np_method_ranks[grepl("^FDR", variable), value := abs(value - Alpha)]
+## make higher TPR to rank on top when sorting by ascending order
+np_method_ranks[grepl("^TPR", variable), value := 1 - value]
+
+np_method_ranks[grepl("^F1", variable), value := 1 - value]
+
+np_method_ranks <- 
+    np_method_ranks[order(value, decreasing = F, na.last = T), 
+                 Rank := seq_along(value), 
+                 by = .(Source_ds, SetSize, Dataset, variable)][]
+np_method_ranks[is.na(value), Rank := max(Rank)]
+
+## compute the rank of each method according to FDR, TPR and AUPRC
+## in each simulation and then calculate the average rank
+np_fdr_mean_rank <- np_method_ranks[variable == "FDR_0.05_padj", 
+                              .(mean_rank = mean(Rank),
+                                sd_rank = sd(Rank)), 
+                              by = .(SetSize, Method)]
+np_tpr_mean_rank <- np_method_ranks[variable == "TPR_0.05_padj", 
+                              .(mean_rank = mean(Rank),
+                                sd_rank = sd(Rank)), 
+                              by = .(SetSize, Method)]
+
+np_f1_mean_rank <- np_method_ranks[variable == "F1_0.05", 
+                              .(mean_rank = mean(Rank),
+                                sd_rank = sd(Rank)), 
+                              by = .(SetSize, Method)]
+
+##get AUC
+np_auc <- fread("PC_overall_evaluations/overall_auc.csv.gz")
+np_auprc_rank <- 
+    np_auc[order(AUCPR, decreasing = T, na.last = T), 
+        .(Method, AUCPR,
+          Rank = seq_along(AUCPR)), 
+        by = .(Source_ds, SetSize, DsId)]
+np_auprc_rank[is.na(AUCPR), Rank := max(Rank)]
+
+np_auprc_mean_rank <- 
+    np_auprc_rank[, .(mean_rank = mean(Rank),
+                      sd_rank = sd(Rank)), 
+               by = .(SetSize, Method)]
+```
+
+# SP
+
+```{r}
+sbAssay_all_dt <- fread(file.path("overall_evaluations/sbAssay_dt.csv.gz"))
+
+sbAssay_dt <- sbAssay_all_dt[DsType == "de" & MZP == "bulk"]
+sbAssay_dt$DsType <- NULL
+sbAssay_dt$MZP <- NULL
+
+colnames(sbAssay_dt) <- 
+  sub("R\\.3", "R_0.10", 
+      sub("R\\.2", "R_0.05", 
+          sub("R\\.1", "R_0.01", 
+              colnames(sbAssay_dt))))
+
+colnames(sbAssay_dt) <- 
+  sub("rejections\\.3", "rejections_0.10", 
+      sub("rejections\\.2", "rejections_0.05", 
+          sub("rejections\\.1", "rejections_0.01", 
+              colnames(sbAssay_dt))))
+
+colnames(sbAssay_dt) <- 
+  sub("([015])\\.1$", "\\1_padj", 
+      colnames(sbAssay_dt))
+
+sbAssay_dt[, `:=`(F1_0.01 = f.beta(1-FDR_0.01_padj, TPR_0.01_padj),
+                  F1_0.05 = f.beta(1-FDR_0.05_padj, TPR_0.05_padj),
+                  F1_0.10 = f.beta(1-FDR_0.10_padj, TPR_0.10_padj))]
+
+value_cols <- 
+  c(grep("rejections", colnames(sbAssay_dt), value = T),
+    grep("TPR", colnames(sbAssay_dt), value = T),
+    grep("TNR", colnames(sbAssay_dt), value = T),
+    grep("FDR", colnames(sbAssay_dt), value = T),
+    grep("F1", colnames(sbAssay_dt), value = T))
+
+## mean by set size
+msbAssay_dt <- 
+  melt(sbAssay_dt[, lapply(.SD, mean, na.rm = T), 
+           .SDcols = value_cols,
+           by = .(SetSize, Method)], 
+       id.vars = c("SetSize", 
+                   "Method"))[, Beta := sub(".*(0\\.[015]{2}).*", "\\1", variable)]
+```
+
+
+```{r}
+idvars <- c("Source_ds", "Dataset", "Method", "SetSize")
+method_ranks <- 
+    melt(sbAssay_dt[, c(idvars, value_cols), with = F], 
+         id.vars = idvars)
+
+method_ranks[, Alpha := as.numeric(gsub("rejections|TPR|FDR|_|padj|F1", "", variable))]
+
+## make FDR closer to the nominal value to rank on top when sorting by ascending order
+method_ranks[grepl("^FDR", variable), value := abs(value - Alpha)]
+## make higher TPR to rank on top when sorting by ascending order
+method_ranks[grepl("^TPR", variable), value := 1 - value]
+
+method_ranks[grepl("^F1", variable), value := 1 - value]
+
+method_ranks <- 
+    method_ranks[order(value, decreasing = F, na.last = T), 
+                 Rank := seq_along(value), 
+                 by = .(Source_ds, SetSize, Dataset, variable)][]
+method_ranks[is.na(value), Rank := max(Rank)]
+
+## compute the rank of each method according to FDR, TPR and AUPRC
+## in each simulation and then calculate the average rank
+fdr_mean_rank <- method_ranks[variable == "FDR_0.05_padj", 
+                              .(mean_rank = mean(Rank),
+                                sd_rank = sd(Rank)), 
+                              by = .(SetSize, Method)]
+tpr_mean_rank <- method_ranks[variable == "TPR_0.05_padj", 
+                              .(mean_rank = mean(Rank),
+                                sd_rank = sd(Rank)), 
+                              by = .(SetSize, Method)]
+
+f1_mean_rank <- method_ranks[variable == "F1_0.05", 
+                              .(mean_rank = mean(Rank),
+                                sd_rank = sd(Rank)), 
+                              by = .(SetSize, Method)]
+
+##get AUC
+auc <- fread("overall_evaluations/overall_auc.csv.gz")
+auprc_rank <- 
+    auc[order(AUCPR, decreasing = T, na.last = T), 
+        .(Method, AUCPR,
+          Rank = seq_along(AUCPR)), 
+        by = .(Source_ds, SetSize, DsId)]
+auprc_rank[is.na(AUCPR), Rank := max(Rank)]
+
+auprc_mean_rank <- 
+    auprc_rank[, .(mean_rank = mean(Rank),
+                   sd_rank = sd(Rank)), 
+               by = .(SetSize, Method)]
+```
+
+# Combine
+
+```{r}
+mean_ranks <- rbindlist(list(SP_TPR = tpr_mean_rank, 
+                             SP_FDR = fdr_mean_rank, 
+                             SP_AUC = auprc_mean_rank, 
+                             SP_F1 = f1_mean_rank, 
+                             NP_TPR = np_tpr_mean_rank, 
+                             NP_FDR = np_fdr_mean_rank, 
+                             NP_AUC = np_auprc_mean_rank,
+                             NP_F1 = np_f1_mean_rank), 
+                        idcol = "Measure")
+mean_ranks[, c("Sim", "Meas"):=tstrsplit(Measure, "_")]
+```
+
+```{r}
+npsp_fdr_rank <- rbindlist(list(NP = np_method_ranks[variable == "FDR_0.05_padj"],
+                                SP = method_ranks[variable == "FDR_0.05_padj"]), 
+                           idcol = "Sim")
+npsp_tpr_rank <- rbindlist(list(NP = np_method_ranks[variable == "TPR_0.05_padj"], 
+                                SP = method_ranks[variable == "TPR_0.05_padj"]), 
+                           idcol = "Sim")
+npsp_auprc_rank <- rbindlist(list(NP = np_auprc_rank, 
+                                  SP = auprc_rank), 
+                             idcol = "Sim")
+npsp_f1_rank <- rbindlist(list(NP = np_method_ranks[variable == "F1_0.05"], 
+                               SP = method_ranks[variable == "F1_0.05"]), 
+                          idcol = "Sim")
+
+all_meas_ranks <- rbindlist(list(FDR = npsp_fdr_rank[, .(Sim, Source_ds, SetSize, Method, Rank, 
+                                                         DsId = gsub(".*_([0-9]{2})$", "\\1", Dataset))],
+                                 TPR = npsp_tpr_rank[, .(Sim, Source_ds, SetSize, Method, Rank,
+                                                         DsId = gsub(".*_([0-9]{2})$", "\\1", Dataset))],
+                                 AUC = npsp_auprc_rank[, .(Sim, Source_ds, SetSize, Method, Rank, DsId)],
+                                 F1 = npsp_f1_rank[, .(Sim, Source_ds, SetSize, Method, Rank,
+                                                         DsId = gsub(".*_([0-9]{2})$", "\\1", Dataset))]),
+                            idcol = "Measure")
+
+# a <- dcast(data = all_meas_ranks, 
+#            formula = Measure + Source_ds + SetSize + Method + DsId ~ Sim, 
+#            value.var = "Rank")[, .(T.test.pval_NPSP = t.test(NP, SP)$p.value), 
+#                                by = .(Measure, SetSize, Method)]
+
+meth.mean.rank.cors <- 
+    dcast(all_meas_ranks[, .(Mean_rank = mean(Rank)), 
+                         by = .(Measure, Sim, SetSize, Method)],
+          Measure + SetSize + Method ~ Sim, 
+          value.var = "Mean_rank")[, cor.test(SP, NP, method = "spearman", exact = F)[-2],
+                                   by = .(Measure, SetSize)]
+```
+
+```{r}
+datatable(meth.mean.rank.cors[, .(Measure, SetSize, Pvalue = p.value, Rho = estimate)],
+          filter = "top", 
+          caption = paste("Separman correlation between methods' mean ranks",
+                          "in semiparametric and nonparametric simulations"))
+```
+
+
+## Test mean difference
+
+```{r}
+t.test.spnp <- function(x, y, z, data){
+    
+    res <- tryCatch(t.test(x = data[Sim == "NP" &
+                               Measure == x & 
+                               SetSize == z &
+                               Method == y, Rank],
+                  y = data[Sim == "SP" &
+                               Measure == x & 
+                               SetSize == z &
+                               Method == y, Rank],
+                  paired = F, 
+                  alternative = "two.sided", 
+                  var.equal = T), 
+                  error = function(e) list(p.value = 1))
+    
+    data.table(Measure = x, 
+               Method = y, 
+               SetSize = z,
+               pval = res$p.value)
+}
+
+wilcox.test.spnp <- function(x, y, z, data){
+    
+    res <- tryCatch(wilcox.test(x = data[Sim == "NP" &
+                               Measure == x & 
+                               SetSize == z &
+                               Method == y, Rank],
+                  y = data[Sim == "SP" &
+                               Measure == x & 
+                               SetSize == z &
+                               Method == y, Rank],
+                  paired = F, 
+                  exact = F,
+                  alternative = "two.sided", 
+                  var.equal = T), 
+                  error = function(e) list(p.value = 1))
+    
+    data.table(Measure = x, 
+               Method = y, 
+               SetSize = z,
+               pval = res$p.value)
+}
+
+# median.test.spnp <- function(x, y, z, data){
+#     library(coin)
+#     res <- median_test(formula = Rank ~ Sim, 
+#                 data = data[Measure == x & 
+#                                 SetSize == z &
+#                                 Method == y, Rank])
+#     
+#     data.table(Measure = x, 
+#                Method = y, 
+#                SetSize = z,
+#                pval = pvalue(res))
+# }
+
+msm <- unique(all_meas_ranks[, .(Measure, SetSize, Method)])
+
+all_meas_ranks$Sim <- factor(all_meas_ranks$Sim)
+
+t.test.spnp_pvals <- 
+    rbindlist(mapply(FUN = t.test.spnp, x = msm$Measure, z = msm$SetSize, y = msm$Method, 
+                 MoreArgs = list(data = all_meas_ranks), SIMPLIFY = F, USE.NAMES = F))
+
+wilcox.test.spnp_pvals <- 
+    rbindlist(mapply(FUN = wilcox.test.spnp, x = msm$Measure, z = msm$SetSize, y = msm$Method, 
+                 MoreArgs = list(data = all_meas_ranks), SIMPLIFY = F, USE.NAMES = F))
+
+library(coin)
+median.test.spnp_pvals <- 
+    all_meas_ranks[, .(pval = pvalue(median_test(Rank~Sim))), 
+               by = .(Measure, SetSize, Method)]
+
+kruskal.test.spnp_pvals <- 
+    all_meas_ranks[, .(pval = kruskal.test(Rank~Sim)$p.value), 
+                   by = .(Measure, SetSize, Method)]
+
+
+pval2stars <- function(pval){
+    lab <- "NS"
+    if(is.nan(pval)) return("NS")
+    if(pval <= 0.05) lab <- "*"
+    if(pval <= 0.01) lab <- "**"
+    if(pval <= 0.001) lab <- "***"
+    lab
+}
+
+t.test.spnp_pvals$StarLabel <- sapply(t.test.spnp_pvals$pval, pval2stars)
+wilcox.test.spnp_pvals$StarLabel <- sapply(wilcox.test.spnp_pvals$pval, pval2stars)
+median.test.spnp_pvals$StarLabel <- sapply(median.test.spnp_pvals$pval, pval2stars)
+kruskal.test.spnp_pvals$StarLabel <- sapply(kruskal.test.spnp_pvals$pval, pval2stars)
+```
+
+### Table
+
+```{r}
+datatable(merge(t.test.spnp_pvals, wilcox.test.spnp_pvals, 
+                by = c("Measure", 
+                       "Method", "SetSize"), 
+                suffixes = c(".T", ".Wilcox")), 
+          filter = "top")
+```
+
+### Plot Wilcox
+
+```{r}
+## -log10(pval) to transform lower p-vals into higher numbers, as in volcano plot
+
+ggplot(wilcox.test.spnp_pvals, 
+       aes(x = Method, y = Measure, fill = pval, color = pval <= 0.05)) +
+    geom_tile(aes(width=0.9, height=0.9), size=1) +
+    scale_fill_viridis() +
+    scale_color_manual(values = c(`TRUE` = "red", `FALSE` = NULL, `NA` = NULL), na.value = NA) +
+    facet_grid(rows = vars(SetSize)) +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5))
+```
+
+```{r}
+ggplot(wilcox.test.spnp_pvals, 
+       aes(x = Method, y = Measure, fill = log10(pval), color = pval <= 0.05)) +
+    geom_tile(aes(width=0.9, height=0.9), size=1) +
+    scale_fill_viridis() +
+    scale_color_manual(values = c(`TRUE` = "red", `FALSE` = NULL, `NA` = NULL), na.value = NA) +
+    facet_grid(rows = vars(SetSize)) +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5))
+```
+
+
+```{r}
+## -log10(pval) to transform lower p-vals into higher numbers, as in volcano plot
+
+ggplot(wilcox.test.spnp_pvals, 
+       aes(x = Method, y = Measure, fill = StarLabel, color = pval <= 0.05)) +
+    geom_tile(aes(width=0.9, height=0.9), size=1) +
+    scale_fill_viridis_d(direction = -1) +
+    scale_color_manual(values = c(`TRUE` = "red", `FALSE` = NULL, `NA` = NULL), na.value = NA) +
+    facet_grid(rows = vars(SetSize)) +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5))
+```
+
+### Plot T-test
+
+```{r}
+## -log10(pval) to transform lower p-vals into higher numbers, as in volcano plot
+
+ggplot(t.test.spnp_pvals, 
+       aes(x = Method, y = Measure, fill = pval)) +
+    geom_tile() +
+    scale_fill_viridis() +
+    facet_grid(rows = vars(SetSize)) +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5))
+```
+
+```{r}
+## -log10(pval) to transform lower p-vals into higher numbers, as in volcano plot
+
+ggplot(t.test.spnp_pvals,
+       aes(x = Method, y = Measure, fill = StarLabel)) +
+    geom_tile() +
+    scale_fill_viridis_d(direction = -1) +
+    facet_grid(rows = vars(SetSize)) +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5))
+```
+
+### Plot median-test
+
+```{r}
+## -log10(pval) to transform lower p-vals into higher numbers, as in volcano plot
+
+ggplot(median.test.spnp_pvals, 
+       aes(x = Method, y = Measure, fill = pval)) +
+    geom_tile() +
+    scale_fill_viridis() +
+    facet_grid(rows = vars(SetSize)) +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5))
+```
+
+```{r}
+## -log10(pval) to transform lower p-vals into higher numbers, as in volcano plot
+
+ggplot(median.test.spnp_pvals,
+       aes(x = Method, y = Measure, fill = StarLabel)) +
+    geom_tile() +
+    scale_fill_viridis_d(direction = -1) +
+    facet_grid(rows = vars(SetSize)) +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5))
+```
+
+### Plot Kruskal test
+
+```{r}
+## -log10(pval) to transform lower p-vals into higher numbers, as in volcano plot
+
+ggplot(kruskal.test.spnp_pvals, 
+       aes(x = Method, y = Measure, fill = pval)) +
+    geom_tile() +
+    scale_fill_viridis() +
+    facet_grid(rows = vars(SetSize)) +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5))
+```
+
+```{r}
+## -log10(pval) to transform lower p-vals into higher numbers, as in volcano plot
+
+ggplot(kruskal.test.spnp_pvals,
+       aes(x = Method, y = Measure, fill = StarLabel)) +
+    geom_tile() +
+    scale_fill_viridis_d(direction = -1) +
+    facet_grid(rows = vars(SetSize)) +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5))
+```
+
+## Plots
+### Mean N03
+
+```{r, fig.width=6.69, fig.height=6.5}
+plot_dt <- mean_ranks[SetSize == "N03"]
+plot_dt[, Method := gsub("_", " ", Method), by = Method]
+
+ggplot(plot_dt, 
+       aes(x = Meas, y = mean_rank, color = Sim)) + 
+    labs(y = "Mean rank", x = "Measure") +
+    geom_abline(intercept = 10.25, slope = 0, linetype = "dashed") + 
+    geom_abline(intercept = 19.5, slope = 0, linetype = "dashed") + 
+    geom_abline(intercept = 28.75, slope = 0, linetype = "dashed") + 
+    geom_line(aes(group = Sim)) + 
+    geom_point(aes(shape = Sim), size = 2) + 
+    facet_wrap(~ Method, 
+               labeller = label_wrap_gen(width = 7), 
+               ncol = 10) +
+    scale_color_calc("Simulations") +
+    scale_shape("Simulations") +
+    theme_bw() +
+    theme(panel.grid.minor = element_blank(),
+          panel.grid.major.x = element_blank(),
+          text = element_text(size = 10),
+          legend.position = c(.9, .1), 
+          strip.text = element_text(size = 6),
+          axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+```{r, fig.width=8.85, fig.height=6.69}
+plot_dt <- mean_ranks[SetSize == "N03"]
+
+# plot_dt <- 
+#     merge(t.test.spnp_pvals[, .(Meas = Measure, Method, SetSize, pval, StarLabel)], 
+#           plot_dt, 
+#           by = c("Method", "Meas", "SetSize"))
+plot_dt <- 
+    merge(wilcox.test.spnp_pvals[, .(Meas = Measure, Method, SetSize, pval, StarLabel)], 
+          plot_dt, 
+          by = c("Method", "Meas", "SetSize"))
+
+plot_dt[, Method := gsub("_", " ", Method), by = Method]
+
+ggplot(plot_dt, aes(x = Method, y = mean_rank, color = Sim)) +
+    geom_abline(intercept = 10.25, slope = 0, linetype = "dashed", color = "grey55") + 
+    geom_abline(intercept = 19.5, slope = 0, linetype = "dashed", color = "grey55") + 
+    geom_abline(intercept = 28.75, slope = 0, linetype = "dashed", color = "grey55") + 
+    # geom_line(aes(group = Sim)) +
+    geom_pointrange(aes(ymin = mean_rank - sd_rank, ymax = mean_rank + sd_rank), 
+                    position = position_dodge2(width = .3)) +
+    # geom_text(data = plot_dt[Sim == "SP"], 
+    #           aes(label = StarLabel, y = 40), angle = 90, hjust = 0, 
+    #           color = "black") +
+    facet_grid(rows = vars(Meas), 
+               labeller = label_wrap_gen(width = 7)) +
+    scale_color_calc("Simulation type", labels = c("Non-parametric", "Semi-parametric")) +
+    coord_cartesian(clip = "off") +
+    theme_bw() +
+    theme(panel.grid.minor = element_blank(),
+          panel.grid.major.x = element_blank(),
+          text = element_text(size = 10),
+          legend.position = "top", 
+          strip.text = element_text(size = 6),
+          axis.text.x = element_text(angle = 90, hjust = 1))
+```
+
+## N05
+
+```{r, fig.width=6.69, fig.height=6.5}
+plot_dt <- mean_ranks[SetSize == "N05"]
+plot_dt[, Method := gsub("_", " ", Method), by = Method]
+
+ggplot(plot_dt, 
+       aes(x = Meas, y = mean_rank, color = Sim)) + 
+    labs(y = "Mean rank", x = "Measure") +
+    geom_abline(intercept = 10.25, slope = 0, linetype = "dashed") + 
+    geom_abline(intercept = 19.5, slope = 0, linetype = "dashed") + 
+    geom_abline(intercept = 28.75, slope = 0, linetype = "dashed") + 
+    geom_line(aes(group = Sim)) + 
+    geom_point(aes(shape = Sim), size = 2) + 
+    facet_wrap(~ Method, 
+               labeller = label_wrap_gen(width = 7), 
+               ncol = 10) +
+    scale_color_calc("Simulations") +
+    scale_shape("Simulations") +
+    theme_bw() +
+    theme(panel.grid.minor = element_blank(),
+          panel.grid.major.x = element_blank(),
+          text = element_text(size = 10),
+          legend.position = c(.9, .1), 
+          strip.text = element_text(size = 6),
+          axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+```{r, fig.width=8.85, fig.height=6.69}
+plot_dt <- mean_ranks[SetSize == "N05"]
+plot_dt[, Method := gsub("_", " ", Method), by = Method]
+
+ggplot(plot_dt, aes(x = Method, y = mean_rank, color = Sim)) +
+    geom_abline(intercept = 10.25, slope = 0, linetype = "dashed", color = "grey55") + 
+    geom_abline(intercept = 19.5, slope = 0, linetype = "dashed", color = "grey55") + 
+    geom_abline(intercept = 28.75, slope = 0, linetype = "dashed", color = "grey55") + 
+    # geom_line(aes(group = Sim)) +
+    geom_pointrange(aes(ymin = mean_rank - sd_rank, ymax = mean_rank + sd_rank), 
+                    position = position_dodge2(width = .3)) +
+    facet_grid(rows = vars(Meas), 
+               labeller = label_wrap_gen(width = 7)) +
+    scale_color_calc("Simulation type", labels = c("Non-parametric", "Semi-parametric")) +
+    theme_bw() +
+    theme(panel.grid.minor = element_blank(),
+          panel.grid.major.x = element_blank(),
+          text = element_text(size = 10),
+          legend.position = "top", 
+          strip.text = element_text(size = 6),
+          axis.text.x = element_text(angle = 90, hjust = 1))
+```
+
+## N10
+
+```{r, fig.width=6.69, fig.height=6.5}
+plot_dt <- mean_ranks[SetSize == "N10"]
+plot_dt[, Method := gsub("_", " ", Method), by = Method]
+
+ggplot(plot_dt, 
+       aes(x = Meas, y = mean_rank, color = Sim)) + 
+    labs(y = "Mean rank", x = "Measure") +
+    geom_abline(intercept = 10.25, slope = 0, linetype = "dashed") + 
+    geom_abline(intercept = 19.5, slope = 0, linetype = "dashed") + 
+    geom_abline(intercept = 28.75, slope = 0, linetype = "dashed") + 
+    geom_line(aes(group = Sim)) + 
+    geom_point(aes(shape = Sim), size = 2) + 
+    facet_wrap(~ Method, 
+               labeller = label_wrap_gen(width = 7), 
+               ncol = 10) +
+    scale_color_calc("Simulations") +
+    scale_shape("Simulations") +
+    theme_bw() +
+    theme(panel.grid.minor = element_blank(),
+          panel.grid.major.x = element_blank(),
+          text = element_text(size = 10),
+          legend.position = c(.9, .1), 
+          strip.text = element_text(size = 6),
+          axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+```{r, fig.width=8.85, fig.height=6.69}
+plot_dt <- mean_ranks[SetSize == "N10"]
+plot_dt[, Method := gsub("_", " ", Method), by = Method]
+
+ggplot(plot_dt, aes(x = Method, y = mean_rank, color = Sim)) +
+    geom_abline(intercept = 10.25, slope = 0, linetype = "dashed", color = "grey55") + 
+    geom_abline(intercept = 19.5, slope = 0, linetype = "dashed", color = "grey55") + 
+    geom_abline(intercept = 28.75, slope = 0, linetype = "dashed", color = "grey55") + 
+    # geom_line(aes(group = Sim)) +
+    geom_pointrange(aes(ymin = mean_rank - sd_rank, ymax = mean_rank + sd_rank), 
+                    position = position_dodge2(width = .3)) +
+    facet_grid(rows = vars(Meas), 
+               labeller = label_wrap_gen(width = 7)) +
+    scale_color_calc("Simulation type", labels = c("Non-parametric", "Semi-parametric")) +
+    theme_bw() +
+    theme(panel.grid.minor = element_blank(),
+          panel.grid.major.x = element_blank(),
+          text = element_text(size = 10),
+          legend.position = "top", 
+          strip.text = element_text(size = 6),
+          axis.text.x = element_text(angle = 90, hjust = 1))
+```
+
+## All set sizes
+
+```{r, fig.width=8.85, fig.height=6.69}
+plot_dt <- all_meas_ranks[, .(mean_rank = mean(Rank),
+                   sd_rank = sd(Rank)), 
+               by = .(Measure, Sim, Method)]
+plot_dt[, Method := gsub("_", " ", Method), by = Method]
+
+ggplot(plot_dt, aes(x = Method, y = mean_rank, color = Sim)) +
+    geom_abline(intercept = 10.25, slope = 0, linetype = "dashed", color = "grey55") + 
+    geom_abline(intercept = 19.5, slope = 0, linetype = "dashed", color = "grey55") + 
+    geom_abline(intercept = 28.75, slope = 0, linetype = "dashed", color = "grey55") + 
+    # geom_line(aes(group = Sim)) +
+    geom_pointrange(aes(ymin = mean_rank - sd_rank, ymax = mean_rank + sd_rank), 
+                    position = position_dodge2(width = .3)) +
+    facet_grid(rows = vars(Measure), 
+               labeller = label_wrap_gen(width = 7)) +
+    scale_color_calc("Simulation type", labels = c("Non-parametric", "Semi-parametric")) +
+    theme_bw() +
+    theme(panel.grid.minor = element_blank(),
+          panel.grid.major.x = element_blank(),
+          text = element_text(size = 10),
+          legend.position = "top", 
+          strip.text = element_text(size = 6),
+          axis.text.x = element_text(angle = 90, hjust = 1))
+```
+
+## Boxplots
+
+## N05
+
+```{r, fig.height=6.69, fig.width=8.85}
+plot_dt <- all_meas_ranks[SetSize == "N05"]
+plot_dt[, Method := gsub("_", " ", Method), by = Method]
+
+ggplot(plot_dt, aes(x = Measure, y = Rank, fill = Sim)) +
+    geom_abline(intercept = 10.25, slope = 0, linetype = "dashed", color = "grey55") +
+    geom_abline(intercept = 19.5, slope = 0, linetype = "dashed", color = "grey55") +
+    geom_abline(intercept = 28.75, slope = 0, linetype = "dashed", color = "grey55") +
+    geom_boxplot(outlier.size = .5) +
+    facet_wrap(~ Method,
+               labeller = label_wrap_gen(width = 7),
+               ncol = 10) +
+    scale_fill_manual("Simulations", values = c("#BBE7FE", "#D3B5E5")) + # Canva Easter Egg Nest
+    theme_bw() +
+    theme(panel.grid.minor = element_blank(),
+          panel.grid.major.x = element_blank(),
+          text = element_text(size = 10),
+          legend.position = c(.9, .1),
+          strip.text = element_text(size = 6),
+          axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+```{r, fig.height=6.69, fig.width=8.85}
+plot_dt <- all_meas_ranks[SetSize == "N05"]
+plot_dt[, Method := gsub("_", " ", Method), by = Method]
+
+ggplot(plot_dt, aes(x = Method, y = Rank, fill = Sim)) +
+    geom_abline(intercept = 10.25, slope = 0, linetype = "dashed", color = "grey55") + 
+    geom_abline(intercept = 19.5, slope = 0, linetype = "dashed", color = "grey55") + 
+    geom_abline(intercept = 28.75, slope = 0, linetype = "dashed", color = "grey55") + 
+    geom_boxplot(outlier.size = .5) +
+    facet_grid(rows = vars(Measure), 
+               labeller = label_wrap_gen(width = 7)) +
+    scale_fill_manual("Simulations", values = c("#BBE7FE", "#D3B5E5")) + # Canva Easter Egg Nest
+    theme_bw() +
+    theme(panel.grid.minor = element_blank(),
+          panel.grid.major.x = element_blank(),
+          text = element_text(size = 10),
+          legend.position = "top", 
+          strip.text = element_text(size = 6),
+          axis.text.x = element_text(angle = 45, hjust = 1))
+```
