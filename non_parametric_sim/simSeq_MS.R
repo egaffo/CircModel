@@ -1,0 +1,166 @@
+library(SimSeq)
+library(data.table)
+
+# setwd(utils::getSrcDirectory()[1])
+# setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
+
+# counts_dt <- fread("../data/MS_unfiltered_CirComPara2_circbjr.csv",
+counts_dt <- fread("../data/MS_3sampfilt_CIRI2_circbjr.csv",
+                   data.table = T,
+                   showProgress = F)
+
+## filter the original dataset
+counts_dt_m <- melt(counts_dt,
+                    id.vars = "circ_id",
+                    variable.name = "sample_id",
+                    value.name = "BJR")
+
+group_dt <- fread("../data/MS_meta.csv")
+
+counts_dt_m <-
+    merge(group_dt[, .(sample_id, Group = condition)],
+          counts_dt_m, by = "sample_id")
+
+## keep only circRNAs expressed in > 2 samples
+keep <- counts_dt_m[BJR > 0, .N,
+                    by = .(circ_id, Group)][N > 2, unique(circ_id)]
+
+## read sample groups
+sampleTable <- data.frame(group_dt[, .(sample_id, Group = condition)],
+                          row.names = "sample_id")
+
+counts <-
+    as.matrix(data.frame(counts_dt, check.names = F,
+                         row.names = "circ_id"))[keep, rownames(sampleTable)]
+# dim(counts)
+
+## check possible biases
+library(edgeR)
+# dge <- DGEList(counts = counts[, rownames(sampleTable)], group = sampleTable$Group)
+# dge <- calcNormFactors(dge, method = "TMM")
+# cpms <- edgeR::cpm(dge, log = T, prior.count = 1)
+#
+# pcs <- prcomp(x = t(cpms), scale. = F, center = T)
+# df <- cbind(sampleTable, pcs$x)
+#
+# library(ggplot2)
+# ggplot(df, aes(x = PC1, y = PC2, color = Group)) +
+#     geom_point()
+#
+# plot(pcs$x[, 2])
+
+nsims <- 30
+
+nf <- calcNormFactors(counts, method = "TMM")
+sort.list <- SortData(counts = counts,
+                      treatment = sampleTable$Group,
+                      replic = NULL,
+                      sort.method = "unpaired",
+                      norm.factors = nf)
+
+sort.list$probs <-
+    CalcPvalWilcox(counts = sort.list$counts,
+                   treatment = sort.list$treatment,
+                   sort.method = "unpaired",
+                   sorted = TRUE,
+                   norm.factors = sort.list$norm.factors,
+                   exact = FALSE)
+
+library(fdrtool)
+sort.list$weights <- 1 - fdrtool(sort.list$probs,
+                                 statistic = "pvalue",
+                                 plot = FALSE,
+                                 verbose = FALSE)$lfdr
+
+#' 'set_name' must be on the form 'NSS_ID', where SS is the number of samples
+#' of each group and ID is the simulation identifier. F.i. N03_01 will be the
+#' name of the simulation 01 having 3 samples per group
+simData <- function(set_name, sort.list) {
+
+    samplesPerGroup <- as.integer(sub("N", "", unlist(strsplit(set_name, "_"))[1]))
+
+    simdata <-
+        SimSeq::SimData(counts = sort.list$counts,
+                        treatment = sort.list$treatment,
+                        replic = sort.list$replic,
+                        sort.method = "unpaired",
+                        k.ind = samplesPerGroup,
+                        n.genes = nrow(sort.list$counts), # simulate as many circRNAs as in the source data set,
+                        n.diff = ifelse(is.null(sort.list$n.diff),
+                                        floor(nrow(sort.list$counts) * .1), # 10% DECs
+                                        sort.list$n.diff),
+                        norm.factors = sort.list$norm.factors,
+                        # samp.independent = FALSE,
+                        # genes.select = NULL,
+                        # genes.diff = NULL,
+                        # switch.trt = F,
+                        # probs = NULL,
+                        weights = sort.list$weights,
+                        # exact = FALSE,
+                        power = 1)
+
+    simdata$set_name <- set_name
+
+    ## add fields to make it compatible with SPsimSeq objects
+    colnames(simdata$counts) <- paste0("Sample_", 1:ncol(simdata$counts))
+
+    simdata$rowData <- data.frame(DE.ind = simdata$DE.ind,
+                                  source.ID = rownames(simdata$counts),
+                                  row.names = rownames(simdata$counts))
+
+    simdata$coldata <- data.frame(Batch = 1,
+                                  Group = factor(as.integer(simdata$treatment)+1), # will relevel factor from {0,1} into {1,2}
+                                  sim.Lib.size = colSums(simdata$counts))
+    rownames(simdata$coldata) <- colnames(simdata$counts)
+
+    simdata$colData <- simdata$coldata
+
+    simdata
+}
+
+## simulate data sets
+set.seed(123)
+
+# samplesPerGroup <- 5 # number of samples in each group to simulate
+
+set_names <- c(paste0(paste0("N", formatC(3, width = 2, flag = "0"), "_"),
+                      formatC(seq_len(nsims), width = 2, flag = "0")),
+               paste0(paste0("N", formatC(5, width = 2, flag = "0"), "_"),
+                      formatC(seq_len(nsims), width = 2, flag = "0")),
+               paste0(paste0("N", formatC(10, width = 2, flag = "0"), "_"),
+                      formatC(seq_len(nsims), width = 2, flag = "0")))
+
+## DE
+sort.list$n.diff <- NULL
+de_simdataL <- sapply(X = set_names,
+                   FUN = simData,
+                   sort.list = sort.list,
+                   USE.NAMES = T,
+                   simplify = F)
+
+names(de_simdataL) <- paste0(names(de_simdataL), "_bulk")
+
+## not DE
+sort.list$n.diff <- 0
+mock_simdataL <- sapply(X = set_names,
+                      FUN = simData,
+                      sort.list = sort.list,
+                      USE.NAMES = T,
+                      simplify = F)
+
+names(mock_simdataL) <- paste0(names(mock_simdataL), "_bulk_mock")
+
+sim_ds_list <- list("N03_bulk" = list(Datasets = list(sim.data.list = de_simdataL[grepl("N03", names(de_simdataL))]), runtime = NA),
+                    "N05_bulk" = list(Datasets = list(sim.data.list = de_simdataL[grepl("N05", names(de_simdataL))]), runtime = NA),
+                    "N10_bulk" = list(Datasets = list(sim.data.list = de_simdataL[grepl("N10", names(de_simdataL))]), runtime = NA),
+                    "N03_bulk_mock" = list(Datasets = list(sim.data.list = mock_simdataL[grepl("N03", names(mock_simdataL))]), runtime = NA),
+                    "N05_bulk_mock" = list(Datasets = list(sim.data.list = mock_simdataL[grepl("N05", names(mock_simdataL))]), runtime = NA),
+                    "N10_bulk_mock" = list(Datasets = list(sim.data.list = mock_simdataL[grepl("N10", names(mock_simdataL))]), runtime = NA))
+
+## save simulations
+library(qs)
+library(BiocParallel)
+outdir <- "simdata"
+dir.create(outdir, showWarnings = F, recursive = T)
+simdata_file <- file.path(outdir, "nonp_simdata_MS.qs")
+qsave(x = sim_ds_list, file = simdata_file, nthreads = multicoreWorkers())
