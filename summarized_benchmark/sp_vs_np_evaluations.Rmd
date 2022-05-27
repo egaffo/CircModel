@@ -242,6 +242,11 @@ fpr_mean_rank <- mock_method_ranks[variable == "FPR_0.05",
                               .(mean_rank = mean(Rank),
                                 sd_rank = sd(Rank)), 
                               by = .(SetSize, Method)]
+
+fpr_ds_mean_rank <- mock_method_ranks[variable == "FPR_0.05", 
+                                      .(mean_rank = mean(Rank),
+                                        sd_rank = sd(Rank)), 
+                                      by = .(Source_ds, SetSize, Method)]
 ```
 
 ## TPR, FDR, F1
@@ -252,14 +257,6 @@ fpr_mean_rank <- mock_method_ranks[variable == "FPR_0.05",
 sbAssay_dt <- sbAssay_all_dt[DsType == "de" & MZP == "bulk"]
 sbAssay_dt$DsType <- NULL
 sbAssay_dt$MZP <- NULL
-
-## mean by set size
-# msbAssay_dt <- 
-#   melt(sbAssay_dt[, lapply(.SD, mean, na.rm = T), 
-#            .SDcols = value_cols,
-#            by = .(SetSize, Method)], 
-#        id.vars = c("SetSize", 
-#                    "Method"))[, Beta := sub(".*(0\\.[015]{2}).*", "\\1", variable)]
 ```
 
 
@@ -299,6 +296,21 @@ f1_mean_rank <- method_ranks[variable == "F1_0.05",
                               .(mean_rank = mean(Rank),
                                 sd_rank = sd(Rank)), 
                               by = .(SetSize, Method)]
+## keep source set
+fdr_ds_mean_rank <- method_ranks[variable == "FDR_0.05_padj", 
+                              .(mean_rank = mean(Rank),
+                                sd_rank = sd(Rank)), 
+                              by = .(SetSize, Method, Source_ds)]
+
+tpr_ds_mean_rank <- method_ranks[variable == "TPR_0.05_padj", 
+                              .(mean_rank = mean(Rank),
+                                sd_rank = sd(Rank)), 
+                              by = .(SetSize, Method, Source_ds)]
+
+f1_ds_mean_rank <- method_ranks[variable == "F1_0.05", 
+                              .(mean_rank = mean(Rank),
+                                sd_rank = sd(Rank)), 
+                              by = .(SetSize, Method, Source_ds)]
 ```
 
 ## AUC 
@@ -317,6 +329,11 @@ auprc_mean_rank <-
     auprc_rank[, .(mean_rank = mean(Rank),
                    sd_rank = sd(Rank)), 
                by = .(SetSize, Method)]
+
+auprc_ds_mean_rank <- 
+    auprc_rank[, .(mean_rank = mean(Rank),
+                   sd_rank = sd(Rank)), 
+               by = .(SetSize, Method, Source_ds)]
 ```
 
 # Combine
@@ -335,6 +352,23 @@ mean_ranks <- rbindlist(list(SP_FPR = fpr_mean_rank,
                         idcol = "Measure")
 mean_ranks[, c("Sim", "Meas"):=tstrsplit(Measure, "_")]
 ```
+
+```{r}
+ds_mean_ranks <- rbindlist(list(SP_FPR = fpr_ds_mean_rank, 
+                                SP_TPR = tpr_ds_mean_rank, 
+                                SP_FDR = fdr_ds_mean_rank, 
+                                SP_AUC = auprc_ds_mean_rank, 
+                                SP_F1 = f1_ds_mean_rank, 
+                                NP_FPR = np_fpr_mean_rank, 
+                                NP_TPR = np_tpr_mean_rank, 
+                                NP_FDR = np_fdr_mean_rank, 
+                                NP_AUC = np_auprc_mean_rank,
+                                NP_F1 = np_f1_mean_rank), 
+                           idcol = "Measure", fill = T)
+ds_mean_ranks[, c("Sim", "Meas"):=tstrsplit(Measure, "_")]
+ds_mean_ranks[Sim == "NP", Source_ds := "PC"]
+```
+
 
 ```{r}
 npsp_fpr_rank <- rbindlist(list(NP = np_mock_method_ranks[variable == "FPR_0.05"], 
@@ -368,7 +402,11 @@ all_meas_ranks <- rbindlist(list(FPR = npsp_fpr_rank[, .(Sim, Source_ds, SetSize
 #            formula = Measure + Source_ds + SetSize + Method + DsId ~ Sim, 
 #            value.var = "Rank")[, .(T.test.pval_NPSP = t.test(NP, SP)$p.value), 
 #                                by = .(Measure, SetSize, Method)]
+```
 
+## Correlations
+
+```{r}
 meth.mean.rank.cors <- 
     dcast(all_meas_ranks[, .(Mean_rank = mean(Rank)), 
                          by = .(Measure, Sim, SetSize, Method)],
@@ -384,6 +422,71 @@ datatable(meth.mean.rank.cors[, .(Measure, SetSize, Pvalue = p.value, Rho = esti
                           "in semiparametric and nonparametric simulations"))
 ```
 
+```{r}
+# rbindlist(list(SP = rbindlist(list(mock_method_ranks[variable == "FPR_0.05"], 
+#                                    method_ranks[variable %in% c("FDR_0.05_padj", "TPR_0.05_padj", "F1_0.05")], 
+#                                    auprc_rank[, .(Source_ds, )])),
+#                NP = rbindlist(list(np_mock_method_ranks[variable == "FPR_0.05"], 
+#                                    np_method_ranks[variable %in% c("FDR_0.05_padj", "TPR_0.05_padj", "F1_0.05")], 
+#                                    np_auprc_rank))))
+
+library(psych)
+
+corr_tests <- 
+    sapply(split(dcast(ds_mean_ranks,
+                       Meas + SetSize + Method ~ Source_ds, 
+                       value.var = "mean_rank"), 
+                 by = c("Meas", "SetSize"), keep.by = F), 
+           FUN = function(x){
+               corr.test(as.matrix(data.frame(x, row.names = "Method")),
+                         method = "spearman", adjust = "none")
+           },
+           USE.NAMES = T,
+           simplify = F)
+
+corr_tests_l <- 
+    merge(rbindlist(sapply(corr_tests, 
+                           function(x)reshape2::melt(x$p, value.name = "p.value"), 
+                           simplify = F, USE.NAMES = T), 
+                    idcol = "Measure.SetSize"),
+          rbindlist(sapply(corr_tests, 
+                           function(x)reshape2::melt(x$r, value.name = "r"), 
+                           simplify = F, USE.NAMES = T), 
+                    idcol = "Measure.SetSize"), by = c("Measure.SetSize", "Var1", "Var2"))
+corr_tests_l[, c("Measure", "SetSize"):=(tstrsplit(Measure.SetSize, "\\."))]
+```
+
+```{r}
+datatable(corr_tests_l, filter = "top")
+```
+
+```{r, fig.height=6.5, fig.width=4}
+ggplot(corr_tests_l, 
+       aes(x = Var1, y = Var2, fill = -log10(p.value))) +
+    geom_tile() +
+    facet_grid(rows = vars(Measure),
+               cols = vars(SetSize)) +
+    coord_fixed() +
+    scale_fill_viridis() +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5),
+          legend.position = "top")
+```
+
+
+```{r, fig.height=6.5, fig.width=4}
+ggplot(corr_tests_l, 
+       aes(x = Var1, y = Var2, fill = r)) +
+    geom_tile() +
+    facet_grid(rows = vars(Measure),
+               cols = vars(SetSize)) +
+    coord_fixed() +
+    scale_fill_distiller(type = "div", palette = "RdYlBu", 
+                         breaks = c(-1, -.5, 0, .5, 1), limits = c(-1, 1)) +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5),
+          legend.position = "top")
+```
 
 ## Test mean difference
 
@@ -675,6 +778,34 @@ ggplot(plot_dt, aes(x = Method, y = mean_rank, color = Sim)) +
           axis.text.x = element_text(angle = 90, hjust = 1))
 ```
 
+```{r, fig.width=8.85, fig.height=6.69}
+plot_dt <- ds_mean_ranks[SetSize == "N03"]
+
+plot_dt[, Method := gsub("_", " ", Method), by = Method]
+ds_colors <- setNames(tableau_color_pal(palette = "Tableau 10", direction = -1)(5), 
+                      c("PC", "DM1", "IDC", "IPF", "MS"))
+
+ggplot(plot_dt, aes(x = Method, y = mean_rank, color = Source_ds, shape = Sim)) +
+    geom_abline(intercept = 10.25, slope = 0, linetype = "dashed", color = "grey55") + 
+    geom_abline(intercept = 19.5, slope = 0, linetype = "dashed", color = "grey55") + 
+    geom_abline(intercept = 28.75, slope = 0, linetype = "dashed", color = "grey55") + 
+    geom_line(aes(group = Source_ds)) +
+    geom_pointrange(aes(ymin = mean_rank - sd_rank, ymax = mean_rank + sd_rank), 
+                    position = position_dodge2(width = .3)) +
+    facet_grid(rows = vars(Meas), 
+               labeller = label_wrap_gen(width = 7)) +
+    scale_shape("Simulation type", labels = c("Non-parametric", "Semi-parametric")) +
+    scale_color_manual("Origin data set", values = ds_colors) +
+    coord_cartesian(clip = "off") +
+    theme_bw() +
+    theme(panel.grid.minor = element_blank(),
+          panel.grid.major.x = element_blank(),
+          text = element_text(size = 10),
+          legend.position = "top", 
+          strip.text = element_text(size = 6),
+          axis.text.x = element_text(angle = 90, hjust = 1))
+```
+
 ## N05
 
 ```{r, fig.width=6.69, fig.height=6.5}
@@ -726,6 +857,34 @@ ggplot(plot_dt, aes(x = Method, y = mean_rank, color = Sim)) +
           axis.text.x = element_text(angle = 90, hjust = 1))
 ```
 
+```{r, fig.width=8.85, fig.height=6.69}
+plot_dt <- ds_mean_ranks[SetSize == "N05"]
+
+plot_dt[, Method := gsub("_", " ", Method), by = Method]
+ds_colors <- setNames(tableau_color_pal(palette = "Tableau 10", direction = -1)(5), 
+                      c("PC", "DM1", "IDC", "IPF", "MS"))
+
+ggplot(plot_dt, aes(x = Method, y = mean_rank, color = Source_ds, shape = Sim)) +
+    geom_abline(intercept = 10.25, slope = 0, linetype = "dashed", color = "grey55") + 
+    geom_abline(intercept = 19.5, slope = 0, linetype = "dashed", color = "grey55") + 
+    geom_abline(intercept = 28.75, slope = 0, linetype = "dashed", color = "grey55") + 
+    geom_line(aes(group = Source_ds)) +
+    geom_pointrange(aes(ymin = mean_rank - sd_rank, ymax = mean_rank + sd_rank), 
+                    position = position_dodge2(width = .3)) +
+    facet_grid(rows = vars(Meas), 
+               labeller = label_wrap_gen(width = 7)) +
+    scale_shape("Simulation type", labels = c("Non-parametric", "Semi-parametric")) +
+    scale_color_manual("Origin data set", values = ds_colors) +
+    coord_cartesian(clip = "off") +
+    theme_bw() +
+    theme(panel.grid.minor = element_blank(),
+          panel.grid.major.x = element_blank(),
+          text = element_text(size = 10),
+          legend.position = "top", 
+          strip.text = element_text(size = 6),
+          axis.text.x = element_text(angle = 90, hjust = 1))
+```
+
 ## N10
 
 ```{r, fig.width=6.69, fig.height=6.5}
@@ -768,6 +927,34 @@ ggplot(plot_dt, aes(x = Method, y = mean_rank, color = Sim)) +
     facet_grid(rows = vars(Meas), 
                labeller = label_wrap_gen(width = 7)) +
     scale_color_calc("Simulation type", labels = c("Non-parametric", "Semi-parametric")) +
+    theme_bw() +
+    theme(panel.grid.minor = element_blank(),
+          panel.grid.major.x = element_blank(),
+          text = element_text(size = 10),
+          legend.position = "top", 
+          strip.text = element_text(size = 6),
+          axis.text.x = element_text(angle = 90, hjust = 1))
+```
+
+```{r, fig.width=8.85, fig.height=6.69}
+plot_dt <- ds_mean_ranks[SetSize == "N10"]
+
+plot_dt[, Method := gsub("_", " ", Method), by = Method]
+ds_colors <- setNames(tableau_color_pal(palette = "Tableau 10", direction = -1)(5), 
+                      c("PC", "DM1", "IDC", "IPF", "MS"))
+
+ggplot(plot_dt, aes(x = Method, y = mean_rank, color = Source_ds, shape = Sim)) +
+    geom_abline(intercept = 10.25, slope = 0, linetype = "dashed", color = "grey55") + 
+    geom_abline(intercept = 19.5, slope = 0, linetype = "dashed", color = "grey55") + 
+    geom_abline(intercept = 28.75, slope = 0, linetype = "dashed", color = "grey55") + 
+    geom_line(aes(group = Source_ds)) +
+    geom_pointrange(aes(ymin = mean_rank - sd_rank, ymax = mean_rank + sd_rank), 
+                    position = position_dodge2(width = .3)) +
+    facet_grid(rows = vars(Meas), 
+               labeller = label_wrap_gen(width = 7)) +
+    scale_shape("Simulation type", labels = c("Non-parametric", "Semi-parametric")) +
+    scale_color_manual("Origin data set", values = ds_colors) +
+    coord_cartesian(clip = "off") +
     theme_bw() +
     theme(panel.grid.minor = element_blank(),
           panel.grid.major.x = element_blank(),
