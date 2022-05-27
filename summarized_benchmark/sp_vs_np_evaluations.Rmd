@@ -461,7 +461,7 @@ datatable(corr_tests_l, filter = "top")
 ```
 
 ```{r, fig.height=6.5, fig.width=4}
-ggplot(corr_tests_l, 
+ggplot(corr_tests_l[Var1==Var2, p.value := NA], 
        aes(x = Var1, y = Var2, fill = -log10(p.value))) +
     geom_tile() +
     facet_grid(rows = vars(Measure),
