@@ -33,44 +33,88 @@ f.beta <- function(P, R, beta = 1) {
 ```{r}
 sbAssay_all_dt <- fread(file.path("PC_overall_evaluations/sbAssay_dt.csv.gz"))
 
-sbAssay_dt <- sbAssay_all_dt[DsType == "de" & MZP == "bulk"]
-sbAssay_dt$DsType <- NULL
-sbAssay_dt$MZP <- NULL
 
-colnames(sbAssay_dt) <- 
+colnames(sbAssay_all_dt) <- 
   sub("R\\.3", "R_0.10", 
       sub("R\\.2", "R_0.05", 
           sub("R\\.1", "R_0.01", 
-              colnames(sbAssay_dt))))
+              colnames(sbAssay_all_dt))))
 
-colnames(sbAssay_dt) <- 
+colnames(sbAssay_all_dt) <- 
   sub("rejections\\.3", "rejections_0.10", 
       sub("rejections\\.2", "rejections_0.05", 
           sub("rejections\\.1", "rejections_0.01", 
-              colnames(sbAssay_dt))))
+              colnames(sbAssay_all_dt))))
 
-colnames(sbAssay_dt) <- 
+colnames(sbAssay_all_dt) <- 
   sub("([015])\\.1$", "\\1_padj", 
-      colnames(sbAssay_dt))
+      colnames(sbAssay_all_dt))
 
-sbAssay_dt[, `:=`(F1_0.01 = f.beta(1-FDR_0.01_padj, TPR_0.01_padj),
+sbAssay_all_dt[, `:=`(F1_0.01 = f.beta(1-FDR_0.01_padj, TPR_0.01_padj),
                   F1_0.05 = f.beta(1-FDR_0.05_padj, TPR_0.05_padj),
                   F1_0.10 = f.beta(1-FDR_0.10_padj, TPR_0.10_padj))]
 
 value_cols <- 
-  c(grep("rejections", colnames(sbAssay_dt), value = T),
-    grep("TPR", colnames(sbAssay_dt), value = T),
-    grep("TNR", colnames(sbAssay_dt), value = T),
-    grep("FDR", colnames(sbAssay_dt), value = T),
-    grep("F1", colnames(sbAssay_dt), value = T))
+  c(grep("rejections", colnames(sbAssay_all_dt), value = T),
+    grep("TPR", colnames(sbAssay_all_dt), value = T),
+    grep("TNR", colnames(sbAssay_all_dt), value = T),
+    grep("FDR", colnames(sbAssay_all_dt), value = T),
+    grep("F1", colnames(sbAssay_all_dt), value = T))
+```
+
+## FPR
+
+```{r}
+## FPR
+sbAssay_dt <- sbAssay_all_dt[MZP == "bulk" & DsType == "mock"]
+sbAssay_dt$DsType <- NULL
+sbAssay_dt$MZP <- NULL
+```
+
+```{r}
+idvars <- c("Source_ds", "Dataset", "Method", "SetSize")
+np_mock_method_ranks <- 
+    melt(sbAssay_dt[, c(idvars, value_cols), with = F], 
+         id.vars = idvars)
+
+np_mock_method_ranks[, Alpha := as.numeric(gsub("rejections|TPR|FDR|TNR|_|padj|F1", "", variable))]
+
+## make the FPRs closer to the nominal value ranked on top when sorting by ascending order
+## Mind that FPR = 1 - TNR.
+np_mock_method_ranks[grepl("^TNR", variable), 
+             value := abs((1 - value) - Alpha)][, `:=`(variable = sub("TNR", "FPR", 
+                                                                      variable))]
+
+np_mock_method_ranks <- 
+    np_mock_method_ranks[order(value, decreasing = F, na.last = T), 
+                 Rank := seq_along(value), 
+                 by = .(Source_ds, SetSize, Dataset, variable)][]
+np_mock_method_ranks[is.na(value), Rank := max(Rank)]
+
+## compute the rank of each method according to FDR, TPR and AUPRC
+## in each simulation and then calculate the average rank
+np_fpr_mean_rank <- np_mock_method_ranks[variable == "FPR_0.05", 
+                              .(mean_rank = mean(Rank),
+                                sd_rank = sd(Rank)), 
+                              by = .(SetSize, Method)]
+```
+
+## TPR, FDR, F1
+
+```{r}
+## TPR, FDR, F1, AUPRC
+
+sbAssay_dt <- sbAssay_all_dt[DsType == "de" & MZP == "bulk"]
+sbAssay_dt$DsType <- NULL
+sbAssay_dt$MZP <- NULL
 
 ## mean by set size
-msbAssay_dt <- 
-  melt(sbAssay_dt[, lapply(.SD, mean, na.rm = T), 
-           .SDcols = value_cols,
-           by = .(SetSize, Method)], 
-       id.vars = c("SetSize", 
-                   "Method"))[, Beta := sub(".*(0\\.[015]{2}).*", "\\1", variable)]
+# msbAssay_dt <- 
+#   melt(sbAssay_dt[, lapply(.SD, mean, na.rm = T), 
+#            .SDcols = value_cols,
+#            by = .(SetSize, Method)], 
+#        id.vars = c("SetSize", 
+#                    "Method"))[, Beta := sub(".*(0\\.[015]{2}).*", "\\1", variable)]
 ```
 
 
@@ -110,7 +154,11 @@ np_f1_mean_rank <- np_method_ranks[variable == "F1_0.05",
                               .(mean_rank = mean(Rank),
                                 sd_rank = sd(Rank)), 
                               by = .(SetSize, Method)]
+```
 
+## AUC
+
+```{r}
 ##get AUC
 np_auc <- fread("PC_overall_evaluations/overall_auc.csv.gz")
 np_auprc_rank <- 
@@ -131,44 +179,87 @@ np_auprc_mean_rank <-
 ```{r}
 sbAssay_all_dt <- fread(file.path("overall_evaluations/sbAssay_dt.csv.gz"))
 
-sbAssay_dt <- sbAssay_all_dt[DsType == "de" & MZP == "bulk"]
-sbAssay_dt$DsType <- NULL
-sbAssay_dt$MZP <- NULL
-
-colnames(sbAssay_dt) <- 
+colnames(sbAssay_all_dt) <- 
   sub("R\\.3", "R_0.10", 
       sub("R\\.2", "R_0.05", 
           sub("R\\.1", "R_0.01", 
-              colnames(sbAssay_dt))))
+              colnames(sbAssay_all_dt))))
 
-colnames(sbAssay_dt) <- 
+colnames(sbAssay_all_dt) <- 
   sub("rejections\\.3", "rejections_0.10", 
       sub("rejections\\.2", "rejections_0.05", 
           sub("rejections\\.1", "rejections_0.01", 
-              colnames(sbAssay_dt))))
+              colnames(sbAssay_all_dt))))
 
-colnames(sbAssay_dt) <- 
+colnames(sbAssay_all_dt) <- 
   sub("([015])\\.1$", "\\1_padj", 
-      colnames(sbAssay_dt))
+      colnames(sbAssay_all_dt))
 
-sbAssay_dt[, `:=`(F1_0.01 = f.beta(1-FDR_0.01_padj, TPR_0.01_padj),
+sbAssay_all_dt[, `:=`(F1_0.01 = f.beta(1-FDR_0.01_padj, TPR_0.01_padj),
                   F1_0.05 = f.beta(1-FDR_0.05_padj, TPR_0.05_padj),
                   F1_0.10 = f.beta(1-FDR_0.10_padj, TPR_0.10_padj))]
 
 value_cols <- 
-  c(grep("rejections", colnames(sbAssay_dt), value = T),
-    grep("TPR", colnames(sbAssay_dt), value = T),
-    grep("TNR", colnames(sbAssay_dt), value = T),
-    grep("FDR", colnames(sbAssay_dt), value = T),
-    grep("F1", colnames(sbAssay_dt), value = T))
+  c(grep("rejections", colnames(sbAssay_all_dt), value = T),
+    grep("TPR", colnames(sbAssay_all_dt), value = T),
+    grep("TNR", colnames(sbAssay_all_dt), value = T),
+    grep("FDR", colnames(sbAssay_all_dt), value = T),
+    grep("F1", colnames(sbAssay_all_dt), value = T))
+```
+
+## FPR
+
+```{r}
+## FPR
+sbAssay_dt <- sbAssay_all_dt[MZP == "bulk" & DsType == "mock"]
+sbAssay_dt$DsType <- NULL
+sbAssay_dt$MZP <- NULL
+```
+
+```{r}
+idvars <- c("Source_ds", "Dataset", "Method", "SetSize")
+mock_method_ranks <- 
+    melt(sbAssay_dt[, c(idvars, value_cols), with = F], 
+         id.vars = idvars)
+
+mock_method_ranks[, Alpha := as.numeric(gsub("rejections|TPR|FDR|TNR|_|padj|F1", "", variable))]
+
+## make the FPRs closer to the nominal value ranked on top when sorting by ascending order
+## Mind that FPR = 1 - TNR.
+mock_method_ranks[grepl("^TNR", variable), 
+             value := abs((1 - value) - Alpha)][, `:=`(variable = sub("TNR", "FPR", 
+                                                                      variable))]
+
+mock_method_ranks <- 
+    mock_method_ranks[order(value, decreasing = F, na.last = T), 
+                 Rank := seq_along(value), 
+                 by = .(Source_ds, SetSize, Dataset, variable)][]
+mock_method_ranks[is.na(value), Rank := max(Rank)]
+
+## compute the rank of each method according to FDR, TPR and AUPRC
+## in each simulation and then calculate the average rank
+fpr_mean_rank <- mock_method_ranks[variable == "FPR_0.05", 
+                              .(mean_rank = mean(Rank),
+                                sd_rank = sd(Rank)), 
+                              by = .(SetSize, Method)]
+```
+
+## TPR, FDR, F1
+
+```{r}
+## TPR, FDR, F1, AUPRC
+
+sbAssay_dt <- sbAssay_all_dt[DsType == "de" & MZP == "bulk"]
+sbAssay_dt$DsType <- NULL
+sbAssay_dt$MZP <- NULL
 
 ## mean by set size
-msbAssay_dt <- 
-  melt(sbAssay_dt[, lapply(.SD, mean, na.rm = T), 
-           .SDcols = value_cols,
-           by = .(SetSize, Method)], 
-       id.vars = c("SetSize", 
-                   "Method"))[, Beta := sub(".*(0\\.[015]{2}).*", "\\1", variable)]
+# msbAssay_dt <- 
+#   melt(sbAssay_dt[, lapply(.SD, mean, na.rm = T), 
+#            .SDcols = value_cols,
+#            by = .(SetSize, Method)], 
+#        id.vars = c("SetSize", 
+#                    "Method"))[, Beta := sub(".*(0\\.[015]{2}).*", "\\1", variable)]
 ```
 
 
@@ -208,7 +299,11 @@ f1_mean_rank <- method_ranks[variable == "F1_0.05",
                               .(mean_rank = mean(Rank),
                                 sd_rank = sd(Rank)), 
                               by = .(SetSize, Method)]
+```
 
+## AUC 
+
+```{r}
 ##get AUC
 auc <- fread("overall_evaluations/overall_auc.csv.gz")
 auprc_rank <- 
@@ -227,10 +322,12 @@ auprc_mean_rank <-
 # Combine
 
 ```{r}
-mean_ranks <- rbindlist(list(SP_TPR = tpr_mean_rank, 
+mean_ranks <- rbindlist(list(SP_FPR = fpr_mean_rank, 
+                             SP_TPR = tpr_mean_rank, 
                              SP_FDR = fdr_mean_rank, 
                              SP_AUC = auprc_mean_rank, 
                              SP_F1 = f1_mean_rank, 
+                             NP_FPR = np_fpr_mean_rank, 
                              NP_TPR = np_tpr_mean_rank, 
                              NP_FDR = np_fdr_mean_rank, 
                              NP_AUC = np_auprc_mean_rank,
@@ -240,6 +337,9 @@ mean_ranks[, c("Sim", "Meas"):=tstrsplit(Measure, "_")]
 ```
 
 ```{r}
+npsp_fpr_rank <- rbindlist(list(NP = np_mock_method_ranks[variable == "FPR_0.05"], 
+                                SP = mock_method_ranks[variable == "FPR_0.05"]), 
+                           idcol = "Sim")
 npsp_fdr_rank <- rbindlist(list(NP = np_method_ranks[variable == "FDR_0.05_padj"],
                                 SP = method_ranks[variable == "FDR_0.05_padj"]), 
                            idcol = "Sim")
@@ -253,7 +353,9 @@ npsp_f1_rank <- rbindlist(list(NP = np_method_ranks[variable == "F1_0.05"],
                                SP = method_ranks[variable == "F1_0.05"]), 
                           idcol = "Sim")
 
-all_meas_ranks <- rbindlist(list(FDR = npsp_fdr_rank[, .(Sim, Source_ds, SetSize, Method, Rank, 
+all_meas_ranks <- rbindlist(list(FPR = npsp_fpr_rank[, .(Sim, Source_ds, SetSize, Method, Rank,
+                                                         DsId = gsub(".*_([0-9]{2})$", "\\1", Dataset))],
+                                 FDR = npsp_fdr_rank[, .(Sim, Source_ds, SetSize, Method, Rank, 
                                                          DsId = gsub(".*_([0-9]{2})$", "\\1", Dataset))],
                                  TPR = npsp_tpr_rank[, .(Sim, Source_ds, SetSize, Method, Rank,
                                                          DsId = gsub(".*_([0-9]{2})$", "\\1", Dataset))],
@@ -554,7 +656,7 @@ ggplot(plot_dt, aes(x = Method, y = mean_rank, color = Sim)) +
     geom_abline(intercept = 10.25, slope = 0, linetype = "dashed", color = "grey55") + 
     geom_abline(intercept = 19.5, slope = 0, linetype = "dashed", color = "grey55") + 
     geom_abline(intercept = 28.75, slope = 0, linetype = "dashed", color = "grey55") + 
-    # geom_line(aes(group = Sim)) +
+    geom_line(aes(group = Sim)) +
     geom_pointrange(aes(ymin = mean_rank - sd_rank, ymax = mean_rank + sd_rank), 
                     position = position_dodge2(width = .3)) +
     # geom_text(data = plot_dt[Sim == "SP"], 
@@ -609,7 +711,7 @@ ggplot(plot_dt, aes(x = Method, y = mean_rank, color = Sim)) +
     geom_abline(intercept = 10.25, slope = 0, linetype = "dashed", color = "grey55") + 
     geom_abline(intercept = 19.5, slope = 0, linetype = "dashed", color = "grey55") + 
     geom_abline(intercept = 28.75, slope = 0, linetype = "dashed", color = "grey55") + 
-    # geom_line(aes(group = Sim)) +
+    geom_line(aes(group = Sim)) +
     geom_pointrange(aes(ymin = mean_rank - sd_rank, ymax = mean_rank + sd_rank), 
                     position = position_dodge2(width = .3)) +
     facet_grid(rows = vars(Meas), 
@@ -660,7 +762,7 @@ ggplot(plot_dt, aes(x = Method, y = mean_rank, color = Sim)) +
     geom_abline(intercept = 10.25, slope = 0, linetype = "dashed", color = "grey55") + 
     geom_abline(intercept = 19.5, slope = 0, linetype = "dashed", color = "grey55") + 
     geom_abline(intercept = 28.75, slope = 0, linetype = "dashed", color = "grey55") + 
-    # geom_line(aes(group = Sim)) +
+    geom_line(aes(group = Sim)) +
     geom_pointrange(aes(ymin = mean_rank - sd_rank, ymax = mean_rank + sd_rank), 
                     position = position_dodge2(width = .3)) +
     facet_grid(rows = vars(Meas), 
@@ -687,7 +789,7 @@ ggplot(plot_dt, aes(x = Method, y = mean_rank, color = Sim)) +
     geom_abline(intercept = 10.25, slope = 0, linetype = "dashed", color = "grey55") + 
     geom_abline(intercept = 19.5, slope = 0, linetype = "dashed", color = "grey55") + 
     geom_abline(intercept = 28.75, slope = 0, linetype = "dashed", color = "grey55") + 
-    # geom_line(aes(group = Sim)) +
+    geom_line(aes(group = Sim)) +
     geom_pointrange(aes(ymin = mean_rank - sd_rank, ymax = mean_rank + sd_rank), 
                     position = position_dodge2(width = .3)) +
     facet_grid(rows = vars(Measure), 
