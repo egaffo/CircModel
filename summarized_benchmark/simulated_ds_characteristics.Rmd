@@ -86,10 +86,12 @@ plot.dt <-
 
 plot.dt[order(-n_samples), cum_circs := cumsum(n_circs), by = .(DS)]
 
+library(ggthemes)
 ggplot(plot.dt,
        aes(x = factor(n_samples),
            y = n_circs)) +
-    geom_point() +
+    geom_point(aes(color = DS)) +
+    scale_color_tableau(direction = -1) +
     facet_wrap(~ DS, scales = "free", ncol = 1) +
     labs(y = "Number of circRNAs", x = "Number of samples") +
     theme_classic() +
@@ -102,7 +104,8 @@ Minimum number of samples in which a circRNA has been detected.
 ggplot(plot.dt,
        aes(x = factor(n_samples), 
            y = cum_circs)) +
-    geom_point() +
+    geom_point(aes(color = DS)) +
+    scale_color_tableau(direction = -1) +
     facet_wrap(~ DS, scales = "free", ncol = 1) +
     labs(y = "Cumulative number of circRNAs", 
          x = "Cumulative number of samples") + # "(\u2265)"
@@ -137,7 +140,7 @@ plot.dt <-
 #           panel.spacing = unit(.1, "lines"))
 ```
 
-```{r, fig.height=8.5, fig.width=4}
+```{r, fig.height=8.5, fig.width=3}
 library(patchwork)
 library(ggthemes)
 
@@ -146,14 +149,17 @@ bjr_box_plot <-
            aes(y = factor(n_samples, levels = max(plot.dt$n_samples):1, ordered = T),
                x = mean_BJR, 
                color = DS)) +
-    geom_boxplot(outlier.size = .5, #outlier.alpha = .5,
-                 varwidth = F,
-                 notch = F) +
+    geom_boxplot(outlier.size = .3, #outlier.alpha = .5,
+                 outlier.shape = NA, # this removes the outliers
+                 varwidth = F, 
+                 notch = F, position = position_dodge2(preserve = "single")) +
     scale_x_log10(label = label_comma(accuracy = 1)) +
+    scale_color_tableau(direction = -1) +
     # facet_wrap(~ DS, scales = "fixed", nrow = 1) +
     labs(x = "Mean BJR", y = "Number of samples") +
     theme_bw() +
-    theme(axis.text.x = element_text(angle = 90,
+    theme(legend.position = "none",
+        axis.text.x = element_text(angle = 90,
                                      hjust = 1,
                                      vjust = .5),
           panel.grid.minor.y = element_blank(),
@@ -169,11 +175,16 @@ ncircs_plot <-
                color = DS)) +
     # geom_col(position = position_dodge2(preserve = "single")) +
     geom_line(aes(group = DS)) +
+    scale_color_tableau(name = "Dataset", direction = -1) +
     geom_point() +
     coord_flip() +
-    scale_y_sqrt("Number of\ncircRNAs") +
+    scale_y_continuous("Number of\ncircRNAs") +
+    # scale_y_sqrt("Number of\ncircRNAs") +
+    # scale_y_log10("Number of\ncircRNAs") +
     theme_bw() +
-    theme(axis.text.x = element_text(angle = 90,
+    theme(legend.position = c(.65, .2),
+          legend.background = element_blank(),
+        axis.text.x = element_text(angle = 90,
                                      hjust = 1,
                                      vjust = .5),
           panel.grid.minor.y = element_blank(),
@@ -185,25 +196,23 @@ wrap_plots(bjr_box_plot +
                theme(plot.margin = margin(0, 0, 0, 0)), 
            ncircs_plot + 
                labs(x = NULL) +
-               guides(color = "none") +
+               # guides(color = "none") +
                theme(axis.text.y = element_blank(),
                      axis.ticks.y = element_blank(), 
                      plot.background = element_blank(),
                      plot.margin = margin(0, 0, 0, 0)), 
-           guides = "collect", 
+           # guides = "collect", 
            nrow = 1, 
-           widths = c(.7, .3)) &
-    scale_color_tableau(name = "Study", direction = -1) &
-    theme(legend.position = "top", 
+           widths = c(.6, .4)) &
+    # scale_color_tableau(name = "Study", direction = -1) &
+    theme(#legend.position = "top", 
           text = element_text(size = 10))
 ```
 
 
 ### BJR proportion 
 
-TODO: fare una versione anche dopo aver applicato il filtro >= 3samples !!!  
-
-```{r, fig.width=5, fig.height=5}
+```{r, fig.width=4, fig.height=3.5}
 library(ggbeeswarm)
 
 source_hist_cnt <- 
@@ -218,51 +227,105 @@ ds_stats <-
                  by = .(DS, circ_id)][, .(nSamples = head(nSamples, 1),
                                           nCircs = .N), by = DS]
 
-ch_p <- ggplot(plot_dt, aes(x = BJR, y = AvgFrac)) + 
-  geom_col(position = "identity", alpha = 1) +
-  # facet_wrap(facets = ~ DS, ncol = 1, scales = "free_y") +
-  facet_grid(rows = vars(DS)) +
-  coord_cartesian(xlim = c(0, 15)) +
-  geom_label(data = ds_stats,
-             aes(x = 5, y = .3, 
-                 label = paste("# samples:", nSamples, "\n# circRNAs:", comma(nCircs))), hjust = 0) +
-  labs(x = "Backsplice-junction reads") +
-  scale_y_continuous("Count matrix fraction (%)", 
-                     labels = function(x)round(as.numeric(x)*100)) + #labels = percent
-  scale_x_continuous(breaks = 0:15, 
-                     labels = 0:15) +
-  theme_bw() +
-  theme(legend.position = "top", 
-        axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5), 
-        plot.margin = unit(x = c(.1, .1, .1, .1), units = "lines"), 
-        strip.text = element_blank(), 
-        panel.grid.major.x = element_blank(),
-        panel.grid.minor.x = element_blank(),
-        strip.background = element_blank())
+ch_p <- 
+    ggplot(plot_dt, aes(x = BJR, y = AvgFrac)) + 
+    geom_col(position = "identity", alpha = 1, aes(fill = DS)) +
+    # facet_wrap(facets = ~ DS, ncol = 1, scales = "free_y") +
+    facet_grid(rows = vars(DS)) +
+    coord_cartesian(xlim = c(0, 15)) +
+    geom_label(data = ds_stats, 
+               size = 3,
+               aes(x = 5, y = .5, 
+                   label = paste("# samples:", nSamples, "\n# circRNAs:", comma(nCircs))), hjust = 0) +
+    labs(x = "Backsplice-junction reads") +
+    scale_y_continuous("Count matrix fraction (%)", 
+                       labels = function(x)round(as.numeric(x)*100)) + #labels = percent
+    scale_x_continuous(breaks = 0:15, 
+                       labels = 0:15) +
+    scale_fill_tableau(direction = -1) +
+    theme_bw() +
+    theme(legend.position = "none", 
+          axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5), 
+          plot.margin = unit(x = c(.1, .1, .1, .1), units = "lines"), 
+          strip.text = element_blank(), 
+          panel.grid.major.x = element_blank(),
+          panel.grid.minor = element_blank(),
+          strip.background = element_blank())
 
 ls_bxp <- 
-  ggplot(source_ds_dt[, .(LibSize = sum(value)), by = .(DS, sample_id)],
-         aes(x = "", y = LibSize)) +
-  geom_boxplot(varwidth = T, notch = F) + #, outlier.shape = NA
-  # geom_quasirandom(groupOnX = T, varwidth = T, alpha = .5, aes(fill = LibSize), shape = 21) +
-  # geom_violin(draw_quantiles = c(.25, .5, .75)) +
-  # scale_fill_viridis_c() +
-  scale_x_discrete(name = NULL) +
-  scale_y_log10(labels = function(x)sub("000$", "K", x)) +
-  labs(x = NULL, y = "Library size") +
-  coord_flip() +
-  # facet_wrap(facets = ~ DS, ncol = 1) + #, scales = "free_x"
-  facet_grid(rows = vars(DS)) +
-  theme_bw() +
-  theme(axis.ticks.y = element_blank(), 
-        panel.grid.major.y = element_blank(),
-        plot.margin = unit(x = c(.1, .1, .1, .1), units = "lines"))
+    ggplot(source_ds_dt[, .(LibSize = sum(value)), by = .(DS, sample_id)],
+           aes(x = "", y = LibSize)) +
+    geom_boxplot(varwidth = T,
+                 notch = F,
+                 outlier.size = .5,
+                 aes(color = DS)) + #, outlier.shape = NA
+    # geom_quasirandom(groupOnX = T, varwidth = T, alpha = .5, aes(fill = LibSize), shape = 21) +
+    # geom_violin(aes(color = DS), 
+    #             trim = T, 
+    #             draw_quantiles = c(.25, .5, .75)) +
+    # scale_fill_viridis_c() +
+    scale_x_discrete(name = NULL) +
+    scale_y_log10(labels = function(x)sub("000$", "K", x)) +
+    scale_color_tableau(direction = -1) +
+    labs(x = NULL, y = "Library size") +
+    coord_flip() +
+    # facet_wrap(facets = ~ DS, ncol = 1) + #, scales = "free_x"
+    facet_grid(rows = vars(DS)) +
+    theme_bw() +
+    theme(legend.position = "none",
+          axis.ticks.y = element_blank(), 
+          panel.grid.major.y = element_blank(),
+          plot.margin = unit(x = c(.1, .1, .1, .1), units = "lines"))
 
 ch_p + ls_bxp +
-    plot_layout(widths = c(3, 1), )
+    plot_layout(widths = c(3, 1))
 ```
 
 ### Sparsity
+
+Sparsity for each sample is calculated counting the circRNAs with zero count that have been detected in other samples of the same data set.  
+
+```{r, fig.width=3.5, fig.height=2.5}
+plot_dt <- 
+    merge(merge(source_ds_dt[, .(Sparsity = sum(value == 0)/length(value)), 
+                             by = .(DS, sample_id)],
+                source_ds_dt[, .(LibSize = sum(value)), 
+                             by = .(DS, sample_id)], 
+                by = c("DS", "sample_id")),
+          source_ds_dt[, .N, by = .(DS, circ_id)][, .(Features = .N), by = DS],
+          by = "DS")
+
+ggplot(plot_dt, 
+       aes(x = LibSize, y = Sparsity * 100, color = DS)) +
+    geom_point(alpha = .5, size = 2) +
+    geom_smooth(method = "glm", 
+                # group = 1, 
+                # color = "black", 
+                linetype = "dashed", 
+                se = F) +
+    # geom_label_repel(aes(label = DS), show.legend = F) +
+    # annotate(geom = "label", x = 20000, y = 25, 
+    #          label = paste0("P-value=", 
+    #                        round(cortest$p.value, 2),
+    #                        ", r=",
+    #                        round(cortest$estimate, 2))) +
+    # scale_x_log10() +
+    scale_x_continuous("Library size (BJRs)", labels = comma) +
+    scale_y_continuous("Sparsity (%)", limits = c(0, 100)) +
+    scale_color_tableau(name = "Dataset", direction = -1) +
+    # scale_size(name = "CircRNAs", breaks = sort(plot_dt$Features)) +
+    guides(color = guide_legend(nrow = 1, 
+                                title.position = "top", 
+                                title.hjust = .5)) +
+    theme_bw() +
+    theme(legend.position = c(.5, .175), 
+          legend.background = element_rect(colour = "grey55"),
+          legend.margin = margin(t = .1, r = .2, b = .1, l = .2, unit = "lines"),
+          panel.grid.minor = element_blank())
+```
+
+Below, sparsity is calculated counting the fraction of zeros in the data set matrix.  
+Mean library size is the mean sum of BJRs in each sample of the data set.  
 
 ```{r, fig.width=4.5, fig.height=2.5}
 plot_dt <- 
@@ -279,19 +342,25 @@ cortest <- cor.test(x = plot_dt$`Mean library size`, y = plot_dt$Sparsity, metho
 # cortest$p.value
 cortest$estimate
 
-ggplot(plot_dt, aes(x = `Mean library size`, y = Sparsity, color = DS)) +
+ggplot(plot_dt, 
+       aes(x = `Mean library size`, y = Sparsity * 100, color = DS)) +
     geom_smooth(method = "glm", group = 1, color = "black", linetype = "dashed", se = T) +
     geom_point(aes(size = Features)) +
     geom_label_repel(aes(label = DS), show.legend = F) +
-    annotate(geom = "label", x = 20000, y = .25, 
-             label = paste("P-value =", 
+    annotate(geom = "label", x = 25000, y = 25, 
+             label = paste0("P=", 
                            round(cortest$p.value, 2),
                            ", r=",
                            round(cortest$estimate, 2))) +
-    scale_x_log10() +
-    scale_y_continuous(limits = c(0, 1)) +
+    # scale_x_log10() +
+    scale_x_continuous(labels = comma) +
+    scale_y_continuous("Sparsity (%)", limits = c(0, 100)) +
+    scale_color_tableau(direction = -1) +
+    scale_size(name = "CircRNAs", breaks = sort(plot_dt$Features)) +
     guides(color = "none") +
-    theme_bw()
+    theme_bw() +
+    theme(legend.position = "right",
+          panel.grid.minor = element_blank())
 ```
 
 ```{r}
@@ -328,6 +397,206 @@ within_cond_corr <- function(ds, cor.meth = "pearson"){
 }
 
 data.frame(lapply(trimmed_source_dataset_l, within_cond_corr, cor.meth = "pearson"))
+```
+
+### 3S filter BJR proportion 
+
+Data sets after filtering according to circRNAs detected in 3 or more samples.  
+
+```{r, fig.width=5, fig.height=5}
+circ_id3s <- source_ds_dt[value > 0, .N, by = .(DS, circ_id)][N > 2, circ_id]
+
+source_hist_cnt <- 
+    source_ds_dt[circ_id %in% circ_id3s, 
+                 .(histBJR = .N), 
+             by = .(DS, BJR = value)][, Frac := histBJR / sum(histBJR), 
+                                  by = .(DS)][]
+plot_dt <- source_hist_cnt[, .(AvgFrac = mean(Frac)),
+                    by = .(DS, BJR)]
+
+ds_stats <- 
+    source_ds_dt[circ_id %in% circ_id3s, 
+                 .(nSamples = .N), 
+                 by = .(DS, circ_id)][, .(nSamples = head(nSamples, 1),
+                                          nCircs = .N), by = DS]
+
+ch_p <- ggplot(plot_dt, aes(x = BJR, y = AvgFrac)) + 
+  geom_col(position = "identity", alpha = 1) +
+  # facet_wrap(facets = ~ DS, ncol = 1, scales = "free_y") +
+  facet_grid(rows = vars(DS)) +
+  coord_cartesian(xlim = c(0, 15)) +
+  geom_label(data = ds_stats,
+             aes(x = 5, y = .3, 
+                 label = paste("# samples:", nSamples, "\n# circRNAs:", comma(nCircs))), hjust = 0) +
+  labs(x = "Backsplice-junction reads") +
+  scale_y_continuous("Count matrix fraction (%)", 
+                     labels = function(x)round(as.numeric(x)*100)) + #labels = percent
+  scale_x_continuous(breaks = 0:15, 
+                     labels = 0:15) +
+  theme_bw() +
+  theme(legend.position = "top", 
+        axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5), 
+        plot.margin = unit(x = c(.1, .1, .1, .1), units = "lines"), 
+        strip.text = element_blank(), 
+        panel.grid.major.x = element_blank(),
+        panel.grid.minor.x = element_blank(),
+        strip.background = element_blank())
+
+ls_bxp <- 
+  ggplot(source_ds_dt[circ_id %in% circ_id3s, 
+                      .(LibSize = sum(value)), by = .(DS, sample_id)],
+         aes(x = "", y = LibSize)) +
+  geom_boxplot(varwidth = T, notch = F) + #, outlier.shape = NA
+  # geom_quasirandom(groupOnX = T, varwidth = T, alpha = .5, aes(fill = LibSize), shape = 21) +
+  # geom_violin(draw_quantiles = c(.25, .5, .75)) +
+  # scale_fill_viridis_c() +
+  scale_x_discrete(name = NULL) +
+  scale_y_log10(labels = function(x)sub("000$", "K", x)) +
+  labs(x = NULL, y = "Library size") +
+  coord_flip() +
+  # facet_wrap(facets = ~ DS, ncol = 1) + #, scales = "free_x"
+  facet_grid(rows = vars(DS)) +
+  theme_bw() +
+  theme(axis.ticks.y = element_blank(), 
+        panel.grid.major.y = element_blank(),
+        plot.margin = unit(x = c(.1, .1, .1, .1), units = "lines"))
+
+ch_p + ls_bxp +
+    plot_layout(widths = c(3, 1), )
+```
+
+### 3S Sparsity
+
+Data sets after filtering according to circRNAs detected in 3 or more samples.  
+
+```{r, fig.width=4.5, fig.height=2.5}
+plot_dt <- 
+    merge(merge(source_ds_dt[circ_id %in% circ_id3s,
+                             .(Sparsity = sum(value == 0)/length(value)), by = DS],
+                source_ds_dt[circ_id %in% circ_id3s, 
+                             .(LibSize = sum(value)), 
+                             by = .(DS, sample_id)][, .(`Mean library size` = mean(LibSize)), 
+                                                    by = DS], 
+                by = "DS"),
+          source_ds_dt[circ_id %in% circ_id3s, 
+                       .N, by = .(DS, circ_id)][, .(Features = .N), by = DS],
+          by = "DS")
+
+cortest <- cor.test(x = plot_dt$`Mean library size`, y = plot_dt$Sparsity, method = "pearson")
+
+# cortest$p.value
+cortest$estimate
+
+ggplot(plot_dt, aes(x = `Mean library size`, y = Sparsity, color = DS)) +
+    geom_smooth(method = "glm", group = 1, color = "black", linetype = "dashed", se = T) +
+    geom_point(aes(size = Features)) +
+    geom_label_repel(aes(label = DS), show.legend = F) +
+    annotate(geom = "label", x = 20000, y = .25, 
+             label = paste("P-value =", 
+                           round(cortest$p.value, 2),
+                           ", r=",
+                           round(cortest$estimate, 2))) +
+    scale_x_log10() +
+    scale_y_continuous(limits = c(0, 1)) +
+    guides(color = "none") +
+    theme_bw()
+```
+
+```{r}
+datatable(plot_dt)
+```
+
+### PC data set
+
+```{r}
+counts_dt <- fread("../data/PMID35078526_rawCIRI2output.tsv",
+                   data.table = T,
+                   showProgress = F,
+                   drop = c("chr", "start", "end", "strand", "gene_id", "circRNA_type"))
+
+## filter the original dataset
+counts_dt_m <- melt(counts_dt,
+                    id.vars = "circRNA_ID",
+                    variable.name = "sample_id",
+                    value.name = "BJR")
+counts_dt_m[, c("ID", "Group") := tstrsplit(sample_id, "_"), by = sample_id]
+
+## keep only circRNAs expressed in > 2 samples per condition
+keep <- counts_dt_m[BJR > 0, .N,
+                    by = .(circRNA_ID, Group)][N > 2 &
+                                                   Group != "MPC", unique(circRNA_ID)]
+
+## read sample groups
+sampleTable <- data.frame(unique(counts_dt_m[Group != "MPC",
+                                             .(sample_id, Group)][order(Group, sample_id)]),
+                          row.names = "sample_id")
+
+counts <-
+    as.matrix(data.frame(counts_dt, check.names = F,
+                         row.names = "circRNA_ID"))[keep, rownames(sampleTable)]
+# dim(counts)
+
+## check possible biases
+library(edgeR)
+dge <- DGEList(counts = counts[, rownames(sampleTable)], group = sampleTable$Group)
+dge <- calcNormFactors(dge, method = "TMM")
+cpms <- cpm(dge, log = T, prior.count = 1)
+
+pcs <- prcomp(x = t(cpms), scale. = F, center = T)
+df <- cbind(sampleTable, pcs$x)
+
+library(ggplot2)
+ggplot(df, aes(x = PC1, y = PC2, color = Group)) +
+    geom_point()
+```
+
+
+```{r}
+df$Batch <- ifelse(df$PC2 > 0, "B1", "B2")
+sampleTable$Batch <- df[rownames(sampleTable), "Batch"]
+## get batch-group sample sizes
+table(sampleTable[, c("Batch", "Group")])
+```
+
+
+```{r}
+## keep only samples from the largest batch
+st <- sampleTable[sampleTable$Batch == "B2", "Group", drop = F]
+ct <- counts[, rownames(st)]
+ct <- ct[rowSums(ct > 0) > 2, ]
+dim(ct)
+
+dge.b2 <- DGEList(counts = ct, group = st$Group)
+dge.b2 <- calcNormFactors(dge.b2, method = "TMM")
+cpms.b2 <- cpm(dge.b2, log = T, prior.count = 1)
+
+pcs.b2 <- prcomp(x = t(cpms.b2), scale. = F, center = T)
+df.b2 <- cbind(st, pcs.b2$x)
+
+ggplot(df.b2, aes(x = PC1, y = PC2, color = Group)) +
+    geom_point() +
+    ggtitle("Batch2")
+```
+
+```{r}
+cor_g1 <- cor(ct[, rownames(st)[st$Group == "AN"]])
+cor_g2 <- cor(ct[, rownames(st)[st$Group == "T"]])
+
+paste("AN Pearson mean cor =", mean(cor_g1))
+paste("T Pearson mean cor =", mean(cor_g2))
+```
+
+```{r}
+datatable(data.table(st, keep.rownames = "Sample"), 
+          filter = "top", rownames = F,
+          caption = "Batch 2 samples")
+```
+
+#### BJR
+
+TODO
+```{r}
+# as.data.table(ct)
 ```
 
 
