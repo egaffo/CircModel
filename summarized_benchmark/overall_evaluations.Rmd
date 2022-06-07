@@ -4581,7 +4581,7 @@ ggplot(plot_dt,
         panel.grid.major.x = element_blank())
 ```
 
-# Performance curves
+# P-values distribution
 
 ```{r}
 pval_deind_files <- file.path(paste0(source_ds_prfx, "_evaluations"), "pval_deind.csv.gz")
@@ -4590,6 +4590,63 @@ pval_deind <- rbindlist(lapply(pval_deind_files,
                               fread, showProgress = F, drop = "MZP"), 
                        idcol = "Source_ds")
 ```
+
+```{r, fig.width=8.85, fig.height=6.69}
+plot_dt <- copy(pval_deind)[SetSize == "N05"][is.na(preds), preds := 1]
+
+plot_dt$Pval.bins <- cut(plot_dt$preds, breaks = seq(0, 1, by = .05), 
+                         include.lowest = T, ordered_result = T)
+
+plot_dt <- plot_dt[, .N, by = .(SetSize, Source_ds, Method, Dataset, Pval.bins)]
+
+plot_dt[, Frac := N/sum(N), by = .(SetSize, Source_ds, Method, Dataset)]
+
+plot_dt <- plot_dt[, .(Mean = mean(Frac),
+                       SE = sqrt(var(Frac) / length(Frac))),
+                   by = .(SetSize, Method, Pval.bins)]
+
+ggplot(plot_dt, aes(x = Pval.bins, y = Mean * 100)) +
+    geom_col(fill = "lightblue", color = "grey50") +
+    geom_errorbar(aes(ymin = (Mean - SE) * 100, ymax = (Mean + SE) * 100), 
+                  color = "black", width = .75) +
+    facet_wrap(facets = ~ Method, ncol = 5, scales = "free_y") +
+    theme_bw() +
+    labs(x = "P values", y = "Fraction (%)") +
+    theme(axis.text.x = element_text(angle = 90, vjust = .5, size = 5),
+          axis.text.y = element_text(size = 6),
+          panel.grid = element_blank(),
+          strip.text = element_text(size = 7))
+```
+
+```{r, fig.width=8.85, fig.height=6.69}
+plot_dt <- copy(pval_deind)[SetSize == "N05"][is.na(preds), preds := 1]
+
+plot_dt$Pval.bins <- cut(plot_dt$preds, breaks = seq(0, 1, by = .05), 
+                         include.lowest = T, ordered_result = T)
+
+plot_dt <- plot_dt[, .N, by = .(SetSize, Source_ds, Method, Dataset, Pval.bins)]
+
+plot_dt[, tot := sum(N), by = .(SetSize, Source_ds, Method, Dataset)]
+
+ggplot(plot_dt, aes(x = Pval.bins, y = (N/tot)*100)) +
+    geom_line(aes(group = paste(Source_ds, Dataset), 
+                  color = Source_ds), alpha = 1/10) +
+    facet_wrap(facets = ~ Method, ncol = 5, scales = "free_y") +
+    scale_color_tableau(name = "Data origin", direction = -1) +
+    guides(color = guide_legend(ncol = 2, override.aes = list(alpha = 1, size = 2),
+                                title.vjust = .5, 
+                                title.position = "left")) +
+    theme_bw() +
+    labs(x = "P values", y = "Fraction (%)") +
+    theme(legend.position = c(.75, 0), 
+          axis.text.x = element_text(angle = 90, vjust = .5, size = 5),
+          axis.text.y = element_text(size = 6),
+          panel.grid = element_blank(),
+          strip.text = element_text(size = 7))
+```
+
+
+# Performance curves
 
 ```{r}
 # install.packages("PRROC", Ncpus=12)
