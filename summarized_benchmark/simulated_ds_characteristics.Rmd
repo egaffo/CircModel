@@ -71,6 +71,14 @@ source_ds_dt <-
                      }
     ), 
     idcol = "DS")
+
+source_ds_meta <- 
+    rbindlist(lapply(setNames(paste0("../data/", 
+                                     ds_names, 
+                                     "_meta.csv"), 
+                              ds_names),
+                     fread), 
+              idcol = "DS", use.names = T)
 ```
 
 ### CircRNAs per number of samples
@@ -506,6 +514,63 @@ ggplot(plot_dt, aes(x = `Mean library size`, y = Sparsity, color = DS)) +
 datatable(plot_dt)
 ```
 
+### PCAs
+
+```{r}
+# x <- source_ds_dt[circ_id %in% circ_id3s]
+# y <- source_ds_meta
+# dsname <- "DM1"
+
+plot_pca <- function(dsname, x, y){
+    counts <- as.matrix(data.frame(dcast(data = x[DS == dsname], 
+                                         formula = circ_id ~ sample_id, 
+                                         value.var = "value"), 
+                                   row.names = "circ_id"))
+    
+    sampleTable <- data.frame(y[DS == dsname, .(sample_id, Group = condition)], 
+                              row.names = "sample_id")
+    
+    
+    dge <- edgeR::DGEList(counts = counts[, rownames(sampleTable)], group = sampleTable$Group)
+    dge <- edgeR::calcNormFactors(dge, method = "TMM")
+    cpms <- edgeR::cpm(dge, log = T, prior.count = 1)
+    
+    pcs <- prcomp(x = t(cpms), scale. = F, center = T)
+    var.props <- summary(pcs)$importance[2, ]
+    df <- cbind(sampleTable, pcs$x)
+    
+    ggplot2::ggplot(df, aes(x = PC1, y = PC2, color = Group)) +
+        geom_point() +
+        labs(x = paste("PC1:", percent(var.props[1])),
+             y = paste("PC2:", percent(var.props[2]))) +
+        theme_bw()
+}
+```
+
+#### DM1
+
+```{r}
+plot_pca(dsname = "DM1", x = source_ds_dt[circ_id %in% circ_id3s], y = source_ds_meta)
+```
+
+#### IDC
+
+```{r}
+plot_pca(dsname = "IDC", x = source_ds_dt[circ_id %in% circ_id3s], y = source_ds_meta)
+```
+
+#### IPF
+
+```{r}
+plot_pca(dsname = "IPF", x = source_ds_dt[circ_id %in% circ_id3s], y = source_ds_meta)
+```
+
+#### MS
+
+```{r}
+plot_pca(dsname = "MS", x = source_ds_dt[circ_id %in% circ_id3s], y = source_ds_meta)
+```
+
 ### PC data set
 
 ```{r}
@@ -543,11 +608,15 @@ dge <- calcNormFactors(dge, method = "TMM")
 cpms <- cpm(dge, log = T, prior.count = 1)
 
 pcs <- prcomp(x = t(cpms), scale. = F, center = T)
+var.props <- summary(pcs)$importance[2, ]
 df <- cbind(sampleTable, pcs$x)
 
 library(ggplot2)
-ggplot(df, aes(x = PC1, y = PC2, color = Group)) +
-    geom_point()
+ggplot2::ggplot(df, aes(x = PC1, y = PC2, color = Group)) +
+        geom_point() +
+        labs(x = paste("PC1:", percent(var.props[1])),
+             y = paste("PC2:", percent(var.props[2]))) +
+        theme_bw()
 ```
 
 
@@ -571,11 +640,15 @@ dge.b2 <- calcNormFactors(dge.b2, method = "TMM")
 cpms.b2 <- cpm(dge.b2, log = T, prior.count = 1)
 
 pcs.b2 <- prcomp(x = t(cpms.b2), scale. = F, center = T)
+var.props.b2 <- summary(pcs.b2)$importance[2, ]
 df.b2 <- cbind(st, pcs.b2$x)
 
-ggplot(df.b2, aes(x = PC1, y = PC2, color = Group)) +
-    geom_point() +
-    ggtitle("Batch2")
+ggplot2::ggplot(df.b2, aes(x = PC1, y = PC2, color = Group)) +
+        geom_point() +
+        labs(x = paste("PC1:", percent(var.props.b2[1])),
+             y = paste("PC2:", percent(var.props.b2[2]))) + 
+    ggtitle("Batch2") +
+    theme_bw()
 ```
 
 ```{r}
