@@ -2863,7 +2863,7 @@ ggplot(plot_dt,
           legend.position = "top")
 ```
 
-### Characteristics of the false negatives
+### Characteristics of the false negatives {.tabset}
 
 ```{r}
 # sumBench_perf_metrics_qs_files <- file.path(c("DM1_performance",
@@ -3002,6 +3002,113 @@ plot_stn <-
 plot_stn
 ```
 
+#### StN + bars N03 Zoomed scale
+
+```{r, fig.height=6, fig.width=6.692}
+plot_dt <- copy(stnfn_dt)[SetSize == "N03", .(Source_ds, Method, Val, StN)]
+
+plot_dt <- 
+  rbindlist(list(Measures = plot_dt, 
+                 FalsePositives = unique(plot_dt[, .N, 
+                                                 by = .(Method, Val, 
+                                                        Source_ds)][, .(Source_ds, Method, 
+                                                                        Val = "Data sets w/TP", 
+                                                                        StN = N)])), 
+            use.names = T, idcol = "Datatype")
+
+plot_dt <- merge(method_types, plot_dt, by = "Method", 
+                 all.x = T)[is.na(StN), `:=`(StN = 0, 
+                                             Val = "Data sets w/TP", 
+                                             Datatype = "FalsePositives")]
+
+plot_dt$Method <- factor(plot_dt$Method, levels = method_types$Method)
+plot_dt$Val <- factor(capitalize(plot_dt$Val), 
+                      levels = c("CV(CPM)", "Fraction zeros", 
+                                 "Average CPM", "Variance CPM", 
+                                 "Data sets w/TP"), 
+                      ordered = T)
+
+
+plot_stn_boxes <- 
+  ggplot(plot_dt[Val != "Data sets w/TP"], 
+         aes(x = Method, y = StN)) +
+  geom_hline(data = ~ subset(.x, Datatype == "Measures"), ##  & StN <= 2  & StN >= -2 NB: the output is truncated
+             aes(yintercept = 0), 
+             linetype = "dashed") +
+  geom_boxplot(data = ~ subset(.x, Datatype == "Measures"), 
+               aes(color = Method, 
+                   # y = signed_log2(StN)
+                   ),  
+               outlier.size = .5, 
+               varwidth = F) + 
+  labs(x = NULL, y = "Signal-to-noise statistics (FNs / TPs)") +
+  scale_color_manual(values = method_colors, guide = "none") +
+  scale_fill_tableau(name = "Origin", direction = -1, na.translate = F,
+                     guide = guide_legend(title.position = "top", 
+                                          # title.hjust = .5, 
+                                          title.vjust = 1,
+                                          ncol = 1)) +
+  scale_x_discrete(guide = guide_axis(angle = 90), limits = sort(names(method_colors))) +
+    coord_cartesian(ylim = c(-3, 2.5)) +
+  facet_grid(rows = vars(Val), 
+             # cols = vars(Type),
+             scales = "free", 
+             space = "free_x",
+             drop = T) +
+  theme_bw() +
+  theme(strip.background = element_rect(fill = NA),
+        legend.position = c(-.035, -.2), 
+        legend.background = element_blank(),
+        legend.direction = "horizontal",
+        legend.key.size = unit(.7, "lines"),
+        text = element_text(size = 10),
+        panel.spacing.x = unit(.05, "lines"),
+        panel.spacing.y = unit(.15, "lines"),        
+        panel.grid.major.x = element_blank(), 
+        panel.grid.minor.x = element_blank(),
+        panel.grid.minor.y = element_blank())
+
+plot_stn_cols <- 
+  ggplot(plot_dt[Val == "Data sets w/TP"], 
+         aes(x = Method, y = StN)) +
+  geom_col(data = ~ subset(.x, Datatype == "FalsePositives"), 
+           aes(fill = Source_ds)) +
+  labs(x = NULL, y = "Instances") +
+  scale_color_manual(values = method_colors, guide = "none") +
+  scale_fill_tableau(name = "Origin", direction = -1, na.translate = F,
+                     guide = guide_legend(title.position = "top", 
+                                          # title.hjust = .5, 
+                                          title.vjust = 1,
+                                          ncol = 1)) +
+  scale_x_discrete(guide = guide_axis(angle = 90), limits = sort(names(method_colors))) +
+  facet_grid(rows = vars(Val), 
+             # cols = vars(Type),
+             scales = "free", 
+             space = "free_x",
+             drop = T) +
+    coord_cartesian(ylim = c(0, 120)) +
+    scale_y_continuous(expand = c(0, 0)) +
+  theme_bw() +
+  theme(strip.background = element_rect(fill = NA),
+        legend.position = c(-.035, -.75), 
+        legend.background = element_blank(),
+        legend.direction = "horizontal",
+        legend.key.size = unit(.7, "lines"),
+        text = element_text(size = 10),
+        panel.spacing.x = unit(.05, "lines"),
+        panel.spacing.y = unit(.15, "lines"),        
+        panel.grid.major.x = element_blank(), 
+        panel.grid.minor.x = element_blank(),
+        panel.grid.minor.y = element_blank())
+
+wrap_plots(plot_stn_boxes + 
+               theme(axis.text.x = element_blank(), axis.ticks.x = element_blank(), 
+                     plot.margin = unit(c(0, 0, 0, 0), "lines")), 
+           plot_stn_cols + 
+               theme(plot.margin = unit(c(0, 0, 0, 0), "lines")), 
+           ncol = 1, heights = c(4, 1))
+```
+
 #### StN + bars N05
 
 ```{r, fig.height=6, fig.width=6.692}
@@ -3098,6 +3205,113 @@ plot_stn <-
 plot_stn
 ```
 
+#### StN + bars N05 Zoomed scale
+
+```{r, fig.height=6, fig.width=6.692}
+plot_dt <- copy(stnfn_dt)[SetSize == "N05", .(Source_ds, Method, Val, StN)]
+
+plot_dt <- 
+  rbindlist(list(Measures = plot_dt, 
+                 FalsePositives = unique(plot_dt[, .N, 
+                                                 by = .(Method, Val, 
+                                                        Source_ds)][, .(Source_ds, Method, 
+                                                                        Val = "Data sets w/TP", 
+                                                                        StN = N)])), 
+            use.names = T, idcol = "Datatype")
+
+plot_dt <- merge(method_types, plot_dt, by = "Method", 
+                 all.x = T)[is.na(StN), `:=`(StN = 0, 
+                                             Val = "Data sets w/TP", 
+                                             Datatype = "FalsePositives")]
+
+plot_dt$Method <- factor(plot_dt$Method, levels = method_types$Method)
+plot_dt$Val <- factor(capitalize(plot_dt$Val), 
+                      levels = c("CV(CPM)", "Fraction zeros", 
+                                 "Average CPM", "Variance CPM", 
+                                 "Data sets w/TP"), 
+                      ordered = T)
+
+
+plot_stn_boxes <- 
+  ggplot(plot_dt[Val != "Data sets w/TP"], 
+         aes(x = Method, y = StN)) +
+  geom_hline(data = ~ subset(.x, Datatype == "Measures"), ##  & StN <= 2  & StN >= -2 NB: the output is truncated
+             aes(yintercept = 0), 
+             linetype = "dashed") +
+  geom_boxplot(data = ~ subset(.x, Datatype == "Measures"), 
+               aes(color = Method, 
+                   # y = signed_log2(StN)
+                   ),  
+               outlier.size = .5, 
+               varwidth = F) + 
+  labs(x = NULL, y = "Signal-to-noise statistics (FNs / TPs)") +
+  scale_color_manual(values = method_colors, guide = "none") +
+  scale_fill_tableau(name = "Origin", direction = -1, na.translate = F,
+                     guide = guide_legend(title.position = "top", 
+                                          # title.hjust = .5, 
+                                          title.vjust = 1,
+                                          ncol = 1)) +
+  scale_x_discrete(guide = guide_axis(angle = 90), limits = sort(names(method_colors))) +
+    coord_cartesian(ylim = c(-3, 2.5)) +
+  facet_grid(rows = vars(Val), 
+             # cols = vars(Type),
+             scales = "free", 
+             space = "free_x",
+             drop = T) +
+  theme_bw() +
+  theme(strip.background = element_rect(fill = NA),
+        legend.position = c(-.035, -.2), 
+        legend.background = element_blank(),
+        legend.direction = "horizontal",
+        legend.key.size = unit(.7, "lines"),
+        text = element_text(size = 10),
+        panel.spacing.x = unit(.05, "lines"),
+        panel.spacing.y = unit(.15, "lines"),        
+        panel.grid.major.x = element_blank(), 
+        panel.grid.minor.x = element_blank(),
+        panel.grid.minor.y = element_blank())
+
+plot_stn_cols <- 
+  ggplot(plot_dt[Val == "Data sets w/TP"], 
+         aes(x = Method, y = StN)) +
+  geom_col(data = ~ subset(.x, Datatype == "FalsePositives"), 
+           aes(fill = Source_ds)) +
+  labs(x = NULL, y = "Instances") +
+  scale_color_manual(values = method_colors, guide = "none") +
+  scale_fill_tableau(name = "Origin", direction = -1, na.translate = F,
+                     guide = guide_legend(title.position = "top", 
+                                          # title.hjust = .5, 
+                                          title.vjust = 1,
+                                          ncol = 1)) +
+  scale_x_discrete(guide = guide_axis(angle = 90), limits = sort(names(method_colors))) +
+  facet_grid(rows = vars(Val), 
+             # cols = vars(Type),
+             scales = "free", 
+             space = "free_x",
+             drop = T) +
+    coord_cartesian(ylim = c(0, 120)) +
+    scale_y_continuous(expand = c(0, 0)) +
+  theme_bw() +
+  theme(strip.background = element_rect(fill = NA),
+        legend.position = c(-.035, -.75), 
+        legend.background = element_blank(),
+        legend.direction = "horizontal",
+        legend.key.size = unit(.7, "lines"),
+        text = element_text(size = 10),
+        panel.spacing.x = unit(.05, "lines"),
+        panel.spacing.y = unit(.15, "lines"),        
+        panel.grid.major.x = element_blank(), 
+        panel.grid.minor.x = element_blank(),
+        panel.grid.minor.y = element_blank())
+
+wrap_plots(plot_stn_boxes + 
+               theme(axis.text.x = element_blank(), axis.ticks.x = element_blank(), 
+                     plot.margin = unit(c(0, 0, 0, 0), "lines")), 
+           plot_stn_cols + 
+               theme(plot.margin = unit(c(0, 0, 0, 0), "lines")), 
+           ncol = 1, heights = c(4, 1))
+```
+
 #### StN + bars N10
 
 ```{r, fig.height=6, fig.width=6.692}
@@ -3165,6 +3379,113 @@ plot_stn <-
         panel.grid.minor.y = element_blank())
 
 plot_stn
+```
+
+#### StN + bars N10 Zoomed scale
+
+```{r, fig.height=6, fig.width=6.692}
+plot_dt <- copy(stnfn_dt)[SetSize == "N10", .(Source_ds, Method, Val, StN)]
+
+plot_dt <- 
+  rbindlist(list(Measures = plot_dt, 
+                 FalsePositives = unique(plot_dt[, .N, 
+                                                 by = .(Method, Val, 
+                                                        Source_ds)][, .(Source_ds, Method, 
+                                                                        Val = "Data sets w/TP", 
+                                                                        StN = N)])), 
+            use.names = T, idcol = "Datatype")
+
+plot_dt <- merge(method_types, plot_dt, by = "Method", 
+                 all.x = T)[is.na(StN), `:=`(StN = 0, 
+                                             Val = "Data sets w/TP", 
+                                             Datatype = "FalsePositives")]
+
+plot_dt$Method <- factor(plot_dt$Method, levels = method_types$Method)
+plot_dt$Val <- factor(capitalize(plot_dt$Val), 
+                      levels = c("CV(CPM)", "Fraction zeros", 
+                                 "Average CPM", "Variance CPM", 
+                                 "Data sets w/TP"), 
+                      ordered = T)
+
+
+plot_stn_boxes <- 
+  ggplot(plot_dt[Val != "Data sets w/TP"], 
+         aes(x = Method, y = StN)) +
+  geom_hline(data = ~ subset(.x, Datatype == "Measures"), ##  & StN <= 2  & StN >= -2 NB: the output is truncated
+             aes(yintercept = 0), 
+             linetype = "dashed") +
+  geom_boxplot(data = ~ subset(.x, Datatype == "Measures"), 
+               aes(color = Method, 
+                   # y = signed_log2(StN)
+                   ),  
+               outlier.size = .5, 
+               varwidth = F) + 
+  labs(x = NULL, y = "Signal-to-noise statistics (FNs / TPs)") +
+  scale_color_manual(values = method_colors, guide = "none") +
+  scale_fill_tableau(name = "Origin", direction = -1, na.translate = F,
+                     guide = guide_legend(title.position = "top", 
+                                          # title.hjust = .5, 
+                                          title.vjust = 1,
+                                          ncol = 1)) +
+  scale_x_discrete(guide = guide_axis(angle = 90), limits = sort(names(method_colors))) +
+    coord_cartesian(ylim = c(-3, 2.5)) +
+  facet_grid(rows = vars(Val), 
+             # cols = vars(Type),
+             scales = "free", 
+             space = "free_x",
+             drop = T) +
+  theme_bw() +
+  theme(strip.background = element_rect(fill = NA),
+        legend.position = c(-.035, -.2), 
+        legend.background = element_blank(),
+        legend.direction = "horizontal",
+        legend.key.size = unit(.7, "lines"),
+        text = element_text(size = 10),
+        panel.spacing.x = unit(.05, "lines"),
+        panel.spacing.y = unit(.15, "lines"),        
+        panel.grid.major.x = element_blank(), 
+        panel.grid.minor.x = element_blank(),
+        panel.grid.minor.y = element_blank())
+
+plot_stn_cols <- 
+  ggplot(plot_dt[Val == "Data sets w/TP"], 
+         aes(x = Method, y = StN)) +
+  geom_col(data = ~ subset(.x, Datatype == "FalsePositives"), 
+           aes(fill = Source_ds)) +
+  labs(x = NULL, y = "Instances") +
+  scale_color_manual(values = method_colors, guide = "none") +
+  scale_fill_tableau(name = "Origin", direction = -1, na.translate = F,
+                     guide = guide_legend(title.position = "top", 
+                                          # title.hjust = .5, 
+                                          title.vjust = 1,
+                                          ncol = 1)) +
+  scale_x_discrete(guide = guide_axis(angle = 90), limits = sort(names(method_colors))) +
+  facet_grid(rows = vars(Val), 
+             # cols = vars(Type),
+             scales = "free", 
+             space = "free_x",
+             drop = T) +
+    coord_cartesian(ylim = c(0, 120)) +
+    scale_y_continuous(expand = c(0, 0)) +
+  theme_bw() +
+  theme(strip.background = element_rect(fill = NA),
+        legend.position = c(-.035, -.75), 
+        legend.background = element_blank(),
+        legend.direction = "horizontal",
+        legend.key.size = unit(.7, "lines"),
+        text = element_text(size = 10),
+        panel.spacing.x = unit(.05, "lines"),
+        panel.spacing.y = unit(.15, "lines"),        
+        panel.grid.major.x = element_blank(), 
+        panel.grid.minor.x = element_blank(),
+        panel.grid.minor.y = element_blank())
+
+wrap_plots(plot_stn_boxes + 
+               theme(axis.text.x = element_blank(), axis.ticks.x = element_blank(), 
+                     plot.margin = unit(c(0, 0, 0, 0), "lines")), 
+           plot_stn_cols + 
+               theme(plot.margin = unit(c(0, 0, 0, 0), "lines")), 
+           ncol = 1, heights = c(4, 1))
 ```
 
 ### Precision (1-FDR) {.tabset}
@@ -4591,6 +4912,8 @@ pval_deind <- rbindlist(lapply(pval_deind_files,
                        idcol = "Source_ds")
 ```
 
+## N05
+
 ```{r, fig.width=8.85, fig.height=6.69}
 plot_dt <- copy(pval_deind)[SetSize == "N05"][is.na(preds), preds := 1]
 
@@ -4678,6 +5001,97 @@ ggplot(plot_dt, aes(x = Pval.bins, y = (N/tot)*100)) +
           panel.grid = element_blank(),
           strip.text = element_text(size = 7))
 ```
+
+## N10
+
+```{r, fig.width=8.85, fig.height=6.69}
+plot_dt <- copy(pval_deind)[SetSize == "N10"][is.na(preds), preds := 1]
+
+plot_dt$Pval.bins <- cut(plot_dt$preds, breaks = seq(0, 1, by = .05), 
+                         include.lowest = T, ordered_result = T)
+
+plot_dt <- plot_dt[, .N, by = .(SetSize, Source_ds, Method, Dataset, Pval.bins)]
+
+plot_dt[, Frac := N/sum(N), by = .(SetSize, Source_ds, Method, Dataset)]
+
+plot_dt <- plot_dt[, .(Mean = mean(Frac),
+                       SE = sqrt(var(Frac) / length(Frac))),
+                   by = .(SetSize, Method, Pval.bins)]
+
+ggplot(plot_dt, aes(x = Pval.bins, y = Mean * 100)) +
+    geom_col(fill = "lightblue", color = "grey50") +
+    geom_errorbar(aes(ymin = (Mean - SE) * 100, ymax = (Mean + SE) * 100), 
+                  color = "black", width = .75) +
+    facet_wrap(facets = ~ Method, ncol = 5, scales = "free_y") +
+    theme_bw() +
+    labs(x = "P values", y = "Fraction (%)") +
+    theme(axis.text.x = element_text(angle = 90, vjust = .5, size = 5),
+          axis.text.y = element_text(size = 6),
+          panel.grid = element_blank(),
+          strip.text = element_text(size = 7))
+```
+
+```{r, fig.width=8.85, fig.height=6.69}
+plot_dt <- copy(pval_deind)[SetSize == "N10"][is.na(preds), preds := 1]
+
+plot_dt$Pval.bins <- cut(plot_dt$preds, breaks = seq(0, 1, by = .05), 
+                         include.lowest = T, ordered_result = T)
+
+plot_dt <- plot_dt[, .N, by = .(SetSize, Source_ds, Method, Dataset, Pval.bins, true_val)]
+
+plot_dt[, Frac := N/sum(N), by = .(SetSize, Source_ds, Method, Dataset)]
+
+plot_dt <- plot_dt[, .(Mean = mean(Frac),
+                       SE = sqrt(var(Frac) / length(Frac))),
+                   by = .(SetSize, Method, Pval.bins, true_val)]
+
+ggplot(plot_dt, aes(x = Pval.bins, y = Mean * 100)) +
+    geom_col(aes(fill = factor(true_val)), position = "stack", color = "grey50") +
+    # geom_errorbar(aes(ymin = (Mean - SE) * 100, ymax = (Mean + SE) * 100), 
+    #               color = "black", width = .75) +
+    facet_wrap(facets = ~ Method, ncol = 5, scales = "free_y") +
+    scale_fill_manual(name = "True DEC", 
+                      values = c("0" = "lightblue", "1" = "lightgoldenrod"), 
+                      labels = c("No", "Yes")) +
+    guides(fill = guide_legend(ncol = 2, override.aes = list(alpha = 1, size = 2, color = NULL),
+                                title.vjust = .5, 
+                                title.position = "left")) +
+    theme_bw() +
+    labs(x = "P values", y = "Mean fraction (%)") +
+    theme(legend.position = c(.75, 0), 
+          axis.text.x = element_text(angle = 90, vjust = .5, size = 5),
+          axis.text.y = element_text(size = 6),
+          panel.grid = element_blank(),
+          strip.text = element_text(size = 7))
+```
+
+```{r, fig.width=8.85, fig.height=6.69}
+plot_dt <- copy(pval_deind)[SetSize == "N10"][is.na(preds), preds := 1]
+
+plot_dt$Pval.bins <- cut(plot_dt$preds, breaks = seq(0, 1, by = .05), 
+                         include.lowest = T, ordered_result = T)
+
+plot_dt <- plot_dt[, .N, by = .(SetSize, Source_ds, Method, Dataset, Pval.bins)]
+
+plot_dt[, tot := sum(N), by = .(SetSize, Source_ds, Method, Dataset)]
+
+ggplot(plot_dt, aes(x = Pval.bins, y = (N/tot)*100)) +
+    geom_line(aes(group = paste(Source_ds, Dataset), 
+                  color = Source_ds), alpha = 1/10) +
+    facet_wrap(facets = ~ Method, ncol = 5, scales = "free_y") +
+    scale_color_tableau(name = "Data origin", direction = -1) +
+    guides(color = guide_legend(ncol = 2, override.aes = list(alpha = 1, size = 2),
+                                title.vjust = .5, 
+                                title.position = "left")) +
+    theme_bw() +
+    labs(x = "P values", y = "Fraction (%)") +
+    theme(legend.position = c(.75, 0), 
+          axis.text.x = element_text(angle = 90, vjust = .5, size = 5),
+          axis.text.y = element_text(size = 6),
+          panel.grid = element_blank(),
+          strip.text = element_text(size = 7))
+```
+
 
 
 # Performance curves
