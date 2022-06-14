@@ -217,8 +217,9 @@ wrap_plots(bjr_box_plot +
           text = element_text(size = 10))
 ```
 
+### Unfiltered data sets {.tabset}
 
-### BJR proportion 
+#### BJR proportion 
 
 ```{r, fig.width=4, fig.height=3.5}
 library(ggbeeswarm)
@@ -289,7 +290,7 @@ ch_p + ls_bxp +
     plot_layout(widths = c(3, 1))
 ```
 
-### Sparsity
+#### Sparsity
 
 Sparsity for each sample is calculated counting the circRNAs with zero count that have been detected in other samples of the same data set.  
 
@@ -375,8 +376,7 @@ ggplot(plot_dt,
 datatable(plot_dt)
 ```
 
-
-### Within condition correlation of samples
+#### Within condition correlation of samples
 
 Original data sets after sample selection and circRNA preliminary filters.  
 
@@ -407,11 +407,13 @@ within_cond_corr <- function(ds, cor.meth = "pearson"){
 data.frame(lapply(trimmed_source_dataset_l, within_cond_corr, cor.meth = "pearson"))
 ```
 
-### 3S filter BJR proportion 
+### 3 samples filter {.tabset}
 
 Data sets after filtering according to circRNAs detected in 3 or more samples.  
 
-```{r, fig.width=5, fig.height=5}
+#### 3S filter BJR proportion 
+
+```{r, fig.width=4, fig.height=3.5}
 circ_id3s <- source_ds_dt[value > 0, .N, by = .(DS, circ_id)][N > 2, circ_id]
 
 source_hist_cnt <- 
@@ -428,52 +430,61 @@ ds_stats <-
                  by = .(DS, circ_id)][, .(nSamples = head(nSamples, 1),
                                           nCircs = .N), by = DS]
 
-ch_p <- ggplot(plot_dt, aes(x = BJR, y = AvgFrac)) + 
-  geom_col(position = "identity", alpha = 1) +
-  # facet_wrap(facets = ~ DS, ncol = 1, scales = "free_y") +
-  facet_grid(rows = vars(DS)) +
-  coord_cartesian(xlim = c(0, 15)) +
-  geom_label(data = ds_stats,
-             aes(x = 5, y = .3, 
-                 label = paste("# samples:", nSamples, "\n# circRNAs:", comma(nCircs))), hjust = 0) +
-  labs(x = "Backsplice-junction reads") +
-  scale_y_continuous("Count matrix fraction (%)", 
-                     labels = function(x)round(as.numeric(x)*100)) + #labels = percent
-  scale_x_continuous(breaks = 0:15, 
-                     labels = 0:15) +
-  theme_bw() +
-  theme(legend.position = "top", 
-        axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5), 
-        plot.margin = unit(x = c(.1, .1, .1, .1), units = "lines"), 
-        strip.text = element_blank(), 
-        panel.grid.major.x = element_blank(),
-        panel.grid.minor.x = element_blank(),
-        strip.background = element_blank())
+ch_p <- 
+    ggplot(plot_dt, aes(x = BJR, y = AvgFrac)) + 
+    geom_col(position = "identity", alpha = 1, aes(fill = DS)) +
+    # facet_wrap(facets = ~ DS, ncol = 1, scales = "free_y") +
+    facet_grid(rows = vars(DS)) +
+    coord_cartesian(xlim = c(0, 15)) +
+    geom_label(data = ds_stats, 
+               size = 3,
+               aes(x = 5, y = .5, 
+                   label = paste("# samples:", nSamples, "\n# circRNAs:", comma(nCircs))), hjust = 0) +
+    labs(x = "Backsplice-junction reads") +
+    scale_y_continuous("Count matrix fraction (%)", 
+                       labels = function(x)round(as.numeric(x)*100)) + #labels = percent
+    scale_x_continuous(breaks = 0:15, 
+                       labels = 0:15) +
+    scale_fill_tableau(direction = -1) +
+    theme_bw() +
+    theme(legend.position = "none", 
+          axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5), 
+          plot.margin = unit(x = c(.1, .1, .1, .1), units = "lines"), 
+          strip.text = element_blank(), 
+          panel.grid.major.x = element_blank(),
+          panel.grid.minor = element_blank(),
+          strip.background = element_blank())
 
 ls_bxp <- 
-  ggplot(source_ds_dt[circ_id %in% circ_id3s, 
-                      .(LibSize = sum(value)), by = .(DS, sample_id)],
-         aes(x = "", y = LibSize)) +
-  geom_boxplot(varwidth = T, notch = F) + #, outlier.shape = NA
-  # geom_quasirandom(groupOnX = T, varwidth = T, alpha = .5, aes(fill = LibSize), shape = 21) +
-  # geom_violin(draw_quantiles = c(.25, .5, .75)) +
-  # scale_fill_viridis_c() +
-  scale_x_discrete(name = NULL) +
-  scale_y_log10(labels = function(x)sub("000$", "K", x)) +
-  labs(x = NULL, y = "Library size") +
-  coord_flip() +
-  # facet_wrap(facets = ~ DS, ncol = 1) + #, scales = "free_x"
-  facet_grid(rows = vars(DS)) +
-  theme_bw() +
-  theme(axis.ticks.y = element_blank(), 
-        panel.grid.major.y = element_blank(),
-        plot.margin = unit(x = c(.1, .1, .1, .1), units = "lines"))
+    ggplot(source_ds_dt[, .(LibSize = sum(value)), by = .(DS, sample_id)],
+           aes(x = "", y = LibSize)) +
+    geom_boxplot(varwidth = T,
+                 notch = F,
+                 outlier.size = .5,
+                 aes(color = DS)) + #, outlier.shape = NA
+    # geom_quasirandom(groupOnX = T, varwidth = T, alpha = .5, aes(fill = LibSize), shape = 21) +
+    # geom_violin(aes(color = DS), 
+    #             trim = T, 
+    #             draw_quantiles = c(.25, .5, .75)) +
+    # scale_fill_viridis_c() +
+    scale_x_discrete(name = NULL) +
+    scale_y_log10(labels = function(x)sub("000$", "K", x)) +
+    scale_color_tableau(direction = -1) +
+    labs(x = NULL, y = "Library size") +
+    coord_flip() +
+    # facet_wrap(facets = ~ DS, ncol = 1) + #, scales = "free_x"
+    facet_grid(rows = vars(DS)) +
+    theme_bw() +
+    theme(legend.position = "none",
+          axis.ticks.y = element_blank(), 
+          panel.grid.major.y = element_blank(),
+          plot.margin = unit(x = c(.1, .1, .1, .1), units = "lines"))
 
 ch_p + ls_bxp +
-    plot_layout(widths = c(3, 1), )
+    plot_layout(widths = c(3, 1))
 ```
 
-### 3S Sparsity
+#### Sparsity
 
 Data sets after filtering according to circRNAs detected in 3 or more samples.  
 
@@ -495,19 +506,25 @@ cortest <- cor.test(x = plot_dt$`Mean library size`, y = plot_dt$Sparsity, metho
 # cortest$p.value
 cortest$estimate
 
-ggplot(plot_dt, aes(x = `Mean library size`, y = Sparsity, color = DS)) +
+ggplot(plot_dt, 
+       aes(x = `Mean library size`, y = Sparsity * 100, color = DS)) +
     geom_smooth(method = "glm", group = 1, color = "black", linetype = "dashed", se = T) +
     geom_point(aes(size = Features)) +
     geom_label_repel(aes(label = DS), show.legend = F) +
-    annotate(geom = "label", x = 20000, y = .25, 
-             label = paste("P-value =", 
+    annotate(geom = "label", x = 25000, y = 25, 
+             label = paste0("P=", 
                            round(cortest$p.value, 2),
                            ", r=",
                            round(cortest$estimate, 2))) +
-    scale_x_log10() +
-    scale_y_continuous(limits = c(0, 1)) +
+    # scale_x_log10() +
+    scale_x_continuous(labels = comma) +
+    scale_y_continuous("Sparsity (%)", limits = c(0, 100)) +
+    scale_color_tableau(direction = -1) +
+    scale_size(name = "CircRNAs", breaks = sort(plot_dt$Features)) +
     guides(color = "none") +
-    theme_bw()
+    theme_bw() +
+    theme(legend.position = "right",
+          panel.grid.minor = element_blank())
 ```
 
 ```{r}
@@ -872,25 +889,31 @@ sim_ds_dt <- sim_ds_dt[MZP == "bulk"]
 
 ### Density multi lines
 
-```{r}
+```{r, fig.width=5.5, fig.height=4}
 p <- ggplot(data = sim_ds_dt[Purpose == "de"],
             mapping = aes(x = AvgBJR, color = factor(is.DEC))) +
     geom_density(aes(group = paste(dataset, is.DEC))) +
     scale_x_log10() +
-    facet_wrap(DS ~ SetSize, 
-               # scales = "free_y", 
-               ncol = 3, 
+    # facet_wrap(DS ~ SetSize, 
+    #            # scales = "free_y", 
+    #            ncol = 3, 
+    #            labeller = label_wrap_gen(multi_line = F)) +
+    facet_grid(rows = vars(DS),
+               cols = vars(SetSize), 
+               scales = "free_y",
                labeller = label_wrap_gen(multi_line = F)) +
     scale_color_discrete("DEC") +
-    labs(y = "density") +
+    labs(y = "Density") +
     theme_bw() +
-    theme(legend.position = "top")
+    theme(legend.position = "top", 
+          panel.grid.minor = element_blank(), 
+          panel.spacing = unit(.2, "lines"))
 p
 ```
 
 ### Density sahdes ggplot2 stats
 
-```{r}
+```{r, fig.width=5.5, fig.height=4}
 ld <- as.data.table(layer_data(p))
 
 ld.densities.qtiles <-
@@ -907,9 +930,13 @@ ld.densities.qtiles <-
 
 ggplot(ld.densities.qtiles, 
        aes(x = x, y = `50%`)) + #Mean
-    facet_wrap(~ DS, 
-               # scales = "free", 
-               ncol = 3) +
+    # facet_wrap(~ DS, 
+    #            # scales = "free", 
+    #            ncol = 3) +
+    facet_grid(rows = vars(gsub(" N[0-9]{2}", "", DS)),
+               cols = vars(gsub(".*(N[0-9]{2})$", "\\1", DS)), 
+               scales = "free_y",
+               labeller = label_wrap_gen(multi_line = F)) +
     # geom_histogram(data = sim_ds_dt[Purpose == "de"],
     #                aes(x = AvgBJR, y = ..density..), 
     #                fill = "white",
@@ -920,16 +947,18 @@ ggplot(ld.densities.qtiles,
     geom_line(aes(color = DEC)) +
     scale_color_discrete("DEC") +
     scale_fill_discrete("DEC") +
-    labs(y = "density", x = "Log10(AvgBJR)") +
+    labs(y = "Density", x = expression(Log[10](AvgBJR))) +
     theme_bw() +
-    theme(legend.position = "top")
+    theme(legend.position = "top", 
+          panel.grid.minor = element_blank(), 
+          panel.spacing = unit(.2, "lines"))
 ```
 
 ### Density sahdes custom stats
 
-```{r}
+```{r, fig.width=5.5, fig.height=4}
 #https://stackoverflow.com/questions/45908120/add-shaded-standard-error-curves-to-geom-density-in-ggplot2
-plot_dt <- copy(sim_ds_dt)[, AvgBJR := log10(AvgBJR)][Purpose == "de"]
+plot_dt <- copy(sim_ds_dt)[, AvgBJR := log10(AvgBJR + .01)][Purpose == "de"]
 
 plot_dt[, `:=` (maxBJR = max(AvgBJR, na.rm = T),
                   minBJR = min(AvgBJR, na.rm = T),
@@ -955,9 +984,13 @@ densities.qtiles <-
 
 ggplot(densities.qtiles, 
        aes(x = AvgBJR, y = Mean)) + #`50%`
-    facet_wrap(DS ~ SetSize, 
-               # scales = "free",
-               ncol = 3, 
+    # facet_wrap(DS ~ SetSize, 
+    #            # scales = "free",
+    #            ncol = 3, 
+    #            labeller = label_wrap_gen(multi_line = F)) +
+    facet_grid(rows = vars(DS),
+               cols = vars(SetSize), 
+               scales = "free_y",
                labeller = label_wrap_gen(multi_line = F)) +
     # geom_histogram(data = sim_ds_dt[Purpose == "de"],
     #                aes(x = AvgBJR, y = ..density..), 
@@ -972,9 +1005,11 @@ ggplot(densities.qtiles,
     geom_line(aes(color = DEC)) +
     scale_color_discrete("DEC") +
     scale_fill_discrete("DEC") +
-    labs(y = "density", x = "Log10(AvgBJR)") +
+    labs(y = "Density", x = expression(Log[10](AvgBJR + 0.01))) +
     theme_bw() +
-    theme(legend.position = "top")
+    theme(legend.position = "top", 
+          panel.grid.minor = element_blank(), 
+          panel.spacing = unit(.2, "lines"))
 ```
 
 ## DEC Fraction of zeros density
