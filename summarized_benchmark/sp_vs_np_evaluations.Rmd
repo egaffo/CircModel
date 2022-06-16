@@ -26,9 +26,63 @@ library(DT)
 f.beta <- function(P, R, beta = 1) {
     (1 + beta^2) * ( (P * R) / ( (beta^2 * P) + R) )
 }
+
+#' A function to mimic the ggplot default palette
+gg_color_hue <- function(n) {
+  hues = seq(15, 375, length = n + 1)
+  hcl(h = hues, l = 65, c = 100)[1:n]
+}
 ```
 
-# NP
+```{r}
+method_types <- 
+  data.table(Method = c("circMeta_Dt_PZT", "circMeta_Lc_PZT", "DESeq2_BP_WaT", 
+                        "DESeq2_Dt_LRT", "DESeq2_Dt_WaT", "DESeq2_GP_LRT", 
+                        "DESeq2_Lc_LRT", "DESeq2_Sc_LRT", "DESeq2_Zi_LRT", 
+                        "DESeq2_ZW_LRT", "DEsingle_Dt_LRT", "edgeR_Dt_LRT", 
+                        "edgeR_rbst_LRT", "edgeR_rbst_QFT", "edgeR_rbst50df_LRT", 
+                        "edgeR_rbstEdf_LRT", "edgeR_rbstTMMswp_LRT", "edgeR_ZW_LRT", 
+                        "limma_St_Vst", "lncDIFF_Dt_LRT", "MAST_CPM_LRT", 
+                        "metagenomeSeq_Dt_EBT", "monocle_Dt_LRT", "NBID_Dt_LRT", 
+                        "NBID_Sc_LRT", "NOISeqBIO_TMM_LRT", "PoissonSeq_Dt_TT", 
+                        "ROTScpm_Dt_TLT", "SAMseq_Dt_TT", "seurat_Bim_LRT", 
+                        "seurat_Dt_WLX", "voom_Dt_MFT", "voom_LF_MFT", 
+                        "voom_Qn_MFT", "voom_Rb_MFT", "voom_Sp_MFT", 
+                        "voom_ZW_MFT", "wilcoxon_TMM_WLX"),
+             Type = c("Bulk RNA-seq", "Bulk RNA-seq", "Bulk RNA-seq", 
+                      "Bulk RNA-seq", "Bulk RNA-seq", "Single cell / metagenome", 
+                      "Single cell / metagenome", "Single cell / metagenome", "Single cell / metagenome", 
+                      "Single cell / metagenome", "Single cell / metagenome", "Bulk RNA-seq", 
+                      "Bulk RNA-seq", "Bulk RNA-seq", "Bulk RNA-seq", 
+                      "Bulk RNA-seq", "Single cell / metagenome", "Single cell / metagenome", 
+                      "Single cell / metagenome", "Bulk RNA-seq", "Single cell / metagenome", 
+                      "Single cell / metagenome", "Single cell / metagenome", "Single cell / metagenome", 
+                      "Single cell / metagenome", "Bulk RNA-seq", "Bulk RNA-seq", 
+                      "Single cell / metagenome", "Bulk RNA-seq", "Single cell / metagenome", 
+                      "Single cell / metagenome", "Bulk RNA-seq", "Single cell / metagenome",
+                      "Bulk RNA-seq", "Bulk RNA-seq", "Bulk RNA-seq", 
+                      "Single cell / metagenome", "Single cell / metagenome"),
+             BaseMethod = c("circMeta", "circMeta", "DESeq2", 
+                            "DESeq2", "DESeq2", "glmGamPoi", 
+                            "DESeq2", "DESeq2", "DESeq2", 
+                            "DESeq2", "DEsingle", "edgeR", 
+                            "edgeR", "edgeR", "edgeR", 
+                            "edgeR", "edgeR", "edgeR", 
+                            "limma", "lncDIFF", "MAST", 
+                            "metagenomeSeq", "monocle", "NBID", 
+                            "NBID", "NOISeqBIO", "PoissonSeq", 
+                            "ROTS", "SAMseq", "Seurat", 
+                            "Seurat", "Voom", "Voom", 
+                            "Voom", "Voom", "Voom", 
+                            "Voom", "Wilcoxon"))
+```
+
+```{r}
+method_colors <- setNames(object = gg_color_hue(length(method_types$Method)), 
+                          nm = sort(method_types$Method))
+```
+
+# NP {.tabset}
 
 ```{r}
 sbAssay_all_dt <- fread(file.path("PC_overall_evaluations/sbAssay_dt.csv.gz"))
@@ -174,7 +228,7 @@ np_auprc_mean_rank <-
                by = .(SetSize, Method)]
 ```
 
-# SP
+# SP {.tabset}
 
 ```{r}
 sbAssay_all_dt <- fread(file.path("overall_evaluations/sbAssay_dt.csv.gz"))
@@ -488,7 +542,7 @@ ggplot(corr_tests_l,
           legend.position = "top")
 ```
 
-## Test mean difference
+## Test mean difference {.tabset}
 
 ```{r}
 t.test.spnp <- function(x, y, z, data){
@@ -712,7 +766,8 @@ ggplot(kruskal.test.spnp_pvals,
     theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5))
 ```
 
-## Plots
+## Mean rank plots {.tabset}
+
 ### Mean N03
 
 ```{r, fig.width=6.69, fig.height=6.5}
@@ -806,7 +861,7 @@ ggplot(plot_dt, aes(x = Method, y = mean_rank, color = Source_ds, shape = Sim)) 
           axis.text.x = element_text(angle = 90, hjust = 1))
 ```
 
-## N05
+### Mean N05
 
 ```{r, fig.width=6.69, fig.height=6.5}
 plot_dt <- mean_ranks[SetSize == "N05"]
@@ -885,7 +940,7 @@ ggplot(plot_dt, aes(x = Method, y = mean_rank, color = Source_ds, shape = Sim)) 
           axis.text.x = element_text(angle = 90, hjust = 1))
 ```
 
-## N10
+### Mean N10
 
 ```{r, fig.width=6.69, fig.height=6.5}
 plot_dt <- mean_ranks[SetSize == "N10"]
@@ -964,7 +1019,7 @@ ggplot(plot_dt, aes(x = Method, y = mean_rank, color = Source_ds, shape = Sim)) 
           axis.text.x = element_text(angle = 90, hjust = 1))
 ```
 
-## All set sizes
+### All set sizes together
 
 ```{r, fig.width=8.85, fig.height=6.69}
 plot_dt <- all_meas_ranks[, .(mean_rank = mean(Rank),
@@ -991,7 +1046,310 @@ ggplot(plot_dt, aes(x = Method, y = mean_rank, color = Sim)) +
           axis.text.x = element_text(angle = 90, hjust = 1))
 ```
 
-## Boxplots
+## Overall ranking {.tabset}
+
+### N03
+
+```{r, fig.width=8.85, fig.height=6.69}
+plot_dt <- all_meas_ranks[SetSize == "N03", .(mean_rank = mean(Rank),
+                              sd_rank = sd(Rank)), 
+                          by = .(Measure, Method)]
+# plot_dt[, Method := gsub("_", " ", Method), by = Method]
+plot_dt$Method <- factor(plot_dt$Method, 
+                         levels = plot_dt[Measure == "FDR"][order(mean_rank),
+                                                            unique(Method)],
+                         ordered = T)
+plot_dt$Measure <- factor(plot_dt$Measure, 
+                          levels = c("FDR", "TPR", "FPR", "F1", "AUC"), 
+                          ordered = T)
+
+ggplot(plot_dt, 
+       aes(x = Method, y = mean_rank)) +
+    geom_abline(intercept = 10.25, slope = 0, linetype = "dashed", color = "grey55") + 
+    geom_abline(intercept = 19.5, slope = 0, linetype = "dashed", color = "grey55") + 
+    geom_abline(intercept = 28.75, slope = 0, linetype = "dashed", color = "grey55") + 
+    # geom_line(aes(group = Sim)) +
+    geom_pointrange(aes(ymin = mean_rank - sd_rank, 
+                        ymax = mean_rank + sd_rank, 
+                        color = Method), 
+                    position = position_dodge2(width = .3)) +
+    geom_point(shape = 21, size = 2.5) +
+    facet_grid(rows = vars(Measure), 
+               labeller = label_wrap_gen(width = 7)) +
+    scale_color_manual(values = method_colors, guide = "none") +
+    coord_cartesian(ylim = c(0, length(unique(plot_dt$Method)))) +
+    labs(x = NULL, y = "Mean rank") +
+    theme_bw() +
+    theme(panel.grid.minor = element_blank(),
+          panel.grid.major.x = element_blank(),
+          text = element_text(size = 10),
+          legend.position = "top", 
+          strip.text = element_text(size = 6),
+          axis.text.x = element_text(angle = 90, 
+                                     hjust = 1, 
+                                     color = method_colors[levels(plot_dt$Method)]))
+```
+
+### N05
+
+```{r, fig.width=8.85, fig.height=6.69}
+plot_dt <- all_meas_ranks[SetSize == "N05", .(mean_rank = mean(Rank),
+                              sd_rank = sd(Rank)), 
+                          by = .(Measure, Method)]
+# plot_dt[, Method := gsub("_", " ", Method), by = Method]
+plot_dt$Method <- factor(plot_dt$Method, 
+                         levels = plot_dt[Measure == "FDR"][order(mean_rank),
+                                                            unique(Method)],
+                         ordered = T)
+plot_dt$Measure <- factor(plot_dt$Measure, 
+                          levels = c("FDR", "TPR", "FPR", "F1", "AUC"), 
+                          ordered = T)
+
+ggplot(plot_dt, 
+       aes(x = Method, y = mean_rank)) +
+    geom_abline(intercept = 10.25, slope = 0, linetype = "dashed", color = "grey55") + 
+    geom_abline(intercept = 19.5, slope = 0, linetype = "dashed", color = "grey55") + 
+    geom_abline(intercept = 28.75, slope = 0, linetype = "dashed", color = "grey55") + 
+    # geom_line(aes(group = Sim)) +
+    geom_pointrange(aes(ymin = mean_rank - sd_rank, 
+                        ymax = mean_rank + sd_rank, 
+                        color = Method), 
+                    position = position_dodge2(width = .3)) +
+    geom_point(shape = 21, size = 2.5) +
+    facet_grid(rows = vars(Measure), 
+               labeller = label_wrap_gen(width = 7)) +
+    scale_color_manual(values = method_colors, guide = "none") +
+    coord_cartesian(ylim = c(0, length(unique(plot_dt$Method)))) +
+    labs(x = NULL, y = "Mean rank") +
+    theme_bw() +
+    theme(panel.grid.minor = element_blank(),
+          panel.grid.major.x = element_blank(),
+          text = element_text(size = 10),
+          legend.position = "top", 
+          strip.text = element_text(size = 6),
+          axis.text.x = element_text(angle = 90, 
+                                     hjust = 1, 
+                                     color = method_colors[levels(plot_dt$Method)]))
+```
+
+### N10
+
+```{r, fig.width=8.85, fig.height=6.69}
+plot_dt <- all_meas_ranks[SetSize == "N10", .(mean_rank = mean(Rank),
+                              sd_rank = sd(Rank)), 
+                          by = .(Measure, Method)]
+# plot_dt[, Method := gsub("_", " ", Method), by = Method]
+plot_dt$Method <- factor(plot_dt$Method, 
+                         levels = plot_dt[Measure == "FDR"][order(mean_rank),
+                                                            unique(Method)],
+                         ordered = T)
+plot_dt$Measure <- factor(plot_dt$Measure, 
+                          levels = c("FDR", "TPR", "FPR", "F1", "AUC"), 
+                          ordered = T)
+
+ggplot(plot_dt, 
+       aes(x = Method, y = mean_rank)) +
+    geom_abline(intercept = 10.25, slope = 0, linetype = "dashed", color = "grey55") + 
+    geom_abline(intercept = 19.5, slope = 0, linetype = "dashed", color = "grey55") + 
+    geom_abline(intercept = 28.75, slope = 0, linetype = "dashed", color = "grey55") + 
+    # geom_line(aes(group = Sim)) +
+    geom_pointrange(aes(ymin = mean_rank - sd_rank, 
+                        ymax = mean_rank + sd_rank, 
+                        color = Method), 
+                    position = position_dodge2(width = .3)) +
+    geom_point(shape = 21, size = 2.5) +
+    facet_grid(rows = vars(Measure), 
+               labeller = label_wrap_gen(width = 7)) +
+    scale_color_manual(values = method_colors, guide = "none") +
+    coord_cartesian(ylim = c(0, length(unique(plot_dt$Method)))) +
+    labs(x = NULL, y = "Mean rank") +
+    theme_bw() +
+    theme(panel.grid.minor = element_blank(),
+          panel.grid.major.x = element_blank(),
+          text = element_text(size = 10),
+          legend.position = "top", 
+          strip.text = element_text(size = 6),
+          axis.text.x = element_text(angle = 90, 
+                                     hjust = 1, 
+                                     color = method_colors[levels(plot_dt$Method)]))
+```
+
+### Altogether
+
+```{r, fig.width=8.85, fig.height=6.69}
+plot_dt <- all_meas_ranks[, .(mean_rank = mean(Rank),
+                              sd_rank = sd(Rank)), 
+                          by = .(Measure, Method)]
+# plot_dt[, Method := gsub("_", " ", Method), by = Method]
+plot_dt$Method <- factor(plot_dt$Method, 
+                         levels = plot_dt[Measure == "FDR"][order(mean_rank),
+                                                            unique(Method)],
+                         ordered = T)
+plot_dt$Measure <- factor(plot_dt$Measure, 
+                          levels = c("FDR", "TPR", "FPR", "F1", "AUC"), 
+                          ordered = T)
+
+ggplot(plot_dt, 
+       aes(x = Method, y = mean_rank)) +
+    geom_abline(intercept = 10.25, slope = 0, linetype = "dashed", color = "grey55") + 
+    geom_abline(intercept = 19.5, slope = 0, linetype = "dashed", color = "grey55") + 
+    geom_abline(intercept = 28.75, slope = 0, linetype = "dashed", color = "grey55") + 
+    # geom_line(aes(group = Sim)) +
+    geom_pointrange(aes(ymin = mean_rank - sd_rank, 
+                        ymax = mean_rank + sd_rank, 
+                        color = Method), 
+                    position = position_dodge2(width = .3)) +
+    geom_point(shape = 21, size = 2.5) +
+    facet_grid(rows = vars(Measure), 
+               labeller = label_wrap_gen(width = 7)) +
+    scale_color_manual(values = method_colors, guide = "none") +
+    coord_cartesian(ylim = c(0, length(unique(plot_dt$Method)))) +
+    labs(x = NULL, y = "Mean rank") +
+    theme_bw() +
+    theme(panel.grid.minor = element_blank(),
+          panel.grid.major.x = element_blank(),
+          text = element_text(size = 10),
+          legend.position = "top", 
+          strip.text = element_text(size = 6),
+          axis.text.x = element_text(angle = 90, 
+                                     hjust = 1, 
+                                     color = method_colors[levels(plot_dt$Method)]))
+```
+
+
+## Boxplot Overall ranking {.tabset}
+
+```{r}
+qtr_rank <- quantile(1:length(unique(plot_dt$Method)), probs = c(.25, .5, .75))
+```
+
+### N03
+
+```{r, fig.width=8.85, fig.height=6.69}
+plot_dt <- all_meas_ranks[SetSize == "N03"]
+# plot_dt[, Method := gsub("_", " ", Method), by = Method]
+
+median_rank_order <-
+    plot_dt[Measure == "FDR", .(Med_rank = median(Rank)),
+            by = .(Method)][order(Med_rank),
+                              unique(Method)]
+
+plot_dt$Method <- factor(plot_dt$Method, 
+                         levels = median_rank_order,
+                         ordered = T)
+plot_dt$Measure <- factor(plot_dt$Measure, 
+                          levels = c("FDR", "TPR", "FPR", "F1", "AUC"), 
+                          ordered = T)
+
+ggplot(plot_dt, 
+       aes(x = Method, y = Rank)) +
+    geom_hline(yintercept = qtr_rank[1], linetype = "dashed", color = "grey55") + 
+    geom_hline(yintercept = qtr_rank[2], linetype = "dashed", color = "grey55") + 
+    geom_hline(yintercept = qtr_rank[3], linetype = "dashed", color = "grey55") + 
+    geom_boxplot(aes(fill = Method), outlier.size = .5)+
+    # geom_violin(aes(fill = Method), 
+    #             draw_quantiles = c(.25, .5, .75), 
+    #             scale = "width") +
+    facet_grid(rows = vars(Measure), 
+               labeller = label_wrap_gen(width = 7)) +
+    scale_fill_manual(values = method_colors, guide = "none") +
+    scale_y_continuous(breaks = qtr_rank) +
+    coord_cartesian(ylim = c(0, length(unique(plot_dt$Method)))) +
+    labs(x = NULL, y = "Rank") +
+    theme_bw() +
+    theme(panel.grid.minor = element_blank(),
+          panel.grid.major.x = element_blank(),
+          text = element_text(size = 10),
+          legend.position = "top", 
+          strip.text = element_text(size = 6),
+          axis.text.x = element_text(angle = 90, 
+                                     hjust = 1, 
+                                     color = method_colors[levels(plot_dt$Method)]))
+```
+
+### N05
+
+```{r, fig.width=8.85, fig.height=6.69}
+plot_dt <- all_meas_ranks[SetSize == "N05"]
+# plot_dt[, Method := gsub("_", " ", Method), by = Method]
+
+median_rank_order <-
+    plot_dt[Measure == "FDR", .(Med_rank = median(Rank)),
+            by = .(Method)][order(Med_rank),
+                              unique(Method)]
+
+plot_dt$Method <- factor(plot_dt$Method, 
+                         levels = median_rank_order,
+                         ordered = T)
+plot_dt$Measure <- factor(plot_dt$Measure, 
+                          levels = c("FDR", "TPR", "FPR", "F1", "AUC"), 
+                          ordered = T)
+
+ggplot(plot_dt, 
+       aes(x = Method, y = Rank)) +
+    geom_hline(yintercept = qtr_rank[1], linetype = "dashed", color = "grey55") + 
+    geom_hline(yintercept = qtr_rank[2], linetype = "dashed", color = "grey55") + 
+    geom_hline(yintercept = qtr_rank[3], linetype = "dashed", color = "grey55") + 
+    geom_boxplot(aes(fill = Method), outlier.size = .5)+
+    facet_grid(rows = vars(Measure), 
+               labeller = label_wrap_gen(width = 7)) +
+    scale_fill_manual(values = method_colors, guide = "none") +
+    scale_y_continuous(breaks = qtr_rank) +
+    coord_cartesian(ylim = c(0, length(unique(plot_dt$Method)))) +
+    labs(x = NULL, y = "Rank") +
+    theme_bw() +
+    theme(panel.grid.minor = element_blank(),
+          panel.grid.major.x = element_blank(),
+          text = element_text(size = 10),
+          legend.position = "top", 
+          strip.text = element_text(size = 6),
+          axis.text.x = element_text(angle = 90, 
+                                     hjust = 1, 
+                                     color = method_colors[levels(plot_dt$Method)]))
+```
+
+### N10
+
+```{r, fig.width=8.85, fig.height=6.69}
+plot_dt <- all_meas_ranks[SetSize == "N10"]
+# plot_dt[, Method := gsub("_", " ", Method), by = Method]
+
+median_rank_order <-
+    plot_dt[Measure == "FDR", .(Med_rank = median(Rank)),
+            by = .(Method)][order(Med_rank),
+                              unique(Method)]
+
+plot_dt$Method <- factor(plot_dt$Method, 
+                         levels = median_rank_order,
+                         ordered = T)
+plot_dt$Measure <- factor(plot_dt$Measure, 
+                          levels = c("FDR", "TPR", "FPR", "F1", "AUC"), 
+                          ordered = T)
+
+ggplot(plot_dt, 
+       aes(x = Method, y = Rank)) +
+    geom_hline(yintercept = qtr_rank[1], linetype = "dashed", color = "grey55") + 
+    geom_hline(yintercept = qtr_rank[2], linetype = "dashed", color = "grey55") + 
+    geom_hline(yintercept = qtr_rank[3], linetype = "dashed", color = "grey55") + 
+    geom_boxplot(aes(fill = Method), outlier.size = .5)+
+    facet_grid(rows = vars(Measure), 
+               labeller = label_wrap_gen(width = 7)) +
+    scale_fill_manual(values = method_colors, guide = "none") +
+    scale_y_continuous(breaks = qtr_rank) +
+    coord_cartesian(ylim = c(0, length(unique(plot_dt$Method)))) +
+    labs(x = NULL, y = "Rank") +
+    theme_bw() +
+    theme(panel.grid.minor = element_blank(),
+          panel.grid.major.x = element_blank(),
+          text = element_text(size = 10),
+          legend.position = "top", 
+          strip.text = element_text(size = 6),
+          axis.text.x = element_text(angle = 90, 
+                                     hjust = 1, 
+                                     color = method_colors[levels(plot_dt$Method)]))
+```
+
+## Boxplots {.tabset}
 
 ## N05
 
