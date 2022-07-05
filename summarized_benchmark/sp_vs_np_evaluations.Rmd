@@ -215,6 +215,8 @@ np_f1_mean_rank <- np_method_ranks[variable == "F1_0.05",
 ```{r}
 ##get AUC
 np_auc <- fread("PC_overall_evaluations/overall_auc.csv.gz")
+np_auc[, DsId := formatC(DsId, width = 2, flag = "0")]
+
 np_auprc_rank <- 
     np_auc[order(AUCPR, decreasing = T, na.last = T), 
         .(Method, AUCPR,
@@ -372,6 +374,8 @@ f1_ds_mean_rank <- method_ranks[variable == "F1_0.05",
 ```{r}
 ##get AUC
 auc <- fread("overall_evaluations/overall_auc.csv.gz")
+auc[, DsId := formatC(DsId, width = 2, flag = "0")]
+
 auprc_rank <- 
     auc[order(AUCPR, decreasing = T, na.last = T), 
         .(Method, AUCPR,
@@ -1048,7 +1052,7 @@ ggplot(plot_dt, aes(x = Method, y = mean_rank, color = Sim)) +
 
 ## Overall ranking {.tabset}
 
-### N03
+### FDR ord N03
 
 ```{r, fig.width=8.85, fig.height=6.69}
 plot_dt <- all_meas_ranks[SetSize == "N03", .(mean_rank = mean(Rank),
@@ -1090,7 +1094,7 @@ ggplot(plot_dt,
                                      color = method_colors[levels(plot_dt$Method)]))
 ```
 
-### N05
+### FDR ord N05
 
 ```{r, fig.width=8.85, fig.height=6.69}
 plot_dt <- all_meas_ranks[SetSize == "N05", .(mean_rank = mean(Rank),
@@ -1132,7 +1136,7 @@ ggplot(plot_dt,
                                      color = method_colors[levels(plot_dt$Method)]))
 ```
 
-### N10
+### FDR ord N10
 
 ```{r, fig.width=8.85, fig.height=6.69}
 plot_dt <- all_meas_ranks[SetSize == "N10", .(mean_rank = mean(Rank),
@@ -1174,7 +1178,7 @@ ggplot(plot_dt,
                                      color = method_colors[levels(plot_dt$Method)]))
 ```
 
-### Altogether
+### FDR ord Altogether
 
 ```{r, fig.width=8.85, fig.height=6.69}
 plot_dt <- all_meas_ranks[, .(mean_rank = mean(Rank),
@@ -1216,6 +1220,287 @@ ggplot(plot_dt,
                                      color = method_colors[levels(plot_dt$Method)]))
 ```
 
+### F1 ord N03
+
+```{r, fig.width=8.85, fig.height=6.69}
+plot_dt <- all_meas_ranks[SetSize == "N03", .(mean_rank = mean(Rank),
+                              sd_rank = sd(Rank)), 
+                          by = .(Measure, Method)]
+# plot_dt[, Method := gsub("_", " ", Method), by = Method]
+plot_dt$Method <- factor(plot_dt$Method, 
+                         levels = plot_dt[Measure == "F1"][order(mean_rank),
+                                                            unique(Method)],
+                         ordered = T)
+plot_dt$Measure <- factor(plot_dt$Measure, 
+                          levels = c("FDR", "TPR", "FPR", "F1", "AUC"), 
+                          ordered = T)
+
+ggplot(plot_dt, 
+       aes(x = Method, y = mean_rank)) +
+    geom_abline(intercept = 10.25, slope = 0, linetype = "dashed", color = "grey55") + 
+    geom_abline(intercept = 19.5, slope = 0, linetype = "dashed", color = "grey55") + 
+    geom_abline(intercept = 28.75, slope = 0, linetype = "dashed", color = "grey55") + 
+    # geom_line(aes(group = Sim)) +
+    geom_pointrange(aes(ymin = mean_rank - sd_rank, 
+                        ymax = mean_rank + sd_rank, 
+                        color = Method), 
+                    position = position_dodge2(width = .3)) +
+    geom_point(shape = 21, size = 2.5) +
+    facet_grid(rows = vars(Measure), 
+               labeller = label_wrap_gen(width = 7)) +
+    scale_color_manual(values = method_colors, guide = "none") +
+    coord_cartesian(ylim = c(0, length(unique(plot_dt$Method)))) +
+    labs(x = NULL, y = "Mean rank") +
+    theme_bw() +
+    theme(panel.grid.minor = element_blank(),
+          panel.grid.major.x = element_blank(),
+          text = element_text(size = 10),
+          legend.position = "top", 
+          strip.text = element_text(size = 6),
+          axis.text.x = element_text(angle = 90, 
+                                     hjust = 1, 
+                                     color = method_colors[levels(plot_dt$Method)]))
+```
+
+### F1 ord N05
+
+```{r, fig.width=8.85, fig.height=6.69}
+plot_dt <- all_meas_ranks[SetSize == "N05", .(mean_rank = mean(Rank),
+                              sd_rank = sd(Rank)), 
+                          by = .(Measure, Method)]
+# plot_dt[, Method := gsub("_", " ", Method), by = Method]
+plot_dt$Method <- factor(plot_dt$Method, 
+                         levels = plot_dt[Measure == "F1"][order(mean_rank),
+                                                            unique(Method)],
+                         ordered = T)
+plot_dt$Measure <- factor(plot_dt$Measure, 
+                          levels = c("FDR", "TPR", "FPR", "F1", "AUC"), 
+                          ordered = T)
+
+ggplot(plot_dt, 
+       aes(x = Method, y = mean_rank)) +
+    geom_abline(intercept = 10.25, slope = 0, linetype = "dashed", color = "grey55") + 
+    geom_abline(intercept = 19.5, slope = 0, linetype = "dashed", color = "grey55") + 
+    geom_abline(intercept = 28.75, slope = 0, linetype = "dashed", color = "grey55") + 
+    # geom_line(aes(group = Sim)) +
+    geom_pointrange(aes(ymin = mean_rank - sd_rank, 
+                        ymax = mean_rank + sd_rank, 
+                        color = Method), 
+                    position = position_dodge2(width = .3)) +
+    geom_point(shape = 21, size = 2.5) +
+    facet_grid(rows = vars(Measure), 
+               labeller = label_wrap_gen(width = 7)) +
+    scale_color_manual(values = method_colors, guide = "none") +
+    coord_cartesian(ylim = c(0, length(unique(plot_dt$Method)))) +
+    labs(x = NULL, y = "Mean rank") +
+    theme_bw() +
+    theme(panel.grid.minor = element_blank(),
+          panel.grid.major.x = element_blank(),
+          text = element_text(size = 10),
+          legend.position = "top", 
+          strip.text = element_text(size = 6),
+          axis.text.x = element_text(angle = 90, 
+                                     hjust = 1, 
+                                     color = method_colors[levels(plot_dt$Method)]))
+```
+
+### F1 ord N10
+
+```{r, fig.width=8.85, fig.height=6.69}
+plot_dt <- all_meas_ranks[SetSize == "N10", .(mean_rank = mean(Rank),
+                              sd_rank = sd(Rank)), 
+                          by = .(Measure, Method)]
+# plot_dt[, Method := gsub("_", " ", Method), by = Method]
+plot_dt$Method <- factor(plot_dt$Method, 
+                         levels = plot_dt[Measure == "F1"][order(mean_rank),
+                                                            unique(Method)],
+                         ordered = T)
+plot_dt$Measure <- factor(plot_dt$Measure, 
+                          levels = c("FDR", "TPR", "FPR", "F1", "AUC"), 
+                          ordered = T)
+
+ggplot(plot_dt, 
+       aes(x = Method, y = mean_rank)) +
+    geom_abline(intercept = 10.25, slope = 0, linetype = "dashed", color = "grey55") + 
+    geom_abline(intercept = 19.5, slope = 0, linetype = "dashed", color = "grey55") + 
+    geom_abline(intercept = 28.75, slope = 0, linetype = "dashed", color = "grey55") + 
+    # geom_line(aes(group = Sim)) +
+    geom_pointrange(aes(ymin = mean_rank - sd_rank, 
+                        ymax = mean_rank + sd_rank, 
+                        color = Method), 
+                    position = position_dodge2(width = .3)) +
+    geom_point(shape = 21, size = 2.5) +
+    facet_grid(rows = vars(Measure), 
+               labeller = label_wrap_gen(width = 7)) +
+    scale_color_manual(values = method_colors, guide = "none") +
+    coord_cartesian(ylim = c(0, length(unique(plot_dt$Method)))) +
+    labs(x = NULL, y = "Mean rank") +
+    theme_bw() +
+    theme(panel.grid.minor = element_blank(),
+          panel.grid.major.x = element_blank(),
+          text = element_text(size = 10),
+          legend.position = "top", 
+          strip.text = element_text(size = 6),
+          axis.text.x = element_text(angle = 90, 
+                                     hjust = 1, 
+                                     color = method_colors[levels(plot_dt$Method)]))
+```
+
+### F1 ord Altogether
+
+```{r, fig.width=8.85, fig.height=6.69}
+plot_dt <- all_meas_ranks[, .(mean_rank = mean(Rank),
+                              sd_rank = sd(Rank)), 
+                          by = .(Measure, Method)]
+# plot_dt[, Method := gsub("_", " ", Method), by = Method]
+plot_dt$Method <- factor(plot_dt$Method, 
+                         levels = plot_dt[Measure == "F1"][order(mean_rank),
+                                                            unique(Method)],
+                         ordered = T)
+plot_dt$Measure <- factor(plot_dt$Measure, 
+                          levels = c("FDR", "TPR", "FPR", "F1", "AUC"), 
+                          ordered = T)
+
+ggplot(plot_dt, 
+       aes(x = Method, y = mean_rank)) +
+    geom_abline(intercept = 10.25, slope = 0, linetype = "dashed", color = "grey55") + 
+    geom_abline(intercept = 19.5, slope = 0, linetype = "dashed", color = "grey55") + 
+    geom_abline(intercept = 28.75, slope = 0, linetype = "dashed", color = "grey55") + 
+    # geom_line(aes(group = Sim)) +
+    geom_pointrange(aes(ymin = mean_rank - sd_rank, 
+                        ymax = mean_rank + sd_rank, 
+                        color = Method), 
+                    position = position_dodge2(width = .3)) +
+    geom_point(shape = 21, size = 2.5) +
+    facet_grid(rows = vars(Measure), 
+               labeller = label_wrap_gen(width = 7)) +
+    scale_color_manual(values = method_colors, guide = "none") +
+    coord_cartesian(ylim = c(0, length(unique(plot_dt$Method)))) +
+    labs(x = NULL, y = "Mean rank") +
+    theme_bw() +
+    theme(panel.grid.minor = element_blank(),
+          panel.grid.major.x = element_blank(),
+          text = element_text(size = 10),
+          legend.position = "top", 
+          strip.text = element_text(size = 6),
+          axis.text.x = element_text(angle = 90, 
+                                     hjust = 1, 
+                                     color = method_colors[levels(plot_dt$Method)]))
+```
+
+### Ordered by clustering
+
+```{r, fig.width=8.85, fig.height=6.69}
+# rank_mat_dt <- 
+#     dcast(data = all_meas_ranks, 
+#           formula = Measure + Sim + Source_ds + SetSize + Method ~ DsId, 
+#           value.var = "Rank")
+# 
+# rank_mat_dt[, Id := paste(Measure, Sim, Source_ds, SetSize, Method)]
+# rank_mat <- as.matrix(data.frame(rank_mat_dt[, c("Id", unique(all_meas_ranks$DsId)), 
+#                                    with = F],
+#                        row.names = "Id", 
+#                        check.names = F))
+# 
+# rank_clust <- hclust(dist(x = rank_mat, method = "euclidean"), method = "complete")
+# plot(rank_clust)
+
+rank_mat_dt <- 
+    dcast(data = all_meas_ranks[, .(MeanRank = mean(Rank)), 
+                                by = .(Source_ds, SetSize, Method, Measure)], 
+          formula = Method ~ Measure + SetSize + Source_ds, 
+          value.var = "MeanRank")
+
+rank_mat <- as.matrix(data.frame(rank_mat_dt,
+                       row.names = "Method", 
+                       check.names = F))
+
+rank_dist <- dist(x = rank_mat, method = "canberra")
+# rank_clust <- hclust(rank_dist, method = "complete")
+rank_clust <- seriation::seriate(x = rank_dist, method = "GW_complete")
+# plot(rank_clust)
+
+pheatmap::pheatmap(mat = as.matrix(rank_dist), 
+                   scale = "none", 
+                   cluster_rows = seriation::get_order(rank_clust), 
+                   cluster_cols = seriation::get_order(rank_clust))
+
+```
+
+```{r, fig.width=8.85, fig.height=6.69}
+plot_dt <- all_meas_ranks[, .(mean_rank = mean(Rank),
+                              sd_rank = sd(Rank)), 
+                          by = .(Measure, SetSize, Method)]
+# plot_dt[, Method := gsub("_", " ", Method), by = Method]
+# plot_dt$Method <- factor(plot_dt$Method, 
+#                          levels = plot_dt[Measure == "F1"][order(mean_rank),
+#                                                             unique(Method)],
+#                          ordered = T)
+method_order <- attr(rank_dist, "Labels")[seriation::get_order(rank_clust)]
+
+plot_dt$Measure <- factor(plot_dt$Measure, 
+                          levels = c("FDR", "TPR", "FPR", "F1", "AUC"), 
+                          ordered = T)
+
+ggplot(plot_dt, 
+       aes(x = Method, y = mean_rank)) +
+    geom_abline(intercept = 10.25, slope = 0, linetype = "dashed", color = "grey55") + 
+    geom_abline(intercept = 19.5, slope = 0, linetype = "dashed", color = "grey55") + 
+    geom_abline(intercept = 28.75, slope = 0, linetype = "dashed", color = "grey55") + 
+    # geom_line(aes(group = Sim)) +
+    geom_pointrange(aes(ymin = mean_rank - sd_rank, 
+                        ymax = mean_rank + sd_rank, 
+                        color = Method), 
+                    position = position_dodge2(width = .3)) +
+    geom_point(shape = 21, size = 2.5) +
+    facet_grid(rows = vars(Measure, SetSize), 
+               labeller = label_wrap_gen(width = 7)) +
+    scale_color_manual(values = method_colors, guide = "none") +
+    coord_cartesian(ylim = c(1, length(unique(plot_dt$Method)))) +
+    labs(x = NULL, y = "Mean rank") +
+    scale_x_discrete(limits = method_order) +
+    theme_bw() +
+    theme(panel.grid.minor = element_blank(),
+          panel.grid.major.x = element_blank(),
+          text = element_text(size = 10),
+          legend.position = "top", 
+          strip.text = element_text(size = 6),
+          axis.text.x = element_text(angle = 90, 
+                                     hjust = 1, 
+                                     color = method_colors[method_order]))
+```
+
+```{r, fig.width=8.85, fig.height=6.69}
+ggplot(plot_dt, 
+       aes(x = Method, y = mean_rank, shape = SetSize)) +
+    geom_abline(intercept = 10.25, slope = 0, linetype = "dashed", color = "grey55") + 
+    geom_abline(intercept = 19.5, slope = 0, linetype = "dashed", color = "grey55") + 
+    geom_abline(intercept = 28.75, slope = 0, linetype = "dashed", color = "grey55") + 
+    # geom_line(aes(group = Sim)) +
+    geom_pointrange(aes(ymin = mean_rank - sd_rank, 
+                        ymax = mean_rank + sd_rank, 
+                        color = Method, fill = Method), size = .2,
+                    position = position_dodge2(width = .5)) +
+    geom_point(size = 2, #shape = 21, 
+                    position = position_dodge2(width = .5)) +
+    scale_shape_manual(values = 21:23) +
+    facet_grid(rows = vars(Measure), 
+               labeller = label_wrap_gen(width = 7)) +
+    scale_color_manual(values = method_colors, guide = "none") +
+    scale_fill_manual(values = method_colors, guide = "none") +
+    coord_cartesian(ylim = c(1, length(unique(plot_dt$Method)))) +
+    labs(x = NULL, y = "Mean rank") +
+    scale_x_discrete(limits = method_order) +
+    theme_bw() +
+    theme(panel.grid.minor = element_blank(),
+          panel.grid.major.x = element_blank(),
+          text = element_text(size = 10),
+          legend.position = "top", 
+          strip.text = element_text(size = 6),
+          axis.text.x = element_text(angle = 90, 
+                                     hjust = 1, 
+                                     color = method_colors[method_order]))
+```
 
 ## Boxplot Overall ranking {.tabset}
 
