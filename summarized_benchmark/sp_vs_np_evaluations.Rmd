@@ -1388,23 +1388,9 @@ ggplot(plot_dt,
                                      color = method_colors[levels(plot_dt$Method)]))
 ```
 
-### Ordered by clustering
+### Clust ord heatmap
 
-```{r, fig.width=8.85, fig.height=6.69}
-# rank_mat_dt <- 
-#     dcast(data = all_meas_ranks, 
-#           formula = Measure + Sim + Source_ds + SetSize + Method ~ DsId, 
-#           value.var = "Rank")
-# 
-# rank_mat_dt[, Id := paste(Measure, Sim, Source_ds, SetSize, Method)]
-# rank_mat <- as.matrix(data.frame(rank_mat_dt[, c("Id", unique(all_meas_ranks$DsId)), 
-#                                    with = F],
-#                        row.names = "Id", 
-#                        check.names = F))
-# 
-# rank_clust <- hclust(dist(x = rank_mat, method = "euclidean"), method = "complete")
-# plot(rank_clust)
-
+```{r, fig.width=6.69, fig.height=6.69}
 rank_mat_dt <- 
     dcast(data = all_meas_ranks[, .(MeanRank = mean(Rank)), 
                                 by = .(Source_ds, SetSize, Method, Measure)], 
@@ -1419,13 +1405,58 @@ rank_dist <- dist(x = rank_mat, method = "canberra")
 # rank_clust <- hclust(rank_dist, method = "complete")
 rank_clust <- seriation::seriate(x = rank_dist, method = "GW_complete")
 # plot(rank_clust)
+method_order <- attr(rank_dist, "Labels")[seriation::get_order(rank_clust)]
 
+## clutering according to N05
+rank_dist_n05 <- dist(x = rank_mat[, grep("N05", colnames(rank_mat), value = T)], 
+                      method = "canberra")
+rank_clust_n05 <- seriation::seriate(x = rank_dist_n05, method = "GW_complete")
+method_order_n05 <- attr(rank_dist_n05, "Labels")[seriation::get_order(rank_clust_n05)]
+```
+
+```{r, fig.width=6.69, fig.height=6.69}
 pheatmap::pheatmap(mat = as.matrix(rank_dist), 
                    scale = "none", 
                    cluster_rows = seriation::get_order(rank_clust), 
                    cluster_cols = seriation::get_order(rank_clust))
 
 ```
+
+### Clust ord N03-N05-N10
+
+```{r}
+library(ggdendro)
+
+rank_dendro_ddata <- 
+  dendro_data(as.dendrogram(rank_clust[[1]]),
+              type = "rectangle")
+
+rank_dendro <- 
+    ggplot(segment(rank_dendro_ddata), aes(x = x, y = y)) +
+    geom_segment(aes(xend = xend, yend = yend)) +
+    scale_x_continuous(name = NULL, 
+                       # trans = "reverse",
+                       breaks = label(rank_dendro_ddata)$x, 
+                       labels = label(rank_dendro_ddata)$label, 
+                       expand = c(0, 0), 
+                       position = "top")
+
+## N05
+rank_dendro_ddata_n05 <- 
+  dendro_data(as.dendrogram(rank_clust_n05[[1]]),
+              type = "rectangle")
+
+rank_dendro_n05 <- 
+    ggplot(segment(rank_dendro_ddata_n05), aes(x = x, y = y)) +
+    geom_segment(aes(xend = xend, yend = yend)) +
+    scale_x_continuous(name = NULL, 
+                       # trans = "reverse",
+                       breaks = label(rank_dendro_ddata_n05)$x, 
+                       labels = label(rank_dendro_ddata_n05)$label, 
+                       expand = c(0, 0), 
+                       position = "top")
+```
+
 
 ```{r, fig.width=8.85, fig.height=6.69}
 plot_dt <- all_meas_ranks[, .(mean_rank = mean(Rank),
@@ -1436,7 +1467,6 @@ plot_dt <- all_meas_ranks[, .(mean_rank = mean(Rank),
 #                          levels = plot_dt[Measure == "F1"][order(mean_rank),
 #                                                             unique(Method)],
 #                          ordered = T)
-method_order <- attr(rank_dist, "Labels")[seriation::get_order(rank_clust)]
 
 plot_dt$Measure <- factor(plot_dt$Measure, 
                           levels = c("FDR", "TPR", "FPR", "F1", "AUC"), 
@@ -1470,36 +1500,175 @@ ggplot(plot_dt,
                                      color = method_colors[method_order]))
 ```
 
+### Clust ord dodge
+
 ```{r, fig.width=8.85, fig.height=6.69}
-ggplot(plot_dt, 
-       aes(x = Method, y = mean_rank, shape = SetSize)) +
+rank_dot_plot <- 
+    ggplot(plot_dt, 
+           aes(x = Method, y = mean_rank, shape = SetSize)) +
     geom_abline(intercept = 10.25, slope = 0, linetype = "dashed", color = "grey55") + 
     geom_abline(intercept = 19.5, slope = 0, linetype = "dashed", color = "grey55") + 
     geom_abline(intercept = 28.75, slope = 0, linetype = "dashed", color = "grey55") + 
     # geom_line(aes(group = Sim)) +
     geom_pointrange(aes(ymin = mean_rank - sd_rank, 
                         ymax = mean_rank + sd_rank, 
-                        color = Method, fill = Method), size = .2,
+                        color = Method, fill = Method), 
+                    show.legend = F,
+                    size = .15,
                     position = position_dodge2(width = .5)) +
-    geom_point(size = 2, #shape = 21, 
-                    position = position_dodge2(width = .5)) +
-    scale_shape_manual(values = 21:23) +
-    facet_grid(rows = vars(Measure), 
+    geom_point(size = 1.5, #shape = 21, 
+               position = position_dodge2(width = .7)) +
+    scale_shape_manual(name = "Set size", values = 21:23) +
+    facet_grid(cols = vars(Measure), 
                labeller = label_wrap_gen(width = 7)) +
     scale_color_manual(values = method_colors, guide = "none") +
     scale_fill_manual(values = method_colors, guide = "none") +
-    coord_cartesian(ylim = c(1, length(unique(plot_dt$Method)))) +
+    # coord_cartesian(ylim = c(1, length(unique(plot_dt$Method)))) +
+    coord_flip(ylim = c(1, max(plot_dt$mean_rank))) +
     labs(x = NULL, y = "Mean rank") +
     scale_x_discrete(limits = method_order) +
     theme_bw() +
     theme(panel.grid.minor = element_blank(),
-          panel.grid.major.x = element_blank(),
-          text = element_text(size = 10),
+          panel.grid.major = element_blank(),
+          text = element_text(size = 8),
           legend.position = "top", 
           strip.text = element_text(size = 6),
-          axis.text.x = element_text(angle = 90, 
+          axis.text.y = element_text(angle = 0, 
                                      hjust = 1, 
                                      color = method_colors[method_order]))
+```
+
+
+```{r, fig.height=8.85, fig.width=6.69}
+library(patchwork)
+
+wrap_plots(rank_dendro +
+               facet_grid(cols = vars("A")) +
+               scale_y_reverse() + #, expand = c(0, 0.00)
+               coord_flip(xlim = c(.5, 38.5)) +
+               theme_dendro() +
+               theme(axis.text.y = element_text(color = method_colors[label(rank_dendro_ddata)$label],
+                                              angle = 0,
+                                              hjust = 1),
+                   # axis.text.y = element_blank(),
+                   axis.text.x = element_blank(),
+                   text = element_text(size = 8),
+                   strip.text = element_blank(),
+                   panel.grid.major.x = element_blank(),
+                   panel.grid.minor.x = element_blank(),
+                   panel.grid.major.y = element_blank(),
+                   panel.grid.minor.y = element_blank()),
+           rank_dot_plot +
+               theme(axis.text.y = element_blank()), 
+           nrow = 1, widths = c(.25, 1),
+           guides = "collect") & 
+    guides(shape = guide_legend(override.aes = list(size = 3))) &
+    theme(legend.direction = "horizontal", 
+          legend.position = "top", 
+          legend.margin = margin(0,0,0,0), 
+          legend.box.margin = margin(0,0,0,0))
+```
+
+### Stacked bars
+
+```{r, fig.height=6.5, fig.width=6.69}
+### stacked bars
+plot_dt$Measure <- factor(plot_dt$Measure, 
+                          levels = c("F1", "FDR", "TPR", "AUC", "FPR"), 
+                          ordered = T)
+
+sumranks <- plot_dt[, .(SumRank = sum(mean_rank)), 
+                    by = .(Method, SetSize)]
+sumrank_order <- 
+    sumranks[order(-SumRank)][SetSize == "N05", Method]
+
+rank_barstack_plot <- 
+    ggplot(plot_dt, 
+           aes(x = Method, y = mean_rank, fill = Measure)) +
+    geom_bar(stat = "identity", position = position_stack(reverse = T)) +
+    facet_grid(cols = vars(SetSize), 
+               labeller = label_wrap_gen(width = 7)) +
+    scale_fill_calc() +
+    # coord_cartesian(ylim = c(1, length(unique(plot_dt$Method)))) +
+    coord_flip() + #expand = T, ylim = c(1, max(sumranks$SumRank))
+    labs(x = NULL, y = "Mean rank") +
+    scale_x_discrete(limits = sumrank_order) +
+    scale_y_continuous(expand = c(0, 0)) +
+    theme_bw() +
+    theme(panel.grid.minor = element_blank(),
+          panel.grid.major.y = element_blank(),
+          text = element_text(size = 10),
+          legend.position = "top", 
+          strip.text = element_text(size = 10),
+          axis.text.y = element_text(angle = 0, 
+                                     hjust = 1, 
+                                     color = method_colors[sumrank_order]))
+rank_barstack_plot
+```
+
+### Clust ord dodge N05
+
+```{r, fig.width=8.85, fig.height=6.69}
+rank_dot_plot_n05 <- 
+    ggplot(plot_dt[SetSize == "N05"], 
+           aes(x = Method, y = mean_rank, shape = SetSize)) +
+    geom_abline(intercept = 10.25, slope = 0, linetype = "dashed", color = "grey55") + 
+    geom_abline(intercept = 19.5, slope = 0, linetype = "dashed", color = "grey55") + 
+    geom_abline(intercept = 28.75, slope = 0, linetype = "dashed", color = "grey55") + 
+    # geom_line(aes(group = Sim)) +
+    geom_pointrange(aes(ymin = mean_rank - sd_rank, 
+                        ymax = mean_rank + sd_rank, 
+                        color = Method, 
+                        fill = Method), 
+                    size = .2,
+                    position = position_dodge2(width = .5)) +
+    geom_point(size = 2, #shape = 21, 
+               position = position_dodge2(width = .7)) +
+    scale_shape_manual(name = "Set size", values = 21:23, guide = "none") +
+    facet_grid(cols = vars(Measure), 
+               labeller = label_wrap_gen(width = 7)) +
+    scale_color_manual(values = method_colors, guide = "none") +
+    scale_fill_manual(values = method_colors, guide = "none") +
+    # coord_cartesian(ylim = c(1, length(unique(plot_dt$Method)))) +
+    coord_flip(ylim = c(1, max(plot_dt$mean_rank))) +
+    labs(x = NULL, y = "Mean rank") +
+    scale_x_discrete(limits = method_order_n05) +
+    theme_bw() +
+    theme(panel.grid.minor = element_blank(),
+          panel.grid.major = element_blank(),
+          text = element_text(size = 8),
+          legend.position = "top", 
+          strip.text = element_text(size = 10),
+          axis.text.y = element_text(angle = 0, 
+                                     hjust = 1, 
+                                     color = method_colors[method_order]))
+```
+
+
+```{r, fig.height=6.5, fig.width=6.69}
+wrap_plots(rank_dendro_n05 +
+               facet_grid(cols = vars("A")) +
+               scale_y_reverse() + #, expand = c(0, 0.00)
+               coord_flip(xlim = c(.5, 38.5)) +
+               theme_dendro() +
+               theme(axis.text.y = element_text(color = method_colors[label(rank_dendro_ddata_n05)$label],
+                                              angle = 0,
+                                              hjust = 1),
+                   # axis.text.y = element_blank(),
+                   axis.text.x = element_blank(),
+                   # text = element_text(size = 10),
+                   strip.text = element_blank(),
+                   panel.grid.major.x = element_blank(),
+                   panel.grid.minor.x = element_blank(),
+                   panel.grid.major.y = element_blank(),
+                   panel.grid.minor.y = element_blank()),
+           rank_dot_plot_n05 +
+               theme(axis.text.y = element_blank()), 
+           nrow = 1, widths = c(.25, 1),
+           guides = "collect") & 
+    theme(legend.direction = "horizontal", 
+          text = element_text(size = 10),
+          legend.position = "top")
 ```
 
 ## Boxplot Overall ranking {.tabset}
