@@ -80,6 +80,67 @@ method_types <-
 ```{r}
 method_colors <- setNames(object = gg_color_hue(length(method_types$Method)), 
                           nm = sort(method_types$Method))
+
+method_types_colors.dt <- 
+  merge(data.table(data.frame(Color = method_colors), keep.rownames = "Method"), 
+        method_types, 
+        by = "Method")[, .(Color = head(Color, 1)), by = BaseMethod]
+
+method_types_colors <- unlist(split(method_types_colors.dt$Color, 
+                                    method_types_colors.dt$BaseMethod))
+```
+
+```{r, fig.width=7, fig.height=2.5}
+plot_dt <- 
+  melt(copy(method_types)[, c("Base", "Parameters", 
+                              "Test") := tstrsplit(Method, "_")][, .(Method,
+                                                                     Type,
+                                                                     `Base tool` = BaseMethod,
+                                                                     Parameters,
+                                                                     Test)], 
+                id.vars = c("Method", "Type"))
+
+plot_dt$variable <- factor(plot_dt$variable, 
+                           levels = levels(plot_dt$variable), 
+                           ordered = T)
+
+plot_base_method_color_text_facet <-
+  ggplot(plot_dt, 
+         aes(y = Method, 
+             # y = str_wrap(variable, width = 6), 
+             x = variable, 
+             color = Method)) +
+  geom_text(aes(label = value), 
+            angle = 0, 
+            vjust = 0.3, 
+            # vjust = .5, 
+            size = 3) +
+  labs(x = NULL, y = NULL) +
+  coord_cartesian(clip = "off") +
+  scale_color_manual(values = method_colors, guide = "none") +
+  facet_grid(cols = vars(variable),
+             # switch = "x",
+             scales = "free_x", 
+             space = "free",
+             drop = T) +
+  theme_bw() +
+  theme(plot.margin = unit(c(0, 0, 0, 0), "lines"),
+        axis.text.y = element_blank(), 
+        axis.text.x = element_blank(), 
+        # axis.text.y = element_text(angle = 90, hjust = .5),
+        # axis.text.x = element_text(angle = 90, hjust = .5, vjust = .5),
+        text = element_text(size = 10),
+        panel.border = element_blank(),
+        axis.ticks = element_blank(),
+        panel.grid = element_blank(), 
+        # strip.text = element_blank(),
+        # strip.placement = "outside",
+        strip.background = element_rect(fill = NA, color = NA), 
+        # legend.position = "bottom", 
+        panel.spacing.y = unit(0.05, "lines"),
+        panel.spacing.x = unit(.1, "lines"))
+
+# plot_base_method_color_text_facet
 ```
 
 # NP {.tabset}
@@ -1468,8 +1529,12 @@ plot_dt <- all_meas_ranks[, .(mean_rank = mean(Rank),
 #                                                             unique(Method)],
 #                          ordered = T)
 
+# plot_dt$Measure <- factor(plot_dt$Measure, 
+#                           levels = c("FDR", "TPR", "FPR", "F1", "AUC"), 
+#                           ordered = T)
+
 plot_dt$Measure <- factor(plot_dt$Measure, 
-                          levels = c("FDR", "TPR", "FPR", "F1", "AUC"), 
+                          levels = c("F1", "FDR", "TPR", "AUC", "FPR"), 
                           ordered = T)
 
 ggplot(plot_dt, 
@@ -1494,7 +1559,7 @@ ggplot(plot_dt,
           panel.grid.major.x = element_blank(),
           text = element_text(size = 10),
           legend.position = "top", 
-          strip.text = element_text(size = 6),
+          strip.text = element_text(size = 10),
           axis.text.x = element_text(angle = 90, 
                                      hjust = 1, 
                                      color = method_colors[method_order]))
@@ -1547,20 +1612,25 @@ wrap_plots(rank_dendro +
                scale_y_reverse() + #, expand = c(0, 0.00)
                coord_flip(xlim = c(.5, 38.5)) +
                theme_dendro() +
-               theme(axis.text.y = element_text(color = method_colors[label(rank_dendro_ddata)$label],
-                                              angle = 0,
-                                              hjust = 1),
-                   # axis.text.y = element_blank(),
-                   axis.text.x = element_blank(),
+               theme(axis.text.x = element_blank(),
+                     # axis.text.y = element_text(color = method_colors[label(rank_dendro_ddata)$label],
+                     #                          angle = 0,
+                     #                          hjust = 1),
+                   axis.text.y = element_blank(),
+                   plot.margin = unit(c(0, 0, 0, 0), "lines"),
                    text = element_text(size = 8),
                    strip.text = element_blank(),
                    panel.grid.major.x = element_blank(),
                    panel.grid.minor.x = element_blank(),
                    panel.grid.major.y = element_blank(),
                    panel.grid.minor.y = element_blank()),
+           plot_base_method_color_text_facet +
+               scale_y_discrete(limits = method_order) +
+               theme(plot.margin = unit(c(0, 0, 0, 0), "lines")),
            rank_dot_plot +
-               theme(axis.text.y = element_blank()), 
-           nrow = 1, widths = c(.25, 1),
+               theme(axis.text.y = element_blank(),
+                     plot.margin = unit(c(0, 0, 0, 0), "lines")), 
+           nrow = 1, widths = c(.25, .6, 1),
            guides = "collect") & 
     guides(shape = guide_legend(override.aes = list(size = 3))) &
     theme(legend.direction = "horizontal", 
@@ -1573,10 +1643,6 @@ wrap_plots(rank_dendro +
 
 ```{r, fig.height=6.5, fig.width=6.69}
 ### stacked bars
-plot_dt$Measure <- factor(plot_dt$Measure, 
-                          levels = c("F1", "FDR", "TPR", "AUC", "FPR"), 
-                          ordered = T)
-
 sumranks <- plot_dt[, .(SumRank = sum(mean_rank)), 
                     by = .(Method, SetSize)]
 sumrank_order <- 
@@ -1636,12 +1702,13 @@ rank_dot_plot_n05 <-
     theme_bw() +
     theme(panel.grid.minor = element_blank(),
           panel.grid.major = element_blank(),
+          plot.margin = unit(c(0, 0, 0, 0), "lines"),
           text = element_text(size = 8),
           legend.position = "top", 
           strip.text = element_text(size = 10),
           axis.text.y = element_text(angle = 0, 
                                      hjust = 1, 
-                                     color = method_colors[method_order]))
+                                     color = method_colors[method_order_n05]))
 ```
 
 
@@ -1651,20 +1718,27 @@ wrap_plots(rank_dendro_n05 +
                scale_y_reverse() + #, expand = c(0, 0.00)
                coord_flip(xlim = c(.5, 38.5)) +
                theme_dendro() +
-               theme(axis.text.y = element_text(color = method_colors[label(rank_dendro_ddata_n05)$label],
-                                              angle = 0,
-                                              hjust = 1),
-                   # axis.text.y = element_blank(),
-                   axis.text.x = element_blank(),
+               theme(axis.text.x = element_blank(),
+                     # axis.text.y = element_text(color = method_colors[label(rank_dendro_ddata_n05)$label],
+                     #                            angle = 0,
+                     #                            hjust = 1),
+                   axis.text.y = element_blank(),
+                   
                    # text = element_text(size = 10),
                    strip.text = element_blank(),
+                   plot.margin = unit(c(0, 0, 0, 0), "lines"),
                    panel.grid.major.x = element_blank(),
                    panel.grid.minor.x = element_blank(),
                    panel.grid.major.y = element_blank(),
                    panel.grid.minor.y = element_blank()),
+           plot_base_method_color_text_facet +
+               scale_y_discrete(limits = method_order_n05) +
+               theme(plot.margin = unit(c(0, 0, 0, 0), "lines")),
            rank_dot_plot_n05 +
-               theme(axis.text.y = element_blank()), 
-           nrow = 1, widths = c(.25, 1),
+               theme(axis.text.y = element_blank(),
+                     plot.margin = unit(c(0, 0, 0, 0), "lines")), 
+           nrow = 1, 
+           widths = c(.25, .6, 1),
            guides = "collect") & 
     theme(legend.direction = "horizontal", 
           text = element_text(size = 10),
