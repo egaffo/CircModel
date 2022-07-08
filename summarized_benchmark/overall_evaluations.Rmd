@@ -6110,6 +6110,52 @@ ggplot(plot_dt,
         panel.grid.minor.y = element_blank())
 ```
 
+```{r, fig.width=14.5, fig.height=5.5}
+plot_dt <- sbAssay_dt[, Seconds := ifelse(grepl("_ZW_", Method), Runtime.2, 
+                                          Runtime.1)][, .(MeanSeconds = mean(Seconds)), 
+                                                      by = .(SetSize, Method)]
+
+method_names <- sort(unique(plot_dt$Method))
+method_colors <- setNames(hue_pal()(length(method_names)), method_names)
+
+
+method_order <- plot_dt[order(MeanSeconds), unique(Method)]
+
+plot_dt$Method <- factor(plot_dt$Method, 
+                         levels = method_order, 
+                         ordered = T)
+
+cputime_plot <-
+    ggplot(plot_dt, 
+           aes(x = Method, y = MeanSeconds, color = Method)) +
+    geom_point(aes(shape = SetSize)) +
+    labs(x = NULL, y = "Running time (seconds)") +
+    scale_color_manual(values = method_colors, guide = "none") +
+    scale_shape_manual(name = "Set size", values = 21:23) +
+    scale_y_sqrt(breaks = c(0, 0.1, 1, 10, 30, 60, 120, 240, 360, 480)) +
+    theme_bw() +
+    theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = .5, 
+                                     color = method_colors[levels(plot_dt$Method)]),
+          panel.grid.major.x = element_blank(),
+          legend.position = "top",
+          panel.grid.minor.y = element_blank())
+```
+
+```{r, fig.height=4.5, fig.width=6.69}
+wrap_plots(cputime_plot + 
+               theme(axis.text.x = element_blank(), legend.margin = margin(0, 0, 0, 0),
+                     legend.box.margin = margin(0, 0, 0, 0),
+                     plot.margin = margin(0, 0, 0, 0)), 
+           plot_base_method_color_text_facet +
+               facet_grid(cols = NULL, rows = vars(variable), 
+                          scales = "free_y", drop = T) +
+               scale_x_discrete(limits = method_order) +
+               theme(plot.margin = unit(c(0, 0, 0, 0), "lines"),
+                     axis.text.y = element_text(angle = 90, hjust = .5, vjust = .5),
+                     strip.text = element_blank()), 
+           ncol = 1)
+```
+
 ## N05
 
 ```{r, fig.width=7, fig.height=4}
