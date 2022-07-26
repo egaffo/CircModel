@@ -12,7 +12,13 @@ editor_options:
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = F, warning = F)
+outdir <- "sp_vs_np_evaluations"
+dir.create(path = outdir, showWarnings = F, recursive = T)
+
+knitr::opts_chunk$set(echo = F, warning = F,
+                      fig.path = file.path(outdir, "Figs/"), 
+                      dev = c("png", "svglite", "pdf"))
+
 library(data.table)
 library(patchwork)
 # install.packages("ggdendro")

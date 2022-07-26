@@ -12,7 +12,13 @@ editor_options:
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+outdir <- "simulated_ds_characteristics"
+dir.create(path = outdir, showWarnings = F, recursive = T)
+
+knitr::opts_chunk$set(echo = TRUE, 
+                      fig.path = file.path(outdir, "Figs/"), 
+                      dev = c("png", "svglite", "pdf"))
+
 # library(SummarizedBenchmark)
 
 library(data.table)
@@ -23,6 +29,7 @@ library(scales)
 library(ggplot2)
 library(ggrepel)
 library(patchwork)
+library(ggbeeswarm)
 
 library(BiocParallel)
 ```
@@ -564,28 +571,41 @@ plot_pca <- function(dsname, x, y){
 }
 ```
 
+```{r}
+# source_ds_meta[, .N, by = .(condition)]
+source_ds_meta[grepl("normal|control", condition, ignore.case = T), condition := "Normal"]
+```
+
 #### DM1
 
-```{r}
-plot_pca(dsname = "DM1", x = source_ds_dt[circ_id %in% circ_id3s], y = source_ds_meta)
+```{r, fig.width=4.5, fig.height=3.5}
+plot_pca(dsname = "DM1", x = source_ds_dt[circ_id %in% circ_id3s], y = source_ds_meta) +
+    coord_fixed(ratio = 1) +
+    theme(legend.position = "top")
 ```
 
 #### IDC
 
-```{r}
-plot_pca(dsname = "IDC", x = source_ds_dt[circ_id %in% circ_id3s], y = source_ds_meta)
+```{r, fig.width=4.5, fig.height=4.5}
+plot_pca(dsname = "IDC", x = source_ds_dt[circ_id %in% circ_id3s], y = source_ds_meta) +
+    coord_fixed(ratio = 1) +
+    theme(legend.position = "top")
 ```
 
 #### IPF
 
-```{r}
-plot_pca(dsname = "IPF", x = source_ds_dt[circ_id %in% circ_id3s], y = source_ds_meta)
+```{r, fig.width=4.5, fig.height=4.5}
+plot_pca(dsname = "IPF", x = source_ds_dt[circ_id %in% circ_id3s], y = source_ds_meta) +
+    coord_fixed(ratio = 1) +
+    theme(legend.position = "top")
 ```
 
 #### MS
 
-```{r}
-plot_pca(dsname = "MS", x = source_ds_dt[circ_id %in% circ_id3s], y = source_ds_meta)
+```{r, fig.width=4.5, fig.height=4.5}
+plot_pca(dsname = "MS", x = source_ds_dt[circ_id %in% circ_id3s], y = source_ds_meta) +
+    coord_fixed(ratio = 1) +
+    theme(legend.position = "top")
 ```
 
 ### PC data set
@@ -627,13 +647,23 @@ cpms <- cpm(dge, log = T, prior.count = 1)
 pcs <- prcomp(x = t(cpms), scale. = F, center = T)
 var.props <- summary(pcs)$importance[2, ]
 df <- cbind(sampleTable, pcs$x)
+```
 
+
+```{r, fig.width=4.5, fig.height=3.5}
 library(ggplot2)
 ggplot2::ggplot(df, aes(x = PC1, y = PC2, color = Group)) +
-        geom_point() +
-        labs(x = paste("PC1:", percent(var.props[1])),
-             y = paste("PC2:", percent(var.props[2]))) +
-        theme_bw()
+    geom_point(alpha = .7) +
+    scale_color_discrete(labels = c("Normal", "Prostate Cancer"), direction = -1) +
+    geom_rect(aes(xmin = -40, xmax = 50, ymin = -30, ymax = 0), 
+              fill = NA, 
+              color = "red") + 
+    annotate(geom = "text", x = 25, y = -5, label = "Batch 2", color = "red") +
+    labs(x = paste("PC1:", percent(var.props[1])),
+         y = paste("PC2:", percent(var.props[2]))) +
+    theme_bw() +
+    coord_fixed(ratio = 1) +
+    theme(legend.position = "top")
 ```
 
 
@@ -659,13 +689,19 @@ cpms.b2 <- cpm(dge.b2, log = T, prior.count = 1)
 pcs.b2 <- prcomp(x = t(cpms.b2), scale. = F, center = T)
 var.props.b2 <- summary(pcs.b2)$importance[2, ]
 df.b2 <- cbind(st, pcs.b2$x)
+```
 
+
+```{r, fig.width=4.5, fig.height=3.5}
 ggplot2::ggplot(df.b2, aes(x = PC1, y = PC2, color = Group)) +
         geom_point() +
         labs(x = paste("PC1:", percent(var.props.b2[1])),
              y = paste("PC2:", percent(var.props.b2[2]))) + 
-    ggtitle("Batch2") +
-    theme_bw()
+    scale_color_discrete(labels = c("Normal", "Prostate Cancer"), direction = -1) +
+    ggtitle("Batch 2") +
+    theme_bw() +
+    coord_fixed(ratio = 1) +
+    theme(legend.position = "top", plot.title = element_text(hjust = .5))
 ```
 
 ```{r}
@@ -690,7 +726,7 @@ TODO
 ```
 
 
-## Simulated data sets
+## Simulated data sets {.tabset}
 
 ```{r, warning=FALSE}
 melt_cnt <- rbindlist(lapply(sim_ds_list, 
@@ -720,22 +756,86 @@ n_sim_circs$Purpose <- factor(n_sim_circs$Purpose)
 n_sim_circs$SetSize <- factor(n_sim_circs$SetSize)
 ```
 
+### Table
+
 ```{r}
 datatable(n_sim_circs, caption = "Number of simulated circRNAs per data set", filter = "top")
 ```
 
+`r mean(n_sim_circs$N)` = mean number of simulated circRNAs.   
+`r sd(n_sim_circs$N)` = standard deviation number of simulated circRNAs.   
 
-```{r, fig.width=3.5, fig.height=6.5}
-ggplot(n_sim_circs, aes(x = SetSize, y = N)) +
-  geom_boxplot() +
-  labs(y = "Total simulated circRNAs", x = "Set size") +
-  facet_grid(rows = vars(DS), cols = vars(Purpose), scales = "free_y") +
-  # scale_y_log10() +
-  theme_bw() +
-  theme(panel.grid.major.x = element_blank())
+```{r}
+n_sim_circs[, .(Median = median(N)), by = .(DS)]
 ```
 
- 
+
+### Full facets
+
+```{r, fig.width=3, fig.height=4.5}
+ggplot(n_sim_circs, 
+       aes(x = SetSize, y = N, color = DS)) +
+    geom_boxplot(outlier.shape = NA) +
+    # geom_beeswarm(dodge.width = 1, groupOnX = T, cex = 2.5) +
+    geom_quasirandom(method = "quasirandom", size = .5) +
+    labs(y = "Simulated circRNAs", x = "Set size") +
+    facet_grid(rows = vars(DS), cols = vars(Purpose), scales = "free_y") +
+    scale_color_tableau(direction = -1, guide = "none") +
+    theme_bw() +
+    theme(panel.grid.major.x = element_blank())
+```
+
+### Data set facets
+
+```{r, fig.width=3, fig.height=4.5}
+ggplot(n_sim_circs, 
+       aes(x = SetSize, y = N, color = Purpose)) +
+    geom_boxplot(outlier.shape = NA) +
+    # geom_beeswarm(dodge.width = 1, groupOnX = T, cex = 2.5) +
+    geom_quasirandom(size = .5, dodge.width = .7, alpha = .5) +
+    labs(y = "Simulated circRNAs", x = "Set size") +
+    facet_grid(rows = vars(DS), 
+               # cols = vars(Purpose), 
+               scales = "free_y") +
+    scale_color_canva(palette = "Neon and bold") +
+    theme_bw() +
+    theme(panel.grid.major.x = element_blank(), legend.position = "top")
+```
+
+### Purpose facets
+
+```{r, fig.width=3, fig.height=2.5}
+ggplot(n_sim_circs, 
+       aes(x = SetSize, y = N, color = DS)) +
+    geom_boxplot(outlier.shape = NA, position = "dodge") +
+    # geom_beeswarm(dodge.width = 1, groupOnX = T, cex = 2.5) +
+    # geom_quasirandom(method = "quasirandom", size = .5, position = "dodge") +
+    labs(y = "Simulated circRNAs", x = "Set size") +
+    facet_grid(cols = vars(Purpose), 
+               # rows = vars(DS), 
+               scales = "free_y") +
+    scale_color_tableau(direction = -1) +
+    theme_bw() +
+    theme(panel.grid.major.x = element_blank(), legend.position = "top")
+```
+
+### Set size facets
+
+```{r, fig.width=3, fig.height=2.5}
+ggplot(n_sim_circs, 
+       aes(x = DS, y = N, color = Purpose)) +
+    geom_boxplot(outlier.shape = NA, position = "dodge") +
+    # geom_beeswarm(dodge.width = 1, groupOnX = T, cex = 2.5) +
+    # geom_quasirandom(method = "quasirandom", size = .5, position = "dodge") +
+    labs(y = "Simulated circRNAs", x = "Set size") +
+    facet_grid(cols = vars(SetSize), 
+               # rows = vars(DS), 
+               scales = "free") +
+    scale_color_tableau(direction = -1) +
+    theme_bw() +
+    theme(panel.grid.major.x = element_blank(), legend.position = "top")
+```
+
 # Are matrix zero-inflated?
 
 ## Source data sets

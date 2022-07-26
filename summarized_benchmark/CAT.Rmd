@@ -28,7 +28,12 @@ editor_options:
 
 ```{r setup, include=FALSE}
 current.dir = "."
+outdir <- "CAT"
+dir.create(path = outdir, showWarnings = F, recursive = T)
 
+knitr::opts_chunk$set(echo = F, warning = F,
+                      fig.path = file.path(outdir, "Figs/"), 
+                      dev = c("png", "svglite", "pdf"))
 # knitr::opts_chunk$set(echo = TRUE, fig.path = file.path(current.dir, "consinstency/"))
 ```
 

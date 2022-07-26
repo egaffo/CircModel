@@ -12,7 +12,13 @@ editor_options:
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+outdir <- "overall_evaluations"
+dir.create(path = outdir, showWarnings = F, recursive = T)
+
+knitr::opts_chunk$set(echo = TRUE, 
+                      fig.path = file.path(outdir, "Figs/"), 
+                      dev = c("png", "svglite", "pdf"))
+
 library(SummarizedBenchmark)
 
 library(R.utils)
