@@ -407,12 +407,36 @@ within_cond_corr <- function(ds, cor.meth = "pearson"){
     cor_g1 <- cor(x = ds$counts[, g1], method = cor.meth)
     cor_g2 <- cor(x = ds$counts[, g2], method = cor.meth)
     
-    c(G1_cor = mean(cor_g1[upper.tri(cor_g1)]),
-      G2_cor = mean(cor_g2[upper.tri(cor_g2)]))
+    list(G1_cor = cor_g1[upper.tri(cor_g1)],
+      G2_cor = cor_g2[upper.tri(cor_g2)])
 }
 
-data.frame(lapply(trimmed_source_dataset_l, within_cond_corr, cor.meth = "pearson"))
+# data.frame(lapply(trimmed_source_dataset_l, within_cond_corr, cor.meth = "pearson"))
+cor_lists <- sapply(trimmed_source_dataset_l, within_cond_corr, cor.meth = "pearson", simplify = F)
+cor_dt <- rbindlist(lapply(cor_lists, function(x)rbind(data.table(Group = "G1", CorPear = x[[1]]),
+                                   data.table(Group = "G2", CorPear = x[[2]]))), 
+          idcol = "DS")
 ```
+
+```{r}
+datatable(cor_dt, rownames = F, filter = "top")
+```
+
+```{r}
+datatable(cor_dt[, .(Min = min(CorPear), Max = max(CorPear)), by = .(DS, Group)])
+```
+
+
+```{r, fig.width=4, fig.height=3}
+# ggplot(cor_dt, aes(x = DS, y = CorPear)) +
+#     geom_boxplot(aes(color = Group), varwidth = F, notch = F) +
+#     scale_color_economist() +
+#     labs(x = "Data set", y = "Pearson's correlation on BJR") +
+#     theme_bw() +
+#     theme(panel.grid.major.x = element_blank(),
+#           panel.grid.minor = element_blank())
+```
+
 
 ### 3 samples filter {.tabset}
 
@@ -705,17 +729,38 @@ ggplot2::ggplot(df.b2, aes(x = PC1, y = PC2, color = Group)) +
 ```
 
 ```{r}
-cor_g1 <- cor(ct[, rownames(st)[st$Group == "AN"]])
-cor_g2 <- cor(ct[, rownames(st)[st$Group == "T"]])
+pc_cor_g1 <- cor(ct[, rownames(st)[st$Group == "AN"]])
+pc_cor_g2 <- cor(ct[, rownames(st)[st$Group == "T"]])
 
-paste("AN Pearson mean cor =", mean(cor_g1))
-paste("T Pearson mean cor =", mean(cor_g2))
+# paste("AN Pearson mean cor =", mean(cor_g1))
+# paste("T Pearson mean cor =", mean(cor_g2))
+```
+
+
+```{r}
+pc_cor_dt <- rbind(data.table(Group = "G1", CorPear = pc_cor_g1[upper.tri(pc_cor_g1)]),
+                   data.table(Group = "G2", CorPear = pc_cor_g2[upper.tri(pc_cor_g2)]))
+datatable(pc_cor_dt, rownames = F, filter = "top")
+```
+
+```{r}
+pc_cor_dt[, .(Min = min(CorPear), Max = max(CorPear)), by = .(Group)]
 ```
 
 ```{r}
 datatable(data.table(st, keep.rownames = "Sample"), 
           filter = "top", rownames = F,
           caption = "Batch 2 samples")
+```
+
+```{r, fig.width=4, fig.height=3}
+ggplot(rbind(cor_dt, pc_cor_dt[, DS:= "PC"]), aes(x = DS, y = CorPear)) +
+    geom_boxplot(aes(color = Group), varwidth = F, notch = F) +
+    scale_color_economist() +
+    labs(x = "Data set", y = "Pearson's correlation on BJR") +
+    theme_bw() +
+    theme(panel.grid.major.x = element_blank(),
+          panel.grid.minor = element_blank())
 ```
 
 #### BJR
